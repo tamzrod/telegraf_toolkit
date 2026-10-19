@@ -1,6 +1,6 @@
 # UI/UX Specification — Telegraf Toolkit
 
-Status: **Design concept, not implemented**.
+Status: **Design concept, not implemented**. Frontend technology and build plan: [Frontend Architecture](FRONTEND_ARCHITECTURE.md).
 
 ## Navigation
 - Overview — Runtime health, ingestion, sync progress
