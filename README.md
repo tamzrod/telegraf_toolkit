@@ -33,6 +33,10 @@ Telegraf Toolkit provides a unified control plane for configuring telemetry pipe
 - [Canonical mapping](docs/CANONICAL_MAPPING.md) — schemas, field/tag renaming and portable profiles
 - [Roadmap](docs/ROADMAP.md) — proposed delivery phases
 
+## Runtime version policy
+
+The initial development/test baseline is the **official Telegraf 1.40.1 release**. Telegraf Toolkit is not a Telegraf fork. All deployment images and runtime dependencies must use **fixed versions**, never floating tags such as `latest`. Production Docker image references should additionally use verified SHA256 digests. Upgrades are explicit and tested. See [ADR-0001](docs/adr/0001-official-telegraf-and-version-pinning.md).
+
 ## Technology status
 
 Implementation language, UI framework, metadata store, deployment model and Telegraf plugin mechanisms are **not yet selected**. The initial focus is on defining requirements and safe interfaces.
