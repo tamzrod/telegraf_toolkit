@@ -42,6 +42,9 @@ Own measurement/field selection, historical scans, time-block index, comparison,
 ### Canonical Registry and Mapper
 Portable schema definitions; source-to-destination field/tag mappings; optional measurement renaming and safe unit conversions; versioned profiles. The same mapping logic is reused for live Telegraf configurations and historical backfill.
 
+## Runtime and version decision
+See [ADR-0001](adr/0001-official-telegraf-and-version-pinning.md). Use the upstream **official Telegraf 1.40.1** binary or image as the initial tested baseline; do not compile/fork Telegraf by default. Keep Telegraf Toolkit a separately deployed manager. **Never use floating runtime versions or the Docker `latest` tag**. Pin every runtime dependency to an explicit version, and production images to a verified digest. Upgrade pins only through deliberate testing and review.
+
 ## Technology selection
 Go is a candidate backend language, not a committed dependency. UI framework, metadata store, deployment packaging, remote agent interface and exact Telegraf plugin integration are TBD. Prefer APIs and portable document formats over coupling to one frontend.
 
