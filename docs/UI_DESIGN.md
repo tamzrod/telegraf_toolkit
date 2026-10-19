@@ -17,12 +17,27 @@ Searchable table with connection alias, host, InfluxDB version/edition, database
 
 Add/edit connection opens a drawer with identity, endpoint, InfluxDB version, scope, TLS trust and authentication method. Use credential references rather than secrets; perform tests on the backend. Test results must be sanitized.
 
+## Taglist / Canonical Mapper screen
+
+**First select two registered database connection profiles:** Source Database and Destination Database. The page must not assume a fixed source or target. Resolve each profile's version, query capabilities and credentials through the registry, then browse the selected database scopes.
+
+1. Select **Source Database** and its database/bucket scope.
+2. Select **Destination Database** and its database/bucket scope.
+3. Browse the source measurements, then select a measurement to load its fields and tag keys (distinct types).
+4. Browse or create a destination measurement and inspect its existing field/tag schema.
+5. Drag selected source fields or tags onto the destination measurement. The UI proposes mappings; allow destination field/key rename to comply with an imported canonical schema, unit conversion, and tag transformation.
+6. Preview the source-to-destination mapping, validate collisions and field types, then **Save Mapping Profile**. Deployment to live Telegraf or historical synchronization is a separate explicit action.
+
+Changing source or destination profiles invalidates stale schema views and prompts to discard or revalidate pending mappings. Do not expose credentials in browser responses. Support same-version and cross-version mapping subject to tested capabilities.
+
+Layout: **Source DB selector + source measurement/field/tag explorer** | **mapping arrows/editor** | **Destination DB selector + destination measurement/field explorer**. Canonical registry import/export is accessible from the mapping editor, not a replacement for choosing databases.
+
 ## Credentials screen
 Show alias, authentication type, associated profiles, read/write/admin scope, age, expiry, and runtime/job dependencies. Actions: Add, Rotate, Revoke, Inspect dependencies. Credential input is masked and write-only. No plaintext reveal in UI, logs, or exported documents. Preserve auditable changes.
 
 ## Visual workflows
 - Drag a measurement from a source connection onto a destination to create a sync **draft**, not an immediate write.
-- Drag fields/tags from the Taglist onto a destination measurement; edit canonical name and transformations before save.
+- After selecting source and destination databases, drag source fields/tags onto a destination measurement; edit canonical name and transformations before save.
 - Assign pipelines to isolated Telegraf runtimes. Validate and diff TOML before apply.
 - Make count-matched status visually distinct from fully verified historical blocks.
 - Show loading, failure, permission and stale-data states. Prototype data must always be labeled as sample.
