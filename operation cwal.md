@@ -13,7 +13,7 @@ Autonomous, bounded OpenHands execution. This command is a workflow, not an inst
 1. Read `AGENTS.md`, this command, the current sections of `handoff.md` and `workflow/active_work/README.md`, and the selected current task file.
 2. Run BLACK SHEEP WALL for only the task's declared work seam; load the smallest valid ICC nodes and verify necessary claims against repository source.
 3. Check `IDENTITY.md`, relevant accepted ADRs and domain contracts. Conflicting or missing architecture requires a human decision.
-4. Confirm clean task branch state and identify pre-existing changes. Never discard unrelated edits.
+4. Confirm checkout is on `main`, fetch/check remote state, and identify pre-existing changes before editing. Never discard unrelated edits or overwrite remote changes.
 
 ## Execution
 - Implement only the current task's explicit objective, work surface and acceptance criteria. Required directly related test fixes are allowed; materially new work or ambiguous scope is blocked.
@@ -23,11 +23,11 @@ Autonomous, bounded OpenHands execution. This command is a workflow, not an inst
 
 ## Completion/checkpoint
 1. Verify every acceptance criterion; record test commands/results and relevant evidence.
-2. Move the verified task file with `git mv` to `archive/active-work/`, and update the current task mirror and `handoff.md` in the same change.
-3. Commit code, evidence and archive/handoff bookkeeping atomically on a dedicated task branch; publish a pull request targeting `main`. Never push directly to `main`.
-4. A task counts as durably complete only after the configured human review/merge gate is satisfied. Do not start the next task while this gate is pending.
-5. If publishing, checks or merge fails, do not silently retry or advance: preserve the branch, task evidence and exact blocker. On resume inspect branch, PR, merge and local status before rerunning any step.
-6. When no authorized task exists, stop. On blocker, leave the active task present and document what is missing; do not archive a failed task.
+2. After verification, move the task file with `git mv` to `archive/active-work/` and update the current task mirror and `handoff.md` together.
+3. Commit implementation, evidence, archive move and handoff changes together on `main`. Push to `origin/main` after each verified task; never force-push. Confirm the remote commit matches the expected checkpoint before advancing.
+4. A task is durably complete only when the push to `origin/main` succeeds and the remote tree contains the verified implementation and archived task. Advance only after confirming that checkpoint.
+5. If commit/push fails or the remote branch has advanced, stop; retain local evidence and inspect Git status/history, current task location and remote HEAD before resuming. Do not overwrite concurrent changes or blindly retry.
+6. When no authorized task exists, stop. On blocker before verification, keep the task in Active Work, document the blocker and do not archive it.
 
 ## Resource controls
 - Bounded discovery: stop searching when the named implementation seam is found. Do not preload other tasks.
@@ -35,4 +35,4 @@ Autonomous, bounded OpenHands execution. This command is a workflow, not an inst
 - No automatic permission elevation, tool installation from unverified sources, or broad refactors.
 
 ## Human ownership
-Humans create/approve plans, promote tasks, decide architecture, approve exceptional privileged actions, and merge reviewed work. Agent autonomy exists only inside the current authorized task.
+Humans create/approve plans, promote tasks, decide architecture and approve exceptional privileged actions. During project initialization, agents may commit and push verified Active Work directly to `main`; authority never extends beyond the current task.
