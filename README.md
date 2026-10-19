@@ -32,6 +32,7 @@ Telegraf Toolkit provides a unified control plane for configuring telemetry pipe
 - [Synchronization design](docs/SYNCHRONIZATION.md) — time blocks, state machine, verification and recovery
 - [Canonical mapping](docs/CANONICAL_MAPPING.md) — schemas, field/tag renaming and portable profiles
 - [Database registry and credentials](docs/DATABASE_REGISTRY.md) — connection profiles, capability discovery and protected API keys
+- [Frontend architecture](docs/FRONTEND_ARCHITECTURE.md) — React/TypeScript stack, module structure and build phases
 - [UI design](docs/UI_DESIGN.md) — navigation, database registry, credentials and visual workflows
 - [Roadmap](docs/ROADMAP.md) — proposed delivery phases
 
@@ -41,7 +42,7 @@ The initial development/test baseline is the **official Telegraf 1.40.1 release*
 
 ## Technology status
 
-Implementation language, UI framework, metadata store, deployment model and Telegraf plugin mechanisms are **not yet selected**. The initial focus is on defining requirements and safe interfaces.
+Frontend direction: **React + TypeScript SPA** with a **Go backend**. Exact dependency versions will be pinned when scaffolding. Metadata store, deployment packaging, remote management interface, and Telegraf integration details remain to be finalized. Documentation only so far.
 
 ## License
 
