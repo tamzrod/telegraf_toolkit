@@ -86,7 +86,7 @@ Revisit the orchestration choice only when requirements justify it: multi-host s
 All runtime images must use explicit, immutable version selections, consistent with [ADR-0001](adr/0001-official-telegraf-and-version-pinning.md): initial Telegraf baseline **1.40.1**, never `latest` or floating tags, and verified digest pins for production. Independent runtime upgrades are deliberate and tested.
 
 ## Technology selection
-Go is a candidate backend language, not a committed dependency. UI framework, metadata store, deployment packaging, remote agent interface and exact Telegraf plugin integration are TBD. Prefer APIs and portable document formats over coupling to one frontend.
+Selected direction: **Go backend** with a single **React + TypeScript** SPA, Vite, Tailwind CSS/shadcn/ui, React Flow, dnd-kit, Monaco and TanStack Query. See [Frontend Architecture](FRONTEND_ARCHITECTURE.md). Specific package versions must be explicitly pinned when implementation begins. Metadata store, final deployment packaging, remote agent interface and exact Telegraf plugin integration remain TBD. Prefer stable APIs and portable formats over coupling to one frontend.
 
 ## Security and operations
 - Encrypt secrets at rest where practical; redact them in logs and exported profiles.
