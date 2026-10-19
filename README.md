@@ -31,6 +31,7 @@ Telegraf Toolkit provides a unified control plane for configuring telemetry pipe
 - [Architecture](docs/ARCHITECTURE.md) — components and boundaries
 - [Synchronization design](docs/SYNCHRONIZATION.md) — time blocks, state machine, verification and recovery
 - [Canonical mapping](docs/CANONICAL_MAPPING.md) — schemas, field/tag renaming and portable profiles
+- [Database registry and credentials](docs/DATABASE_REGISTRY.md) — connection profiles, capability discovery and protected API keys
 - [Roadmap](docs/ROADMAP.md) — proposed delivery phases
 
 ## Runtime version policy
