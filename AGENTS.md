@@ -23,5 +23,5 @@ This is a short, always-on entry point for OpenHands and other development agent
 ## Operating posture
 - Follow the active task's whitelist; one task at a time, with bounded context.
 - Prefer small coherent changes, tests and evidence. Do not modify unrelated work.
-- No direct agent pushes to `main`: publish reviewed task branches/PRs; report actual test results.
+- During initial development, execute authorized CWAL tasks directly on `main` and push one verified checkpoint per task. Do not use task branches/PRs unless the human changes this policy. Report actual test results.
 - Keep changes and documentation consistent. Missing tests, architectural contradictions and unverifiable acceptance are blockers, not successes.
