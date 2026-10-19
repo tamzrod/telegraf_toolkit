@@ -28,6 +28,16 @@ Add/edit connection opens a drawer with identity, endpoint, InfluxDB version, sc
 5. Drag selected source fields or tags onto the destination measurement. The UI proposes mappings; allow destination field/key rename to comply with an imported canonical schema, unit conversion, and tag transformation.
 6. Preview the source-to-destination mapping, validate collisions and field types, then **Save Mapping Profile**. Deployment to live Telegraf or historical synchronization is a separate explicit action.
 
+### Detailed mapper behavior
+
+- Both Source Database and Destination Database selectors are required before browsing or mapping. Each references a registered connection ID, selected logical scope (bucket/database), and its permitted credential reference.
+- Show two live-schema explorers, not static fields: source measurement -> field keys and tag keys on the left; destination measurement -> existing field keys and tag keys on the right. Any inferred types/units must be labeled as inferred until verified.
+- Selecting a source field prepares a mapping; users can rename the destination field to an approved canonical name, set explicit unit conversion, and add it to the draft. Multiple fields can map into one target measurement when identity and schema rules permit.
+- Show the mapping list with original field name, destination field name, transformation, and remove/edit controls. Offer validation against an imported canonical registry.
+- Allow saving the mapping profile independently of deploying it. **Save Mapping** must not start live collection or historical synchronization.
+- A deliberate follow-up action may apply the mapping to a selected Telegraf runtime or create a reviewed synchronization job.
+- Show empty/loading/failed-connection states and prevent saving invalid or conflicting mappings.
+
 Changing source or destination profiles invalidates stale schema views and prompts to discard or revalidate pending mappings. Do not expose credentials in browser responses. Support same-version and cross-version mapping subject to tested capabilities.
 
 Layout: **Source DB selector + source measurement/field/tag explorer** | **mapping arrows/editor** | **Destination DB selector + destination measurement/field explorer**. Canonical registry import/export is accessible from the mapping editor, not a replacement for choosing databases.
