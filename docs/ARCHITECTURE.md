@@ -28,6 +28,8 @@ Browser: Telegraf Manager | Pipeline Editor | Sync Designer | Canonical Registry
                                            Destination DB + verifier
 ```
 
+Database Registry and Credential Manager are shared services used by the Config Editor, Taglist Mapper, and Sync Controller.
+
 ## Responsibilities
 
 ### Telegraf Manager
@@ -35,6 +37,9 @@ Discover/register instances, inspect state and logs, test plugins, validate and 
 
 ### Configuration Editor
 Edit native TOML and provide a visual input -> processor -> output pipeline. Plugin metadata and parameter validation should be version-aware. Preview changes, test configuration, create revision, then explicitly apply/restart if required. Rollback to previous revision.
+
+### Database Registry and Credential Manager
+Shared connection profiles for InfluxDB 1.x, 2.x, and 3.x hold endpoint, dialect/capability, scope, and secret references. A separately secured secret store provides least-privilege read/write credentials to authorized components without exposing keys in the UI, exports, TOML revision history, or Git. Support test connection, rotation/revocation, access auditing, and dependency inspection. Details: [Database Registry and Credential Management](DATABASE_REGISTRY.md).
 
 ### Synchronizer
 Own measurement/field selection, historical scans, time-block index, comparison, repair scheduling, retries, throttling and post-write verification. Use version-aware InfluxDB read adapters. Telegraf may serve as transformation/write transport where practical, but the controller must manage completion and verification itself.
