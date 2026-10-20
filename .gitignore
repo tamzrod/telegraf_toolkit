@@ -16,3 +16,22 @@ backend/bin/
 # Local toolchain / env
 .env
 .env.*
+
+# Isolated InfluxDB 2 / InfluxDB 3 integration testing
+# Track reproducible Compose files, fixtures, scripts and safe *.example templates.
+# Ignore only locally generated state, secrets and artifacts.
+testing/influxdb/.env
+testing/influxdb/.env.*
+!testing/influxdb/.env.example
+testing/influxdb/secrets/
+testing/influxdb/data/
+testing/influxdb/volumes/
+testing/influxdb/logs/
+testing/influxdb/tmp/
+testing/influxdb/artifacts/
+testing/influxdb/reports/
+testing/influxdb/*.token
+testing/influxdb/*.key
+testing/influxdb/*.pem
+testing/influxdb/*credentials*.json
+testing/influxdb/*secrets*.json
