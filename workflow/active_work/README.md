@@ -1,19 +1,11 @@
 # Active Work — Telegraf Toolkit
 
-This persistent folder is the sole ledger for human-promoted, incomplete microtasks on the **human-designated work ref**. The human has explicitly promoted P0-001 through P0-004 to the designated `phase-0/foundation` branch for Phase 0 delivery. Agent execution authority is limited to that branch and the queue's authorized scope.
+The persistent `workflow/active_work/` folder is the sole implementation authorization ledger on the human-designated ref. Task bodies are executable **only after human promotion here**; Planning files are proposals, not authorization.
 
-**Current task on this branch:** none. P0-001–P0-005 are all checkpointed; the queue is empty.
+**Designated work branch:** `phase-1/application-shell` (Phase 1 planning/preparation).
+**Current authorized task:** none.
+**Authorized queue:** empty.
 
-**Authorized incomplete queue (strict sequence):**
-None. No further work is authorized on this ref; do not self-promote.
+Five P1 microtask proposals exist under `planning/microtask/` and are **not authorized**. The human must explicitly approve and promote selected tasks here, then align this README and `handoff.md` before OpenHands begins. Agents must not self-promote.
 
-**Checkpointed on this branch (no longer Active Work):**
-- P0-001-domain-contract-inventory.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-001-domain-contract-inventory.md`.
-- P0-002-architecture-decision-records.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-002-architecture-decision-records.md`.
-- P0-003-scaffold-toolchain-and-ci.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-003-scaffold-toolchain-and-ci.md`.
-- P0-004-local-fixtures-and-developer-guide.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-004-local-fixtures-and-developer-guide.md`.
-- P0-005-pre-pr-integration-corrections.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-005-pre-pr-integration-corrections.md`.
-
-Only humans promote task `*.md` files. `README.md` is not a task. Read only the current task body; never preload queued task bodies. Never select Planning work. Each branch's current task and queue must agree with its `handoff.md`; the empty `main` ledger neither cancels nor expands branch-specific human authorization. If no work is authorized on the selected ref, stop.
-
-After verified implementation, archive, commit, push and confirm each microtask checkpoint on this branch, then automatically advance to the next approved task. An archived task on an unmerged branch is `TASK_CHECKPOINTED`, not `INTEGRATED`. When all tasks are checkpointed, validate the package and report `WORK_PACKAGE_READY`; **humans alone initiate, approve and merge PRs**.
+After authorization, run approved tasks sequentially, verifying, archiving via `git mv`, committing and pushing confirmed branch checkpoints, then advancing automatically. Only humans initiate, review, approve and merge PRs. If the queue is empty, stop.
