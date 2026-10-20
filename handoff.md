@@ -1,34 +1,26 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow phase:** `initialization` (human-owned). Direct-`main` commits are permitted only for explicitly approved repository/governance setup, never application code. Normal implementation uses a designated work branch.
-**Human-designated Phase 0 work branch:** `phase-0/foundation`. P0-001 through P0-004 were promoted there by explicit human instruction. This branch-local handoff records the designated ref and the package's task progression; the root `main` handoff records the designated branch only and does not replace these branch-local task pointers.
-
-**Execution policy:** agents execute the already-authorized microtasks sequentially on this branch with real verification, archive, commit, push and a confirmed remote checkpoint after each task. After a confirmed `TASK_CHECKPOINTED`, the agent automatically advances to the next authorized microtask; no intermediate human review or merge gate. After final package checks the agent reports `WORK_PACKAGE_READY` and stops.
+**Workflow phase:** `development` — Phase 1 preparation on `phase-1/application-shell`.
+**Human integration milestone:** PR #2 for Phase 0 was merged into `main` (merge commit `cfdc00b13dc90da29765561a08193b5af3462617`); old Phase 0 work branch was deleted.
 
 ## Current Active Task
-None. P0-001–P0-005 are all checkpointed on this branch and the Active Work queue is empty. Final package verification passed; status `WORK_PACKAGE_READY` pending human-initiated PR review.
+**None.** The Active Work queue on this branch is empty. No Phase 1 implementation has been authorized merely by creating planning proposals.
 
-## Checkpointed tasks (this branch)
-- P0-001 (domain/API contract inventory) — `TASK_CHECKPOINTED`. Deliverable `docs/contracts/README.md`; task file archived at `archive/active-work/P0-001-domain-contract-inventory.md`; implementation committed and pushed on `phase-0/foundation`.
-- P0-002 (enabling architecture decisions) — `TASK_CHECKPOINTED`. Deliverables `docs/adr/0002`–`0005` (all **Proposed**, not Accepted); task file archived at `archive/active-work/P0-002-architecture-decision-records.md`; committed and pushed on `phase-0/foundation`.
-- P0-003 (reproducible scaffold and CI) — `TASK_CHECKPOINTED`. Deliverables `backend/` Go API skeleton, `ui/` React+TS+Vite SPA skeleton, `.github/workflows/ci.yml`, `Makefile`, `docs/DEVELOPMENT.md` with pinned versions; task file archived at `archive/active-work/P0-003-scaffold-toolchain-and-ci.md`; committed and pushed on `phase-0/foundation`.
-- P0-004 (isolated fixtures and developer guide) — `TASK_CHECKPOINTED`. Deliverables `backend/internal/fixtures`, `backend/internal/synccontract`, `ui/src/fixtures`, `docs/DEVELOPER_SETUP.md`; task file archived at `archive/active-work/P0-004-local-fixtures-and-developer-guide.md`.
-- P0-005 (pre-PR integration corrections) — `TASK_CHECKPOINTED`. Reconciled `origin/main` into the branch (merge, no history rewrite); clarified ROADMAP Proposed-ADR status; made the local Go format check non-mutating; added shared `scripts/policy-check.sh` wired into CI and `make check`; documented policy-check limitations. Archived at `archive/active-work/P0-005-pre-pr-integration-corrections.md`.
+## Phase 1 planning proposals — NOT AUTHORIZED
+- `planning/microtask/P1-001-app-shell-navigation.md` — shell, routes and accessibility-aware navigation.
+- `planning/microtask/P1-002-feature-module-entrypoints.md` — distinct mock module entry points.
+- `planning/microtask/P1-003-mock-states-and-permissions.md` — honest loading/empty/error/mock/permission states.
+- `planning/microtask/P1-004-api-query-conventions.md` — typed client and query-state conventions.
+- `planning/microtask/P1-005-a11y-smoke-quality-gate.md` — smoke/accessibility quality gate and final Phase 1 package checks.
 
-## Authorized queued task IDs
-None. Do not self-promote further work.
+**Authorization gate:** Human explicitly approves and promotes selected P1 files into `workflow/active_work/` on this branch and sets consistent handoff/README pointers. Only then may OpenHands execute the authorized queue continuously under Operation CWAL.
 
-## PR authority
-- **PR initiation, review, approval and merge are human-only.** Agents never create, open, submit, approve or merge a pull request.
-- Existing draft PR #2 (human-opened) is a human-controlled integration artifact, not a per-task pause condition. Agents must not create a duplicate or change PR state.
+## Integrated and pending decisions
+- P0-001–P0-005 landed on `main` through the human-reviewed Phase 0 PR. The scaffold remains `scaffold: true`, `connected: false`.
+- ADR-0002–0005 remain **Proposed**, not Accepted. Phase 1 is limited to UI shell and mock workflows with no implementation dependent on these undecided choices.
+- Phase 0 architecture exit criteria concerning accepted ADRs remain outstanding; do not mark them resolved by preparing Phase 1.
 
-## Checkpoints
-- Human explicitly authorized P0-005 as the pre-PR correction microtask on this branch; no product feature scope expansion is authorized.
-- Human explicitly authorized all four original Phase 0 microtasks for promotion to this dedicated branch.
-- Branch checkpoints are verified work, not integration into `main`. Integration occurs only after a human-initiated PR is merged.
-- This handoff names the work branch, current task and queue; task-file presence governs authorization, not the handoff alone.
-- Root `main` Active Work remains empty until a human-initiated integration merge; the empty `main` ledger neither cancels nor expands this branch's human authorization.
-
-## Recovery
-Inspect authorized ref, branch-local queue, archive/evidence, working tree, local/remote Git checkpoint and any human-initiated PR before resuming. Never force-push or repeat a confirmed checkpoint blindly. An archived task on an unmerged branch is `TASK_CHECKPOINTED`, not `INTEGRATED`.
+## PR authority and recovery
+Only humans initiate, review, approve and merge PRs. Never create a PR for this planning stage. Work branch creation, roadmap and proposal drafting are not implementation authorization.
+If resumed, inspect branch and `workflow/active_work/` first; if empty, stop rather than self-promoting a planning task.
