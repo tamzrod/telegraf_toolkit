@@ -1,29 +1,28 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow phase:** `development`, human-designated branch `phase-1/application-shell`.
-**Authorized package:** Phase 1 Application Shell — P1-001 through P1-005. Human explicitly approved promotion of all five proposed microtasks into Active Work as one sequential batch.
+**Workflow phase:** `development`; human-designated branch: `phase-2/database-registry`.
+**Authorized package:** P2-001 through P2-006, explicitly human-approved as a **mock/interface-only** Phase 2 batch.
 
 ## Current Active Task
-**None.** All five authorized Phase 1 microtasks are checkpointed; the Active Work queue is empty.
+**None.** All six authorized P2 tasks (P2-001–P2-006) are verified, archived and checkpointed on `phase-2/database-registry`. `workflow/active_work/` contains only README.md.
 
 ## Authorized queue (strict sequence)
-1. P1-001 — SPA shell, routes, accessible navigation — **checkpointed**
-2. P1-002 — feature module entry points — **checkpointed**
-3. P1-003 — mock/empty/loading/error/permission states — **checkpointed**
-4. P1-004 — typed API and query-state conventions — **checkpointed**
-5. P1-005 — accessibility, smoke tests, final quality gate — **checkpointed**
+1. P2-001 — ADR readiness and Registry contracts — **done (verified, archived, checkpointed)**
+2. P2-002 — mock Registry backend domain and in-memory interfaces — **done (verified, archived, checkpointed)**
+3. P2-003 — isolated per-connection capability fixtures — **done (verified, archived, checkpointed)**
+4. P2-004 — secret-reference boundaries and endpoint/TLS/SSRF validation tests — **done (verified, archived, checkpointed)**
+5. P2-005 — Registry UI mock workflows — **done (verified, archived, checkpointed)**
+6. P2-006 — mock quality gate, evidence and handoff — **done (verified, archived, checkpointed)**
 
-## Work package status
-**`WORK_PACKAGE_READY`** — Phase 1 (P1-001–P1-005) verified on `phase-1/application-shell`. Evidence in `archive/active-work/P1-*.md`. Human PR review and merge remain outstanding; no PR was opened by an agent.
+The batch is complete at **mock/interface scope only**; see the package-level report and `docs/decisions/phase-2-integration-handoff.md`. No further task is authorized: do not self-promote from Planning.
 
-The queue is authoritative only through the human-promoted task files under `workflow/active_work/`; this handoff mirrors its README. OpenHands may automatically execute subsequent tasks **only after** verifying, archiving, committing, pushing and confirming each earlier checkpoint. If blocked, stop with actual evidence. Do not read future task bodies before they are current.
+Human promotion is complete on this branch. Agent may proceed automatically between **confirmed verified branch checkpoints**, but never read future task bodies before the task is current. Update this handoff and Active Work README atomically with each verified task archive.
 
-## Previous milestone
-Phase 0 PR #2 was merged to `main`; P0-001–P0-005 are integrated. Phase 1 must retain the explicitly mock/scaffold-only boundaries. ADR-0002–0005 remain Proposed; do not silently accept or implement them.
+## Architectural constraints
+ADR-0002 (metadata store) and ADR-0003 (secret store/key custody) remain **Proposed**. The human approved **only interfaces, in-memory/mock adapters, isolated capability fixtures, validation/security-boundary tests, and mock UI**. No real persistence, credential values/resolution, live InfluxDB connectivity, historian writes, Telegraf or Docker control. No ADR may be marked Accepted or silently implemented.
 
-## Integration and safety
-PR initiation, review, approval and merge belong solely to humans. No agent PR creation or changes of PR state. No live database operations, historian writes, Docker control, credential operations or scope expansion without separate authorization. After completing the package, perform full checks and report `WORK_PACKAGE_READY` for human pre-PR audit.
+ADR-0004 and ADR-0005 also remain Proposed. Phase 0 PR #2 and Phase 1 PR #3 are integrated into main.
 
-## Recovery
-Inspect the current branch, Git status, the Active Work task file and pointers, archived tasks, verification evidence and remote commit before resuming. Never force-push, overwrite other writers or redo confirmed tasks blindly.
+## PR authority and recovery
+Only humans initiate, review, approve or merge PRs. After completing all six tasks, run final checks and report `WORK_PACKAGE_READY` without opening a PR. Before resuming, inspect remote branch, active/archived tasks, Git status and verification evidence; stop for genuine blockers, never self-promote or force-push.

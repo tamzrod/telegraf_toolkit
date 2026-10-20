@@ -1,11 +1,19 @@
 # Active Work — Telegraf Toolkit
 
-**Human-authorized work package:** Phase 1 application shell, on `phase-1/application-shell`.
-**Current task:** none — the authorized Phase 1 queue is complete.
-**Authorized queue (strict sequence):** empty.
+**Human-authorized work package:** Phase 2 Database Registry, strictly **mock/interface-only**, branch `phase-2/database-registry`.
+**Current task:** none — the P2-001–P2-006 batch is complete at mock/interface scope.
+**Authorized queue (strict sequence):**
+1. P2-001-architecture-and-contract-gate.md — **done (verified, archived)**
+2. P2-002-registry-backend-mock-contracts.md — **done (verified, archived)**
+3. P2-003-capability-probe-fixtures.md — **done (verified, archived)**
+4. P2-004-secret-boundary-validation.md — **done (verified, archived)**
+5. P2-005-registry-ui-mock-workflows.md — **done (verified, archived)**
+6. P2-006-registry-quality-gate.md — **done (verified, archived)**
 
-**Checkpointed:** `P1-001`, `P1-002`, `P1-003`, `P1-004`, `P1-005` → `archive/active-work/` (verified, committed and pushed). See `archive/active-work/P1-*.md` for evidence.
+All six tasks were executed sequentially with verification, archive, commit, push and a confirmed remote checkpoint. No further task is authorized; do not self-promote from Planning.
 
-The human explicitly approved all five proposals as one sequential work package and promoted them into this ledger. Only read the current task body, never pre-read later tasks. On successful verification, archive by `git mv`, record evidence, commit/push the branch checkpoint, confirm the remote result, update this pointer and `handoff.md`, and automatically proceed to the next already-authorized task.
+The human explicitly approved and promoted all six tasks as one bounded batch. The tasks exist in this ledger, not Planning. Read only the current task body; after acceptance tests succeed, archive with `git mv`, update this pointer and `handoff.md`, commit/push, verify the remote checkpoint and automatically advance to the next authorized task.
 
-No scope expansion, agent self-promotion, real historian/database/Docker operations, unaccepted ADR decisions or agent PR actions. After all five tasks pass and the queue is empty, run the final package checks and report `WORK_PACKAGE_READY`; only humans initiate, approve and merge pull requests.
+**Nonnegotiable architecture gate:** ADR-0002 and ADR-0003 remain **Proposed**. Do not select or implement persistent metadata storage, real credential storage/resolution/key custody, or live InfluxDB access. Work only with mock/in-memory adapters, interfaces, fixtures, negative validation and clearly labeled demo UI. If a task's objective requires a human-only architecture decision, stop that part rather than silently accept an ADR.
+
+Only humans initiate, review, approve and merge PRs. Finish with package verification and report `WORK_PACKAGE_READY`; do not open or modify a PR.

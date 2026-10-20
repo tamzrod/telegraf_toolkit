@@ -1,5 +1,7 @@
 import type { Health } from "../types/health";
 import { isHealth } from "../types/health";
+import type { RegistryProfile } from "./registry";
+import { isRegistryProfileList } from "./registry";
 
 /**
  * Single typed boundary between the SPA and the Toolkit backend.
@@ -71,4 +73,15 @@ export async function requestJson<T>(
 
 export async function fetchHealth(signal?: AbortSignal): Promise<Health> {
   return requestJson("/health", isHealth, { signal });
+}
+
+/**
+ * Lists registry connection profiles. The payload is validated against the
+ * Registry contract, which rejects any response that would carry a credential
+ * value, so a secret can never reach a feature component through this path.
+ */
+export async function fetchRegistryProfiles(
+  signal?: AbortSignal,
+): Promise<RegistryProfile[]> {
+  return requestJson("/registry/profiles", isRegistryProfileList, { signal });
 }
