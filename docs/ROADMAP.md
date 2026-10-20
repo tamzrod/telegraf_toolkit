@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Planning and architecture complete enough to begin foundation implementation; no operational application implemented yet.  
+**Status:** Phase 0 engineering foundation merged; Phase 1 application-shell tasks drafted for human promotion. No operational application implemented yet.  
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -9,8 +9,8 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 
 | Phase | Outcome | Status |
 | --- | --- | --- |
-| 0 | Repository and engineering foundation | In progress |
-| 1 | Application shell and labeled mock workflows | Not started |
+| 0 | Repository and engineering foundation | Scaffold merged; outstanding ADR acceptance |
+| 1 | Application shell and labeled mock workflows | Planning prepared; not authorized |
 | 2 | Database Registry and credential references | Not started |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Not started |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
