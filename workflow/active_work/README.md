@@ -14,6 +14,6 @@ No other new tasks are authorized; do not self-promote.
 - P0-003-scaffold-toolchain-and-ci.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-003-scaffold-toolchain-and-ci.md`.
 - P0-004-local-fixtures-and-developer-guide.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-004-local-fixtures-and-developer-guide.md`.
 
-Only humans promote task `*.md` files. `README.md` is not a task. Read only the current task body; never preload queued task bodies. Never select Planning work. If no work is authorized on the selected ref, stop.
+Only humans promote task `*.md` files. `README.md` is not a task. Read only the current task body; never preload queued task bodies. Never select Planning work. Each branch's current task and queue must agree with its `handoff.md`; the empty `main` ledger neither cancels nor expands branch-specific human authorization. If no work is authorized on the selected ref, stop.
 
 After verified implementation, archive, commit, push and confirm each microtask checkpoint on this branch, then automatically advance to the next approved task. An archived task on an unmerged branch is `TASK_CHECKPOINTED`, not `INTEGRATED`. When all tasks are checkpointed, validate the package and report `WORK_PACKAGE_READY`; **humans alone initiate, approve and merge PRs**.

@@ -2,7 +2,7 @@
 
 ## CURRENT OPERATION
 **Workflow phase:** `initialization` (human-owned). Direct-`main` commits are permitted only for explicitly approved repository/governance setup, never application code. Normal implementation uses a designated work branch.
-**Human-designated Phase 0 work branch:** `phase-0/foundation`. P0-001 through P0-004 were promoted there by explicit human instruction. This branch-local handoff records the designated ref and the package's task progression; the root `main` handoff records the designated branch only.
+**Human-designated Phase 0 work branch:** `phase-0/foundation`. P0-001 through P0-004 were promoted there by explicit human instruction. This branch-local handoff records the designated ref and the package's task progression; the root `main` handoff records the designated branch only and does not replace these branch-local task pointers.
 
 **Execution policy:** agents execute the already-authorized microtasks sequentially on this branch with real verification, archive, commit, push and a confirmed remote checkpoint after each task. After a confirmed `TASK_CHECKPOINTED`, the agent automatically advances to the next authorized microtask; no intermediate human review or merge gate. After final package checks the agent reports `WORK_PACKAGE_READY` and stops.
 
@@ -27,7 +27,7 @@ P0-005 is current; no additional queued tasks. Do not self-promote further work.
 - Human explicitly authorized all four original Phase 0 microtasks for promotion to this dedicated branch.
 - Branch checkpoints are verified work, not integration into `main`. Integration occurs only after a human-initiated PR is merged.
 - This handoff names the work branch, current task and queue; task-file presence governs authorization, not the handoff alone.
-- Root `main` Active Work remains empty until a human-initiated integration merge.
+- Root `main` Active Work remains empty until a human-initiated integration merge; the empty `main` ledger neither cancels nor expands this branch's human authorization.
 
 ## Recovery
 Inspect authorized ref, branch-local queue, archive/evidence, working tree, local/remote Git checkpoint and any human-initiated PR before resuming. Never force-push or repeat a confirmed checkpoint blindly. An archived task on an unmerged branch is `TASK_CHECKPOINTED`, not `INTEGRATED`.
