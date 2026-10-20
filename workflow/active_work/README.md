@@ -1,11 +1,10 @@
 # Active Work — Telegraf Toolkit
 
 **Human-authorized work package:** Phase 1 application shell, on `phase-1/application-shell`.
-**Current task:** `P1-005-a11y-smoke-quality-gate.md`.
-**Authorized queue (strict sequence):**
-1. `P1-005-a11y-smoke-quality-gate.md` — current (final task)
+**Current task:** none — the authorized Phase 1 queue is complete.
+**Authorized queue (strict sequence):** empty.
 
-**Checkpointed:** `P1-001`, `P1-002`, `P1-003`, `P1-004` → `archive/active-work/` (verified, committed and pushed).
+**Checkpointed:** `P1-001`, `P1-002`, `P1-003`, `P1-004`, `P1-005` → `archive/active-work/` (verified, committed and pushed). See `archive/active-work/P1-*.md` for evidence.
 
 The human explicitly approved all five proposals as one sequential work package and promoted them into this ledger. Only read the current task body, never pre-read later tasks. On successful verification, archive by `git mv`, record evidence, commit/push the branch checkpoint, confirm the remote result, update this pointer and `handoff.md`, and automatically proceed to the next already-authorized task.
 

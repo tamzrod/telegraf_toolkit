@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 engineering foundation merged; Phase 1 application-shell tasks drafted for human promotion. No operational application implemented yet.  
+**Status:** Phase 0 engineering foundation merged; Phase 1 application-shell work package (P1-001–P1-005) verified on the `phase-1/application-shell` branch, pending human PR review and merge. No operational application implemented yet.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -10,7 +10,7 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | Phase | Outcome | Status |
 | --- | --- | --- |
 | 0 | Repository and engineering foundation | Scaffold merged; outstanding ADR acceptance |
-| 1 | Application shell and labeled mock workflows | Planning prepared; not authorized |
+| 1 | Application shell and labeled mock workflows | Branch verified (P1-001–P1-005); pending human PR and merge |
 | 2 | Database Registry and credential references | Not started |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Not started |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
@@ -44,13 +44,23 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 ## Phase 1 — Application shell and mock workflows
 
-- [ ] Scaffold one React/TypeScript SPA with Vite, shared routing, layout, theme and responsive navigation.
-- [ ] Implement feature entry points for Overview, Runtimes, Pipelines, Databases, Credentials, Canonical Mapper, Synchronizer and Audit/Settings.
-- [ ] Add clearly labeled mock/empty/loading/error/permission states, including simulated authorization without claims of backend enforcement.
-- [ ] Establish typed API client boundary, query-state patterns and feature-local component/testing conventions.
-- [ ] Add smoke, accessibility and navigation tests.
+- [x] Scaffold one React/TypeScript SPA with Vite, shared routing, layout, theme and responsive navigation.
+- [x] Implement feature entry points for Overview, Runtimes, Pipelines, Databases, Credentials, Canonical Mapper, Synchronizer and Audit/Settings.
+- [x] Add clearly labeled mock/empty/loading/error/permission states, including simulated authorization without claims of backend enforcement.
+- [x] Establish typed API client boundary, query-state patterns and feature-local component/testing conventions.
+- [x] Add smoke, accessibility and navigation tests.
 
 **Exit criteria:** the SPA builds and runs locally; each module is navigable; all sample data is visibly labeled; no mock action performs deployment, credential mutation or historian writes.
+
+> **Status note (P1-001–P1-005):** the shell, feature entry points, labeled mock
+> states, typed API boundary and accessibility/smoke suites are implemented and
+> verified on the `phase-1/application-shell` work branch (`make check` passes;
+> see `archive/active-work/P1-00*.md` for evidence). These checkboxes reflect
+> verified branch work, **not** merged integration: only a human-reviewed PR and
+> merge onto `main` integrates Phase 1. Responsive layout is verified at the
+> semantic/state level by automated tests; visual layout remains a manual check.
+> Permission states are illustrative only — no authentication or authorization
+> exists. Phase 0's Proposed ADRs remain unaccepted.
 
 ## Phase 2 — Database Registry and credential references
 

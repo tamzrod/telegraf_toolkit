@@ -31,6 +31,9 @@ export function StatusBadge({ status }: { status: ModuleStatus }) {
 /**
  * Consistent page header: a single level-1 title, the module's intended scope,
  * and its current implementation status.
+ *
+ * A plain container is used rather than a `<header>` element so the page does
+ * not expose a second `banner` landmark alongside the application header.
  */
 export function PageHeader({
   id,
@@ -44,7 +47,7 @@ export function PageHeader({
   status: ModuleStatus;
 }) {
   return (
-    <header>
+    <div>
       <div className="flex flex-wrap items-center gap-2">
         <h1 id={id} className="text-2xl font-semibold">
           {title}
@@ -52,7 +55,7 @@ export function PageHeader({
         <StatusBadge status={status} />
       </div>
       <p className="mt-1 text-sm text-gray-600">{scope}</p>
-    </header>
+    </div>
   );
 }
 
