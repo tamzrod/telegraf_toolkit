@@ -45,6 +45,9 @@ not hidden with `--force`.
 
 ## Local verification
 
+See [`DEVELOPER_SETUP.md`](DEVELOPER_SETUP.md) for clean-environment creation,
+isolated mock fixtures and portability limits.
+
 Requires Go 1.27.3 and Node.js 24.21.0 on `PATH`.
 
 ```bash

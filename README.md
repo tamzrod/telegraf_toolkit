@@ -35,6 +35,9 @@ Telegraf Toolkit provides a unified control plane for configuring telemetry pipe
 - [Frontend architecture](docs/FRONTEND_ARCHITECTURE.md) — React/TypeScript stack, module structure and build phases
 - [UI design](docs/UI_DESIGN.md) — navigation, database registry, credentials and visual workflows
 - [Roadmap](docs/ROADMAP.md) — proposed delivery phases
+- [Domain/API contract inventory](docs/contracts/README.md) — Phase 0 contract catalog
+- [Developer setup and fixtures](docs/DEVELOPER_SETUP.md) — reproducible local setup and isolated mock fixtures
+- [Phase 0 scaffold notes](docs/DEVELOPMENT.md) — scaffold layout, pinned versions and commands
 
 ## Runtime version policy
 
