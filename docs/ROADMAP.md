@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 foundation and Phase 1 application shell merged into `main` (PR #2 and PR #3). Phase 2 Database Registry planning prepared; no operational database connectivity implemented yet.
+**Status:** Phase 0 foundation and Phase 1 application shell merged into `main` (PR #2 and PR #3). Phase 2 Database Registry mock/interface foundation completed and branch-verified (P2-001–P2-006), pending human PR review and merge; no operational database connectivity implemented yet.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
