@@ -1,27 +1,28 @@
 # Telegraf Toolkit — Agent Router
 
-This is a short, always-on entry point for OpenHands and other development agents. It is not a project diary.
+Short, always-on entry point for OpenHands and other development agents; not a project diary.
 
-## Source of truth
-- `IDENTITY.md` defines product scope, accepted constraints and delivery order.
-- Accepted ADRs and domain specifications under `docs/` govern their respective subjects. If they conflict, do not invent a resolution: stop and request a human architectural decision.
-- Git repository source is authoritative; ICC is a verified context cache, never execution authority.
-- Distinguish documentation, mock behavior, and tested implementation. Never claim mocks contact live systems.
-
-## Command routing
-- `Operation CWAL` => read `operation cwal.md` and obey its task boundary.
-- `BLACK SHEEP WALL` => read `BLACK_SHEEP_WALL.md`; use the minimum relevant ICC context.
-- For normal review or planning, read the relevant specs and source without treating planning as permission to implement.
+## Authority and commands
+- `IDENTITY.md` defines product scope and accepted constraints; relevant accepted ADRs and `docs/` specifications control their domains. Report conflicts for human resolution.
+- Git source is authoritative; ICC is a context cache, not execution authority. Never describe mocks or planned behavior as implemented.
+- `Operation CWAL`: read `operation cwal.md` and follow its bounded execution rules.
+- `BLACK SHEEP WALL`: read `BLACK_SHEEP_WALL.md` and load minimum relevant ICC context.
+- Planning does not authorize implementation. Only human-promoted tasks in `workflow/active_work/` do.
 
 ## Safety invariants
-- Official Telegraf 1.40.1 is the initial baseline. No fork or floating dependency versions; use exact versions, lockfiles and verified production image digests.
-- Preserve independent Telegraf runtimes, an independent sync engine and explicit approval before deploy, backfill or any write.
-- Equal historian counts are not verified equality. Preserve measurement, tags, timestamp precision and field types.
-- Keep secrets server-side; never print, export, commit or expose privileged database tokens, Docker socket control or runtime secrets to browsers.
-- Never change production systems, credentials or historian data unless separately and explicitly authorized.
+- Official Telegraf 1.40.1 initial baseline; no maintained fork, floating dependencies or unverified production image digests. Pin exact versions and lockfiles.
+- Keep independent runtimes and historical sync lifecycles; no automatic deploy, backfill or writes.
+- Equal point counts do not prove integrity; preserve timestamps, series tags and field types.
+- Keep credentials server-side; never commit, expose, log or export secrets or grant browser Docker control.
+- Production changes, historian writes/deletes and credential operations require separate explicit authorization.
+
+## Git policy
+- `handoff.md` declares the human-owned workflow phase: `initialization` or `development`.
+- **Initialization exception:** only explicitly authorized repository setup, agent workflow, governance and foundation documentation may be committed directly to `main`. This exception does not cover ordinary application implementation, even while initialization is underway.
+- **Development (default):** code, features, tests, fixes and application scaffolding use a dedicated task branch and PR to `main`, with required checks and human approval before merge.
+- If phase/task classification is missing or ambiguous, use the branch/PR workflow. Agents must not self-extend the initialization exception or switch phases.
+- Only one CWAL writer may operate on the same task/work surface; during initialization, only one direct-`main` writer. No force pushes or overwriting concurrent changes.
 
 ## Operating posture
-- Follow the active task's whitelist; one task at a time, with bounded context.
-- Prefer small coherent changes, tests and evidence. Do not modify unrelated work.
-- During initial development, execute authorized CWAL tasks directly on `main` and push one verified checkpoint per task. Do not use task branches/PRs unless the human changes this policy. Report actual test results.
-- Keep changes and documentation consistent. Missing tests, architectural contradictions and unverifiable acceptance are blockers, not successes.
+- Execute only the current authorized task. Prefer coherent, testable changes; never modify unrelated work.
+- Report actual verification outcomes, limitations and blockers. Archive only verified work and confirm the final remote checkpoint under `operation cwal.md`.
