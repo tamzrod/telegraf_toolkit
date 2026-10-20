@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 engineering foundation merged; Phase 1 application-shell work package (P1-001–P1-005) verified on the `phase-1/application-shell` branch, pending human PR review and merge. No operational application implemented yet.
+**Status:** Phase 0 foundation and Phase 1 application shell merged into `main` (PR #2 and PR #3). Phase 2 Database Registry planning prepared; no operational database connectivity implemented yet.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -10,8 +10,8 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | Phase | Outcome | Status |
 | --- | --- | --- |
 | 0 | Repository and engineering foundation | Scaffold merged; outstanding ADR acceptance |
-| 1 | Application shell and labeled mock workflows | Branch verified (P1-001–P1-005); pending human PR and merge |
-| 2 | Database Registry and credential references | Not started |
+| 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
+| 2 | Database Registry and credential references | Planning proposals drafted; implementation not authorized |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Not started |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
@@ -52,15 +52,7 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 **Exit criteria:** the SPA builds and runs locally; each module is navigable; all sample data is visibly labeled; no mock action performs deployment, credential mutation or historian writes.
 
-> **Status note (P1-001–P1-005):** the shell, feature entry points, labeled mock
-> states, typed API boundary and accessibility/smoke suites are implemented and
-> verified on the `phase-1/application-shell` work branch (`make check` passes;
-> see `archive/active-work/P1-00*.md` for evidence). These checkboxes reflect
-> verified branch work, **not** merged integration: only a human-reviewed PR and
-> merge onto `main` integrates Phase 1. Responsive layout is verified at the
-> semantic/state level by automated tests; visual layout remains a manual check.
-> Permission states are illustrative only — no authentication or authorization
-> exists. Phase 0's Proposed ADRs remain unaccepted.
+> **Integrated status (PR #3):** P1-001–P1-005 were verified and merged into `main` at `938845f1b2e121e0e36929359574b9b7ee679522`. Responsive visual and screen-reader behavior still require real-browser checks. Mock permission states do not enforce authorization. ADR-0002–0005 remain Proposed.
 
 ## Phase 2 — Database Registry and credential references
 
