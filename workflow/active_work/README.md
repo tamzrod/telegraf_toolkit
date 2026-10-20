@@ -2,10 +2,11 @@
 
 This persistent folder is the sole ledger for human-promoted, incomplete microtasks on the **human-designated work ref**. The human has explicitly promoted P0-001 through P0-004 to the designated `phase-0/foundation` branch for Phase 0 delivery. Agent execution authority is limited to that branch and the queue's authorized scope.
 
-**Current task on this branch:** none. All four human-promoted Phase 0 microtasks are checkpointed; the queue is empty.
+**Current task on this branch:** P0-005 — `P0-005-pre-pr-integration-corrections.md` (human-authorized pre-PR correction). P0-001–P0-004 remain checkpointed.
 
 **Authorized incomplete queue (strict sequence):**
-None. No further work is authorized on this ref; do not self-promote.
+1. P0-005-pre-pr-integration-corrections.md — current; verify, archive and checkpoint before returning to work-package readiness.
+No other new tasks are authorized; do not self-promote.
 
 **Checkpointed on this branch (no longer Active Work):**
 - P0-001-domain-contract-inventory.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-001-domain-contract-inventory.md`.
