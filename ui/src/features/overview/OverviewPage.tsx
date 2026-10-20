@@ -1,7 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { fetchHealth } from "../../api/client";
 import { MODULES } from "../../app/modules";
+import { useHealth } from "../../hooks/useHealth";
 import { ErrorState, LoadingState } from "../../components/common/StatePanels";
 
 /**
@@ -9,10 +8,7 @@ import { ErrorState, LoadingState } from "../../components/common/StatePanels";
  * itself as a live product connection.
  */
 export function OverviewPage() {
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ["health"],
-    queryFn: ({ signal }) => fetchHealth(signal),
-  });
+  const { data, isPending, isError, refetch } = useHealth();
 
   return (
     <section aria-labelledby="overview-heading">

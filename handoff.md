@@ -5,14 +5,14 @@
 **Authorized package:** Phase 1 Application Shell — P1-001 through P1-005. Human explicitly approved promotion of all five proposed microtasks into Active Work as one sequential batch.
 
 ## Current Active Task
-**P1-004:** `workflow/active_work/P1-004-api-query-conventions.md`.
+**P1-005:** `workflow/active_work/P1-005-a11y-smoke-quality-gate.md`.
 
 ## Authorized queue (strict sequence)
 1. P1-001 — SPA shell, routes, accessible navigation — **checkpointed**
 2. P1-002 — feature module entry points — **checkpointed**
 3. P1-003 — mock/empty/loading/error/permission states — **checkpointed**
-4. P1-004 — typed API and query-state conventions (**current**)
-5. P1-005 — accessibility, smoke tests, final quality gate
+4. P1-004 — typed API and query-state conventions — **checkpointed**
+5. P1-005 — accessibility, smoke tests, final quality gate (**current**)
 
 The queue is authoritative only through the human-promoted task files under `workflow/active_work/`; this handoff mirrors its README. OpenHands may automatically execute subsequent tasks **only after** verifying, archiving, committing, pushing and confirming each earlier checkpoint. If blocked, stop with actual evidence. Do not read future task bodies before they are current.
 

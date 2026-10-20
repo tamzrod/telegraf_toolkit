@@ -84,6 +84,33 @@ curl -s http://127.0.0.1:8080/api/v1/health
 The `scaffold` and `connected` fields exist so no consumer can mistake this for
 a live connection.
 
+## Frontend integration conventions (Phase 1)
+
+The SPA has exactly one integration seam: `ui/src/api/client.ts`. Phase 1
+implements only `/api/v1/health`; no endpoint may claim database, runtime or
+historian capability. Conventions:
+
+- **Base path.** All paths are built from `API_BASE` (`/api/v1`) inside
+  `requestJson`, so callers pass only a relative path (`/health`).
+- **Typed errors.** Transport failures throw `ApiError`, which carries a status
+  code and URL but never a raw response body. UI code must not render unsanitized
+  backend text.
+- **Payload validation.** Each response is checked with a runtime type guard
+  (`isHealth` in `ui/src/types/health.ts`). A guard failure raises `ApiError`
+  instead of coercing an unexpected shape into feature state.
+- **Cancellation.** Query functions forward the `AbortSignal` provided by
+  TanStack Query, so unmounting a consumer aborts the in-flight request.
+- **Query keys.** Keys come from `ui/src/api/queryKeys.ts`. The health query
+  lives in `ui/src/hooks/useHealth.ts` with `retry: false` so the scaffold error
+  state is deterministic.
+- **Mock adapters.** Test-only mock responses live under `ui/src/api/mock/` and
+  `ui/src/fixtures/`. Application code must never import them; tests stub
+  `fetch` instead. Fixtures are deterministic and synthetic.
+- **Feature folder convention.** Each module owns `ui/src/features/<name>/` with
+  its page and tests; shared presentation lives in `ui/src/components/common/`.
+- **No credentials.** The browser never sends or stores credentials, tokens or
+  credential-bearing URLs.
+
 ## Deliberately not decided here
 
 Metadata store, secret-store integration, host-agent interface and production
