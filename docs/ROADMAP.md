@@ -11,7 +11,7 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | --- | --- | --- |
 | 0 | Repository and engineering foundation | Scaffold merged; outstanding ADR acceptance |
 | 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
-| 2 | Database Registry and credential references | Planning proposals drafted; implementation not authorized |
+| 2 | Database Registry and credential references | Mock/interface scope verified on `phase-2/database-registry`; real connectivity blocked on ADR-0002/0003 |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Not started |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
@@ -56,11 +56,18 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 ## Phase 2 — Database Registry and credential references
 
-- [ ] Implement reusable source/destination InfluxDB connection profiles with explicit database/bucket/retention scope.
-- [ ] Probe actual query/write/schema capabilities for InfluxDB 1.x, 2.x and 3.x by edition/deployment rather than assuming version-wide parity.
-- [ ] Establish protected server-side secret references and scoped read/write permissions; no plaintext secrets in browser responses, logs, exports or Git.
-- [ ] Implement backend-authorized test connection, sanitized errors, TLS policy and SSRF-aware endpoint validation.
-- [ ] Expose profile health, capabilities, usage/dependencies and credential rotation/revocation workflow with audit.
+- [x] Define interface-only Registry contracts (profile identity/scope, probed capabilities, credential references, sanitized errors, audit semantics) with a fixed/interface/open separation. ([`docs/contracts/registry.md`](contracts/registry.md))
+- [x] Provide a human decision checklist for the outstanding metadata-store and secret-store decisions. ([`docs/decisions/phase-2-architecture-gate.md`](decisions/phase-2-architecture-gate.md))
+- [x] Implement typed validation, in-memory mock adapters and an edition-keyed capability fixture matrix with tests. (`backend/internal/registrycontract/`)
+- [x] Implement the credential-reference boundary, redaction, a deny-by-default endpoint threat model and rotation ordering with tests. (`backend/internal/registrycontract/security.go`)
+- [x] Implement a typed browser Registry contract and a clearly labeled Databases mock workflow with explicit source/destination selection. (`ui/src/api/registry.ts`, `ui/src/features/databases/`)
+- [ ] Implement reusable source/destination InfluxDB connection profiles with explicit database/bucket/retention scope. **Blocked:** persistent storage requires accepted ADR-0002.
+- [ ] Probe actual query/write/schema capabilities for InfluxDB 1.x, 2.x and 3.x by edition/deployment rather than assuming version-wide parity. **Blocked:** live probing requires accepted ADR-0003 (scoped credentials).
+- [ ] Establish protected server-side secret references and scoped read/write permissions; no plaintext secrets in browser responses, logs, exports or Git. **Partially delivered:** references, boundary and redaction exist; real storage/resolution is **blocked** on accepted ADR-0003.
+- [ ] Implement backend-authorized test connection, sanitized errors, TLS policy and SSRF-aware endpoint validation. **Partially delivered:** sanitized errors, TLS policy and literal-host SSRF validation exist; live test-connection is blocked on ADR-0003.
+- [ ] Expose profile health, capabilities, usage/dependencies and credential rotation/revocation workflow with audit. **Partially delivered:** mock capability/credential/audit surfaces exist; persistence and real audit are blocked on ADR-0002/0003.
+
+> **Status note (P2-006):** Phase 2 is verified at **mock/interface scope only** on `phase-2/database-registry`. No profile is persisted, no credential is stored or resolved, and no live InfluxDB connectivity exists. ADR-0002 and ADR-0003 remain **Proposed**. See [`docs/decisions/phase-2-integration-handoff.md`](decisions/phase-2-integration-handoff.md) for the exact blocked real-integration work. Exit criteria are **not** met for live Registry readiness.
 
 **Exit criteria:** registered profiles are reusable across approved modules; permissions and secret isolation are tested; supported capabilities and unsupported cases are explicitly reported.
 
