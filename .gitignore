@@ -1,0 +1,18 @@
+# Node / frontend
+node_modules/
+ui/dist/
+ui/coverage/
+*.local
+*.tsbuildinfo
+
+# Go
+backend/bin/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local toolchain / env
+.env
+.env.*

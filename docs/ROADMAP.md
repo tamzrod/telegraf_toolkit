@@ -31,14 +31,16 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 - [x] Document initialization-only direct-`main` exception and normal branch/pull-request development policy.
 
 ### Remaining
-- [ ] Define versioned API/domain contracts for connections, credential references, capability probes, canonical schemas, mapping profiles, runtime/revisions, sync jobs/blocks and audit events.
-- [ ] Record decisions for metadata store, secret-store integration, host-agent privilege boundary and initial packaging, through ADRs where architectural.
-- [ ] Select and pin exact application/toolchain dependency versions; commit lockfiles and checksums as applicable.
-- [ ] Establish CI checks (format, lint, build, tests, version-policy and secret safety).
-- [ ] Establish local mock data, test fixtures and isolated development environments without real historian writes.
-- [ ] Document developer setup, verification commands and task acceptance/evidence template.
+- [x] Define versioned API/domain contracts for connections, credential references, capability probes, canonical schemas, mapping profiles, runtime/revisions, sync jobs/blocks and audit events. ([`docs/contracts/README.md`](contracts/README.md))
+- [x] Prepare decision-ready **Proposed** ADRs for the outstanding architectural choices (metadata store, secret-store integration, host-agent privilege boundary, initial packaging): [`docs/adr/0002`](adr/0002-metadata-store-selection.md)–[`0005`](adr/0005-initial-production-packaging.md). These are authored proposals only: **none is an accepted architecture decision.** Acceptance is outstanding and human-owned, so the underlying choices remain unresolved.
+- [x] Select and pin exact application/toolchain dependency versions; commit lockfiles and checksums as applicable. (Go 1.27.3; `ui/package-lock.json`; see [`docs/DEVELOPMENT.md`](DEVELOPMENT.md))
+- [x] Establish CI checks (format, lint, build, tests, version-policy and secret safety). ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
+- [x] Establish local mock data, test fixtures and isolated development environments without real historian writes. ([`docs/DEVELOPER_SETUP.md`](DEVELOPER_SETUP.md))
+- [x] Document developer setup, verification commands and task acceptance/evidence template. ([`docs/DEVELOPER_SETUP.md`](DEVELOPER_SETUP.md))
 
 **Exit criteria:** foundational contracts are reviewable; reproducible builds/tests and CI exist for the created scaffold; missing architectural decisions needed for the next phase are resolved explicitly. No live deployment is implied.
+
+> **Status note (P0-005):** The architectural ADRs are authored as **Proposed** only. Metadata store, secret-store integration, host-agent privilege boundary and production packaging are **not yet accepted decisions**, so Phase 0 exit criteria are not fully satisfied for architecture until a human accepts them. Do not treat these proposals as resolved architecture.
 
 ## Phase 1 — Application shell and mock workflows
 
