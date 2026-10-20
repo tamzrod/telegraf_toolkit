@@ -1,15 +1,16 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-Initialization workflow established on `main`. No implementation task authorized.
+**Workflow phase:** `initialization` (human-owned). Direct-`main` exception applies only to approved repository setup and workflow/governance documents; ordinary application development always uses branch + PR. Transition to `development` requires human authorization.
 
 ## Current Active Task
 None. `workflow/active_work/` is empty.
 
 ## Checkpoints
-- CWAL and OpenHands agent router bootstrapped and merged into `main`.
-- Initial development policy: execute human-promoted tasks directly on `main`, with one verified commit/push checkpoint per task. No task PR is required unless the human changes this policy.
-- This journal mirrors Active Work but never grants authorization.
+- Root OpenHands/CWAL workflow is established.
+- Git policy distinguishes temporary initialization commits from regular task branches, reviewed PRs and merged completion.
+- Human-promoted Active Work files alone authorize execution; handoff is a mirror, not authority.
+- One CWAL writer per task/work surface; one direct-`main` writer during initialization.
 
 ## Recovery
-If interrupted, inspect local Git status, remote `origin/main`, active task presence, archive state and test evidence before repeating any step. If a verified local commit was not pushed, preserve it and reconcile the remote branch before advancing. Never force-push.
+For interrupted work, inspect local changes, `origin/main`, task presence, current pointers, verification, and any task branch/PR before continuing. Never force-push or advance until a durable remote checkpoint is confirmed. Archived changes on an unmerged branch are provisional.
