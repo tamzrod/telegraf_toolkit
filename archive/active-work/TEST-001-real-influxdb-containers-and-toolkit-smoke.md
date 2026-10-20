@@ -24,8 +24,75 @@ Create a reproducible, **non-production**, isolated Docker Compose test environm
 - User's request authorizes *isolated test-host* Docker containers only, not remote/prod deployment. Stop if no demonstrably safe Docker host is available.
 - PR initiation, review, approval and merge remain human-only; do not create/change PR state.
 
-## Acceptance evidence
-- Exact image pins/digests, secure isolated Compose configuration, reproducible setup and cleanup, and synthetic data tests.
-- Actual container startup/health/query/auth/restart results **or** explicit blocked state if Docker not available.
-- Toolkit `make check` result, honest split between tested program functions and yet-unimplemented live Registry connectivity, plus no tracked secrets.
-- CWAL checkpoint confirmed only after successful verification; never claim `WORK_PACKAGE_READY` for work not run.
+## Verification evidence (recorded 2026-10-20)
+
+**Environment / isolation:** execution host is a disposable containerized
+developer runtime (`Linux 6.8.0-1055-gke x86_64`, Docker Engine 29.8.1,
+Compose v5.5.1). The Docker daemon was not running at session start; it was
+started as an isolated local daemon (`sudo dockerd`). The invoking user is in
+the `sudo` group but not the `docker` group, so the test scripts were run with
+`DOCKER_SUDO=1`. No production historian, remote host, Docker socket mount,
+privileged container or operational Registry change was involved.
+
+**Pinned images (verified against Docker Hub, exact patch tag + index digest):**
+
+- `influxdb:2.9.1@sha256:cdd3dbdea45c2f43513abd06ee9644b6e05d2354a2b93ca829c9f07d716eaaac`
+  (linux/amd64 + linux/arm64; in-image `influxd version` → `InfluxDB v2.9.1`).
+- `influxdb:3.12.1-core@sha256:1c8200f75657c7586678b52570f8c78aedfa2cd42e59c238a733423aab6bd406`
+  (linux/amd64 + linux/arm64; `influxdb3 --version` → `InfluxDB 3 Core, 3.12.1`).
+- CLI/flag and endpoint syntax were validated against the images and official
+  docs before use (`--admin-token-file`, `--object-store=file`,
+  `DOCKER_INFLUXDB_INIT_*_FILE`, `/api/v3/query_sql`, `/api/v3/write_lp`,
+  `/api/v3/query_influxql`, `/api/v3/configure/database`, `/api/v2/query`).
+
+**Deliverables (tracked under `testing/influxdb/`):** `compose.yaml`,
+`.env.example`, `README.md`, `seed/dataset.lp` and `scripts/`
+(`lib.sh`, `init-secrets.sh`, `up.sh`, `run-tests.sh`, `toolkit-smoke.sh`,
+`run-all.sh`, `teardown.sh`). Secrets, data, logs, tmp, artifacts and reports
+are Git-ignored.
+
+**Commands and actual outcomes:**
+
+- `./scripts/run-all.sh --teardown` (fresh purge, then full run) → InfluxDB
+  checks **16 passed, 0 failed**; Toolkit smoke **2 passed, 0 failed, 1 not
+  implemented**; `influxdb checks exit: 0`, `toolkit smoke exit: 0`; teardown
+  removed only this project's containers and network.
+- InfluxDB 2 OSS PASS: unauthenticated `/health` (`status=pass`, `v2.9.1`);
+  authenticated `/api/v2/orgs` (200); invalid token rejected (401); line-protocol
+  write (204); Flux total count `environment.used_percent == 5`; InfluxQL
+  `/query SHOW MEASUREMENTS` → `environment`+`sensor`; restart persistence
+  (5 points after restart).
+- InfluxDB 3 Core PASS: `/health` requires auth (401 without token);
+  authenticated `/health` → `OK`; invalid token rejected (401); database create
+  over `/api/v3/configure/database` (200); `write_lp` (204); SQL
+  `count(environment)==5`; `query_influxql SHOW MEASUREMENTS` → `environment`;
+  restart persistence (5 rows after restart); integer field type preserved
+  (`up=1`).
+- Toolkit smoke: `GET /api/v1/health` → 200 with `scaffold=true`,
+  `connected=false`; `POST /api/v1/health` → 405; `GET /api/v1/registry/profiles`
+  → **NOT IMPLEMENTED** (404). The browser client calls that path but the
+  backend implements only the health endpoint in `backend/internal/httpapi`.
+- `make check` → exit 0: backend `gofmt -l` clean, `go vet`, `go build`,
+  `go test` (all packages `ok`); frontend `npm ci`, `eslint`, `tsc -b && vite
+  build`, `vitest run` → `Test Files 13 passed (13)`, `Tests 142 passed (142)`;
+  `policy-check.sh` → PASS. Go 1.27.3 was installed from the official tarball
+  with its published SHA256 verified; no repository dependency versions changed.
+- Secret hygiene: `grep` over `reports/`, `logs/`, `tmp/` for token/password
+  patterns → none found; `git add -An testing/` stages only the 10 intended
+  source files (no secret, data, log or report path).
+
+**Honest split of results:**
+
+- Direct DB tests (real containers, real writes/queries/auth/restart): **PASS**.
+- Toolkit-to-DB authenticated connection: **NOT IMPLEMENTED** — the Toolkit has
+  no live database client; nothing in the backend contacts InfluxDB.
+- Real capability probes: **NOT IMPLEMENTED** — `registrycontract` probing is
+  fixture/in-memory only; the edition matrix is a test expectation.
+- UI flows against a live backend: **NOT IMPLEMENTED** — the Databases page uses
+  a labeled mock adapter; `/api/v1/registry/profiles` does not exist.
+
+**Limitations:** the redactor is a targeted pattern match, not a guarantee;
+credentials are synthetic throwaway values for disposable containers. This task
+delivers test infrastructure and honest evidence only; it does not implement
+live Registry connectivity and does not accept ADR-0002 or ADR-0003 (both remain
+Proposed).

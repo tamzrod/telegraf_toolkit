@@ -3,15 +3,27 @@
 ## CURRENT OPERATION
 **Workflow:** isolated real-database integration testing.
 **Designated branch:** `test/real-influxdb-integration`.
-**Human-authorized task:** `TEST-001-real-influxdb-containers-and-toolkit-smoke.md` in `workflow/active_work/`.
+**Human-authorized task:** none — TEST-001 complete; queue empty.
 
 ## Current Active Task
-**TEST-001** — deploy isolated Docker Compose InfluxDB 2 OSS + InfluxDB 3 Core test containers, seed/query synthetic data and run honest Toolkit smoke/integration checks. Sole task; no subsequent queue.
+**None.** TEST-001 was completed and verified, then archived by `git mv` to
+`archive/active-work/TEST-001-real-influxdb-containers-and-toolkit-smoke.md`.
+No subsequent task is authorized. Planning does not authorize work.
 
 ## Authority / safety
-Human authorized this bounded **test-host-only** container work. No production historians, remote/prod servers, broad Docker privileges or real operational Toolkit Registry changes are authorized. Requires exact version/digest pins, initial secret provisioning before exposure, restricted loopback network and no tracked secrets. If the execution host lacks Docker or safe isolation, stop with actual evidence rather than claiming deployment.
+TEST-001 stayed within its bounded **test-host-only** authorization: official
+upstream `influxdb` images pinned to exact patch tags and immutable index
+digests, loopback-only host ports, a dedicated Compose project/network, Compose
+file-based secrets in Git-ignored paths and no privileged containers or host
+Docker socket. No production historian, remote/prod server or operational
+Toolkit Registry change was made.
 
-ADR-0002 and ADR-0003 remain Proposed; this task does not accept them. Current Toolkit Registry is mock/interface scope; test and report live integration as NOT IMPLEMENTED if code lacks it, rather than inventing success.
+ADR-0002 and ADR-0003 remain Proposed; this task did not accept them. The
+Toolkit Registry remains mock/interface scope: the live Registry endpoint and
+live capability probes are reported as **NOT IMPLEMENTED**, not simulated.
 
 ## CWAL checkpoint
-Verify results, archive TEST-001 by git mv, record actual test outputs, update pointers, commit/push/remote-confirm and report WORK_PACKAGE_READY only if acceptance achieved. Human controls all PR actions. No auto-promotion.
+TEST-001 verified and archived; the Active Work pointer is advanced to an empty
+queue; results, evidence and honest limitations are recorded in the archived
+task. Commit and push to the designated work branch and remote-confirm. Human
+controls all PR actions. No auto-promotion; no next task exists to advance to.
