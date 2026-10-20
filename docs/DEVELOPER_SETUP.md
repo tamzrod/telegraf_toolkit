@@ -111,6 +111,37 @@ Docker or network service is started, so CI exercises the fixtures only. This is
 deliberate: the scaffold has no live integration, and the checks do not claim
 integration coverage.
 
+## Policy check scope and limitations
+
+`scripts/policy-check.sh` (also `make policy-check`, and the CI `policy` job,
+which invokes the same script so local and CI behavior cannot drift) checks:
+
+- floating/non-exact dependency specifiers in `ui/package.json`
+  (`latest`, dist-tags, `^`/`~`/range operators, `1.x`/`1.2.*` wildcards, bare majors);
+- the `go` directive in `backend/go.mod` pins a patch version;
+- third-party GitHub Actions are pinned to full 40-hex commit SHAs;
+- `image: …:latest` in YAML manifests;
+- high-signal secret patterns (private-key headers, AWS access-key IDs,
+  GitHub tokens, Slack tokens).
+
+**These checks are narrow, regex-based heuristics. A PASS means those specific
+patterns were not found; it is not exhaustive security assurance.** Known
+limitations:
+
+- Regex matching can miss obfuscated, split or encoded secrets, and cannot detect
+  secrets in binary files or in formats not covered by the include list.
+- Only `ui/package.json` is inspected for version pinning; transitive
+  dependencies are governed by `ui/package-lock.json`, not by this check.
+- No dependency vulnerability/CVE audit is performed here (use `npm audit` and
+  Go's vulnerability tooling separately).
+- No verification that a pinned SHA or digest is genuine, current or trusted.
+- The image-tag check covers YAML only; other manifest formats are not scanned.
+- Documentation that *discusses* secrets is not distinguished from real secrets
+  beyond the pattern list above.
+
+Treat a clean run as a guardrail, not a security guarantee. Dependency auditing,
+secret-scanning services and human review remain necessary.
+
 ## Portability limits
 
 - Tests run on Linux amd64 (CI and development target). Other platforms are not

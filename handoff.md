@@ -7,16 +7,17 @@
 **Execution policy:** agents execute the already-authorized microtasks sequentially on this branch with real verification, archive, commit, push and a confirmed remote checkpoint after each task. After a confirmed `TASK_CHECKPOINTED`, the agent automatically advances to the next authorized microtask; no intermediate human review or merge gate. After final package checks the agent reports `WORK_PACKAGE_READY` and stops.
 
 ## Current Active Task
-P0-005 — `workflow/active_work/P0-005-pre-pr-integration-corrections.md`, explicitly human-authorized for the current Phase 0 branch. P0-001–P0-004 remain checkpointed. Previous `WORK_PACKAGE_READY` is superseded pending correction verification and a new package checkpoint.
+None. P0-001–P0-005 are all checkpointed on this branch and the Active Work queue is empty. Final package verification passed; status `WORK_PACKAGE_READY` pending human-initiated PR review.
 
 ## Checkpointed tasks (this branch)
 - P0-001 (domain/API contract inventory) — `TASK_CHECKPOINTED`. Deliverable `docs/contracts/README.md`; task file archived at `archive/active-work/P0-001-domain-contract-inventory.md`; implementation committed and pushed on `phase-0/foundation`.
 - P0-002 (enabling architecture decisions) — `TASK_CHECKPOINTED`. Deliverables `docs/adr/0002`–`0005` (all **Proposed**, not Accepted); task file archived at `archive/active-work/P0-002-architecture-decision-records.md`; committed and pushed on `phase-0/foundation`.
 - P0-003 (reproducible scaffold and CI) — `TASK_CHECKPOINTED`. Deliverables `backend/` Go API skeleton, `ui/` React+TS+Vite SPA skeleton, `.github/workflows/ci.yml`, `Makefile`, `docs/DEVELOPMENT.md` with pinned versions; task file archived at `archive/active-work/P0-003-scaffold-toolchain-and-ci.md`; committed and pushed on `phase-0/foundation`.
 - P0-004 (isolated fixtures and developer guide) — `TASK_CHECKPOINTED`. Deliverables `backend/internal/fixtures`, `backend/internal/synccontract`, `ui/src/fixtures`, `docs/DEVELOPER_SETUP.md`; task file archived at `archive/active-work/P0-004-local-fixtures-and-developer-guide.md`.
+- P0-005 (pre-PR integration corrections) — `TASK_CHECKPOINTED`. Reconciled `origin/main` into the branch (merge, no history rewrite); clarified ROADMAP Proposed-ADR status; made the local Go format check non-mutating; added shared `scripts/policy-check.sh` wired into CI and `make check`; documented policy-check limitations. Archived at `archive/active-work/P0-005-pre-pr-integration-corrections.md`.
 
 ## Authorized queued task IDs
-P0-005 is current; no additional queued tasks. Do not self-promote further work.
+None. Do not self-promote further work.
 
 ## PR authority
 - **PR initiation, review, approval and merge are human-only.** Agents never create, open, submit, approve or merge a pull request.

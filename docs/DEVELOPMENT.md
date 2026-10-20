@@ -51,9 +51,10 @@ isolated mock fixtures and portability limits.
 Requires Go 1.27.3 and Node.js 24.21.0 on `PATH`.
 
 ```bash
-make check          # backend + frontend checks (mirrors CI)
-make backend-check  # gofmt, vet, build, test
+make check          # backend + frontend + policy checks (mirrors CI)
+make backend-check  # non-mutating gofmt check, vet, build, test
 make frontend-check # npm ci, lint, build, test
+make policy-check   # shared regex policy checks (see DEVELOPER_SETUP.md)
 make run-api        # run the scaffold API on :8080
 ```
 

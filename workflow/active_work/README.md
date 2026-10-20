@@ -2,17 +2,17 @@
 
 This persistent folder is the sole ledger for human-promoted, incomplete microtasks on the **human-designated work ref**. The human has explicitly promoted P0-001 through P0-004 to the designated `phase-0/foundation` branch for Phase 0 delivery. Agent execution authority is limited to that branch and the queue's authorized scope.
 
-**Current task on this branch:** P0-005 — `P0-005-pre-pr-integration-corrections.md` (human-authorized pre-PR correction). P0-001–P0-004 remain checkpointed.
+**Current task on this branch:** none. P0-001–P0-005 are all checkpointed; the queue is empty.
 
 **Authorized incomplete queue (strict sequence):**
-1. P0-005-pre-pr-integration-corrections.md — current; verify, archive and checkpoint before returning to work-package readiness.
-No other new tasks are authorized; do not self-promote.
+None. No further work is authorized on this ref; do not self-promote.
 
 **Checkpointed on this branch (no longer Active Work):**
 - P0-001-domain-contract-inventory.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-001-domain-contract-inventory.md`.
 - P0-002-architecture-decision-records.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-002-architecture-decision-records.md`.
 - P0-003-scaffold-toolchain-and-ci.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-003-scaffold-toolchain-and-ci.md`.
 - P0-004-local-fixtures-and-developer-guide.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-004-local-fixtures-and-developer-guide.md`.
+- P0-005-pre-pr-integration-corrections.md — `TASK_CHECKPOINTED`; archived at `archive/active-work/P0-005-pre-pr-integration-corrections.md`.
 
 Only humans promote task `*.md` files. `README.md` is not a task. Read only the current task body; never preload queued task bodies. Never select Planning work. Each branch's current task and queue must agree with its `handoff.md`; the empty `main` ledger neither cancels nor expands branch-specific human authorization. If no work is authorized on the selected ref, stop.
 

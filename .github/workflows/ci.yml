@@ -77,34 +77,13 @@ jobs:
         run: npm test
 
   policy:
-    name: policy (floating versions, secrets)
+    name: policy (floating versions, secrets, action pins)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
 
-      - name: Reject floating dependency versions
-        run: |
-          set -eu
-          fail=0
-          if grep -nE '"(latest|stable|next|\*|\^|~)[^"]*"' ui/package.json; then
-            echo "::error::floating version specifier found in ui/package.json"
-            fail=1
-          fi
-          if grep -nE '^\s*go\s+[0-9]+\.[0-9]+$' backend/go.mod; then
-            echo "::error::go directive must pin the patch version"
-            fail=1
-          fi
-          exit "$fail"
-
-      - name: Reject committed secret material
-        run: |
-          set -eu
-          matches="$(grep -rInE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}' \
-            --include='*.go' --include='*.ts' --include='*.tsx' \
-            --include='*.json' --include='*.yml' --include='*.yaml' \
-            . || true)"
-          if [ -n "$matches" ]; then
-            echo "$matches"
-            echo "::error::possible secret material committed"
-            exit 1
-          fi
+      # Single source of truth shared with local `make policy-check`, so CI and
+      # local behavior cannot drift. See docs/DEVELOPER_SETUP.md
+      # "Policy check scope and limitations" for what this does and does NOT cover.
+      - name: Repository policy checks
+        run: bash scripts/policy-check.sh
