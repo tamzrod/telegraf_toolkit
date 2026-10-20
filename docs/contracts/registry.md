@@ -129,6 +129,9 @@ CredentialRef
 
 - A `CredentialRef` never contains a value field. Any adapter that would return a value is out of contract and must not be implemented before ADR-0003 is accepted.
 - Mock references are clearly labeled and point to no real store.
+- The server-side resolution and write boundaries (`SecretResolver`, `SecretWriter`) are implemented only as permanently-blocked stubs (`BlockedSecretResolver`, `BlockedSecretWriter`) that return a sanitized `ErrSecretResolutionBlocked`; no implementation may store or resolve a value before ADR-0003 is accepted.
+- A `Redactor` removes credential-bearing URLs and known literals from text bound for logs, exports or API responses. It is a defensive layer, not a licence to handle a value.
+- Credential rotation follows add → validate → reassign → revoke. The old reference must never be revoked before the new one is validated, and unrelated dependents must not be reassigned.
 
 ## 4. Sanitized errors
 
