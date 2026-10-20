@@ -193,6 +193,18 @@ The following architectural decisions are open and gate one or more contracts ab
 
 These candidates are **not** accepted decisions. This inventory intentionally leaves the dependent schema details unresolved until the corresponding ADR is accepted.
 
+### Proposed ADR proposals (P0-002)
+
+Proposals now exist for four of these candidates; all remain **Proposed**, not **Accepted**:
+
+| Candidate | Proposal |
+| --- | --- |
+| ADR-A | [ADR-0002 Metadata Store Selection](../adr/0002-metadata-store-selection.md) |
+| ADR-B | [ADR-0003 Secret-Store Integration](../adr/0003-secret-store-integration.md) |
+| ADR-C | [ADR-0004 Host-Agent Privilege Boundary](../adr/0004-host-agent-privilege-boundary.md) |
+| ADR-D | [ADR-0005 Initial Production Packaging](../adr/0005-initial-production-packaging.md) |
+| ADR-E | Not yet proposed (version/capability matrix) |
+
 ## Domain-coverage checklist
 
 | # | Domain | Accounted | Source reference | Decided vs planned | Source/destination | Security boundary | Unresolved |

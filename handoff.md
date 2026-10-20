@@ -7,13 +7,14 @@
 **Execution policy:** agents execute the already-authorized microtasks sequentially on this branch with real verification, archive, commit, push and a confirmed remote checkpoint after each task. After a confirmed `TASK_CHECKPOINTED`, the agent automatically advances to the next authorized microtask; no intermediate human review or merge gate. After final package checks the agent reports `WORK_PACKAGE_READY` and stops.
 
 ## Current Active Task
-P0-002 — `workflow/active_work/P0-002-architecture-decision-records.md`.
+P0-003 — `workflow/active_work/P0-003-scaffold-toolchain-and-ci.md`.
 
 ## Checkpointed tasks (this branch)
 - P0-001 (domain/API contract inventory) — `TASK_CHECKPOINTED`. Deliverable `docs/contracts/README.md`; task file archived at `archive/active-work/P0-001-domain-contract-inventory.md`; implementation committed and pushed on `phase-0/foundation`.
+- P0-002 (enabling architecture decisions) — `TASK_CHECKPOINTED`. Deliverables `docs/adr/0002`–`0005` (all **Proposed**, not Accepted); task file archived at `archive/active-work/P0-002-architecture-decision-records.md`; committed and pushed on `phase-0/foundation`.
 
 ## Authorized queued task IDs
-P0-002, P0-003, P0-004, in strict sequence. Do not open a queued task body before the preceding task reaches its confirmed checkpoint.
+P0-003, P0-004, in strict sequence. Do not open a queued task body before the preceding task reaches its confirmed checkpoint.
 
 ## PR authority
 - **PR initiation, review, approval and merge are human-only.** Agents never create, open, submit, approve or merge a pull request.
