@@ -5,11 +5,11 @@
 **Authorized package:** P2-001 through P2-006, explicitly human-approved as a **mock/interface-only** Phase 2 batch.
 
 ## Current Active Task
-**P2-001:** `workflow/active_work/P2-001-architecture-and-contract-gate.md`.
+**P2-002:** `workflow/active_work/P2-002-registry-backend-mock-contracts.md`.
 
 ## Authorized queue (strict sequence)
-1. P2-001 — ADR readiness and Registry contracts (**current**)
-2. P2-002 — mock Registry backend domain and in-memory interfaces
+1. P2-001 — ADR readiness and Registry contracts — **done (verified, archived, checkpointed)**
+2. P2-002 — mock Registry backend domain and in-memory interfaces (**current**)
 3. P2-003 — isolated per-connection capability fixtures
 4. P2-004 — secret-reference boundaries and endpoint/TLS/SSRF validation tests
 5. P2-005 — Registry UI mock workflows

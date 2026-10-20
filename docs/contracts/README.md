@@ -171,6 +171,10 @@ The inventory itself is versioned as `contract_inventory_version: 1`. Individual
   - Actor identity source (depends on auth mechanism — not defined before accepted decisions).
   - Correlation/ID conventions across modules.
 
+## Phase 2 refinement
+
+The Database Registry slice of this inventory is refined at interface level in [`docs/contracts/registry.md`](registry.md) (P2-001). That document separates fixed invariants from provisional interface shapes and explicitly-open items, and is paired with the human decision checklist [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md). Neither accepts [ADR-0002](../adr/0002-metadata-store-selection.md) or [ADR-0003](../adr/0003-secret-store-integration.md), which remain **Proposed**.
+
 ## Cross-cutting contract rules
 
 - **Planned vs decided separation.** Sections marked **Decided** carry invariants that must not be contradicted; **Planned**/**Unresolved** items must not be frozen into wire formats, Go types, REST routes, database schemas or auth mechanisms by this task.
