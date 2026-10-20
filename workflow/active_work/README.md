@@ -1,11 +1,14 @@
 # Active Work — Telegraf Toolkit
 
-The persistent `workflow/active_work/` folder is the sole implementation authorization ledger on the human-designated ref. Task bodies are executable **only after human promotion here**; Planning files are proposals, not authorization.
+**Human-authorized work package:** Phase 1 application shell, on `phase-1/application-shell`.
+**Current task:** `P1-001-app-shell-navigation.md`.
+**Authorized queue (strict sequence):**
+1. `P1-001-app-shell-navigation.md` — current
+2. `P1-002-feature-module-entrypoints.md`
+3. `P1-003-mock-states-and-permissions.md`
+4. `P1-004-api-query-conventions.md`
+5. `P1-005-a11y-smoke-quality-gate.md`
 
-**Designated work branch:** `phase-1/application-shell` (Phase 1 planning/preparation).
-**Current authorized task:** none.
-**Authorized queue:** empty.
+The human explicitly approved all five proposals as one sequential work package and promoted them into this ledger. Only read the current task body, never pre-read later tasks. On successful verification, archive by `git mv`, record evidence, commit/push the branch checkpoint, confirm the remote result, update this pointer and `handoff.md`, and automatically proceed to the next already-authorized task.
 
-Five P1 microtask proposals exist under `planning/microtask/` and are **not authorized**. The human must explicitly approve and promote selected tasks here, then align this README and `handoff.md` before OpenHands begins. Agents must not self-promote.
-
-After authorization, run approved tasks sequentially, verifying, archiving via `git mv`, committing and pushing confirmed branch checkpoints, then advancing automatically. Only humans initiate, review, approve and merge PRs. If the queue is empty, stop.
+No scope expansion, agent self-promotion, real historian/database/Docker operations, unaccepted ADR decisions or agent PR actions. After all five tasks pass and the queue is empty, run the final package checks and report `WORK_PACKAGE_READY`; only humans initiate, approve and merge pull requests.
