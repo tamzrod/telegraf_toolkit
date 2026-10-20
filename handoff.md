@@ -1,28 +1,18 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow phase:** `development`; human-designated branch: `phase-2/database-registry`.
-**Authorized package:** P2-001 through P2-006, explicitly human-approved as a **mock/interface-only** Phase 2 batch.
+**Phase:** Operational Database Registry preparation.
+**Preparation ref:** `phase-2/live-registry` based on `main` after merged PR #4 (merge commit `1670f97c71a284df5b573989aa7f45323119cf5f`).
+**Current Active Task:** None.
+**Authorized queue:** Empty.
 
-## Current Active Task
-**None.** All six authorized P2 tasks (P2-001–P2-006) are verified, archived and checkpointed on `phase-2/database-registry`. `workflow/active_work/` contains only README.md.
+P2L-001–P2L-005 are planning proposals, NOT authorization.
 
-## Authorized queue (strict sequence)
-1. P2-001 — ADR readiness and Registry contracts — **done (verified, archived, checkpointed)**
-2. P2-002 — mock Registry backend domain and in-memory interfaces — **done (verified, archived, checkpointed)**
-3. P2-003 — isolated per-connection capability fixtures — **done (verified, archived, checkpointed)**
-4. P2-004 — secret-reference boundaries and endpoint/TLS/SSRF validation tests — **done (verified, archived, checkpointed)**
-5. P2-005 — Registry UI mock workflows — **done (verified, archived, checkpointed)**
-6. P2-006 — mock quality gate, evidence and handoff — **done (verified, archived, checkpointed)**
+## Blocking human architecture gate
+ADR-0002 (metadata store) and ADR-0003 (secret store/key custody) remain Proposed. Live persistent Registry work must not begin until human acceptance of the respective ADR, including key custody and rotation. Recommended choices are an embedded SQLite-class metadata store with conditional PostgreSQL migration, and backend-only envelope encryption behind a SecretStore boundary with keys separate from database and backups. Recommendations are not approvals.
 
-The batch is complete at **mock/interface scope only**; see the package-level report and `docs/decisions/phase-2-integration-handoff.md`. No further task is authorized: do not self-promote from Planning.
+## Safety and execution
+Only humans promote tasks from Planning to `workflow/active_work/` and authorize safe integration target environments. No actual database access, credential storage, network probes or implementation work is currently authorized. After authorization, run Operation CWAL sequential checkpoints. No agent PR actions.
 
-Human promotion is complete on this branch. Agent may proceed automatically between **confirmed verified branch checkpoints**, but never read future task bodies before the task is current. Update this handoff and Active Work README atomically with each verified task archive.
-
-## Architectural constraints
-ADR-0002 (metadata store) and ADR-0003 (secret store/key custody) remain **Proposed**. The human approved **only interfaces, in-memory/mock adapters, isolated capability fixtures, validation/security-boundary tests, and mock UI**. No real persistence, credential values/resolution, live InfluxDB connectivity, historian writes, Telegraf or Docker control. No ADR may be marked Accepted or silently implemented.
-
-ADR-0004 and ADR-0005 also remain Proposed. Phase 0 PR #2 and Phase 1 PR #3 are integrated into main.
-
-## PR authority and recovery
-Only humans initiate, review, approve or merge PRs. After completing all six tasks, run final checks and report `WORK_PACKAGE_READY` without opening a PR. Before resuming, inspect remote branch, active/archived tasks, Git status and verification evidence; stop for genuine blockers, never self-promote or force-push.
+## Status
+Phase 0 and Phase 1 integrated; Phase 2 mock/interface foundation integrated by PR #4. Phase 2 operational exit criteria remain incomplete. Phase 3 remains not started.
