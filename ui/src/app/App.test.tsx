@@ -62,7 +62,7 @@ describe("application shell", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Synchronizer" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Not implemented/i)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/Not implemented/i);
   });
 
   it("navigates between modules through the sidebar links", async () => {
@@ -155,5 +155,23 @@ describe("application shell", () => {
       screen.getByRole("link", { name: /skip to main content/i }),
     ).toHaveAttribute("href", "#main-content");
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+  });
+
+  it("makes no network call other than the approved scaffold health endpoint", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(health), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    for (const module of MODULES.filter((entry) => entry.path !== "/")) {
+      renderApp(module.path);
+      await screen.findByRole("heading", { level: 1, name: module.label });
+    }
+
+    for (const [url] of fetchSpy.mock.calls) {
+      expect(String(url)).toBe("/api/v1/health");
+    }
   });
 });
