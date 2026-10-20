@@ -142,6 +142,35 @@ limitations:
 Treat a clean run as a guardrail, not a security guarantee. Dependency auditing,
 secret-scanning services and human review remain necessary.
 
+## Responsive and accessibility verification
+
+Phase 1 automated coverage is in `ui/src/app/accessibility.test.tsx` and runs as
+part of `npm test` / `make check`. It checks, for every registered route:
+
+- exactly one `main` landmark, one `banner` and one labelled primary `navigation`;
+- exactly one level-1 heading and no skipped heading levels;
+- no duplicate element `id`s;
+- the skip link is the first tab stop and targets `#main-content`;
+- every primary navigation link is reachable by keyboard and activates with Enter;
+- the responsive menu toggle exposes `aria-controls`/`aria-expanded` and is
+  keyboard-operable;
+- each route renders without error and the unknown route reaches the not-found page.
+
+**What jsdom cannot verify.** Automated tests run in jsdom, which does not apply
+Tailwind CSS or media queries, so these checks confirm semantics and state, not
+visual layout. Verify responsiveness manually:
+
+1. Run the SPA: `cd ui && npm ci && npm run dev`.
+2. In the browser, use device emulation at ~375 px (narrow) and ~1280 px (wide).
+3. Confirm the sidebar collapses to the **Menu** toggle below the `md` breakpoint
+   and expands above it, that content does not overflow horizontally, and that
+   tabbing still reaches every navigation link at both widths.
+4. Enable reduced motion if relevant and confirm focus outlines are visible on
+   links, buttons and the skip link.
+
+Real-browser and screen-reader validation remains a manual step; automated tests
+are a guardrail, not proof of accessibility conformance.
+
 ## Portability limits
 
 - Tests run on Linux amd64 (CI and development target). Other platforms are not
