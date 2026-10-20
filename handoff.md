@@ -1,23 +1,29 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow phase:** `initialization` (human-owned), with application work governed by branch/PR workflow.
-**Human-authorized Phase 0 work branch:** `phase-0/foundation`.
-**Promotion:** P0-001 through P0-004 explicitly promoted by human request to this work branch. They are not authorized on `main` until the promotion is merged there.
-**Execution policy:** one current task at a time; Phase 0 work remains on the dedicated branch. Human-reviewed PR and merge are required for application code. Do not push application implementation directly to `main`.
+**Workflow phase:** `initialization` (human-owned). Direct-`main` commits are permitted only for explicitly approved repository/governance setup, never application code. Normal implementation uses a designated work branch.
+**Human-designated Phase 0 work branch:** `phase-0/foundation`. P0-001 through P0-004 were promoted there by explicit human instruction. This branch-local handoff records the designated ref and the package's task progression; the root `main` handoff records the designated branch only.
+
+**Execution policy:** agents execute the already-authorized microtasks sequentially on this branch with real verification, archive, commit, push and a confirmed remote checkpoint after each task. After a confirmed `TASK_CHECKPOINTED`, the agent automatically advances to the next authorized microtask; no intermediate human review or merge gate. After final package checks the agent reports `WORK_PACKAGE_READY` and stops.
 
 ## Current Active Task
-None pending execution. P0-001 implemented and verified on `phase-0/foundation`; awaiting human-reviewed PR/merge. Provisional archive move staged in the open PR; not durably complete until confirmed on `main`.
+P0-002 — `workflow/active_work/P0-002-architecture-decision-records.md`.
+
+## Checkpointed tasks (this branch)
+- P0-001 (domain/API contract inventory) — `TASK_CHECKPOINTED`. Deliverable `docs/contracts/README.md`; task file archived at `archive/active-work/P0-001-domain-contract-inventory.md`; implementation committed and pushed on `phase-0/foundation`.
 
 ## Authorized queued task IDs
-P0-002, P0-003, P0-004. Queued files must not be opened before the preceding task reaches its durable checkpoint. Do not begin P0-002 while P0-001 awaits review/merge.
+P0-002, P0-003, P0-004, in strict sequence. Do not open a queued task body before the preceding task reaches its confirmed checkpoint.
+
+## PR authority
+- **PR initiation, review, approval and merge are human-only.** Agents never create, open, submit, approve or merge a pull request.
+- Existing draft PR #2 (human-opened) is a human-controlled integration artifact, not a per-task pause condition. Agents must not create a duplicate or change PR state.
 
 ## Checkpoints
 - Human explicitly authorized all four Phase 0 microtasks for promotion to this dedicated branch.
-- P0-001 (contract inventory) implemented at `docs/contracts/README.md`; task file provisionally archived; pending human review/merge.
-- This handoff names the work branch and current task; task-file presence governs authorization, not the handoff alone.
-- Existing `main` Active Work remains empty until a reviewed promotion/implementation merge.
-- No application work executed as part of the promotion.
+- Branch checkpoints are verified work, not integration into `main`. Integration occurs only after a human-initiated PR is merged.
+- This handoff names the work branch, current task and queue; task-file presence governs authorization, not the handoff alone.
+- Root `main` Active Work remains empty until a human-initiated integration merge.
 
 ## Recovery
-Inspect branch/ref, task file presence, pointers, verification evidence, local commits, open PR and `origin/main` before resuming. Never infer completion from an archive move on an unmerged branch.
+Inspect authorized ref, branch-local queue, archive/evidence, working tree, local/remote Git checkpoint and any human-initiated PR before resuming. Never force-push or repeat a confirmed checkpoint blindly. An archived task on an unmerged branch is `TASK_CHECKPOINTED`, not `INTEGRATED`.

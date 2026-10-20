@@ -1,45 +1,44 @@
 # Operation CWAL — Telegraf Toolkit
 
-Autonomous, bounded OpenHands task execution. This is a repository workflow, not an installable package.
+Autonomous **work-package execution** with verified microtask checkpoints and human-controlled PR integration. This document is a workflow, not an installation package.
 
-## Authorization and phase
-- The only implementation authorization ledger is `workflow/active_work/`. Human promotion places an incomplete task `*.md` directly there; `README.md` is not a task. No agent promotion or self-selected tasks from Planning.
-- There must be exactly one persistent `workflow/active_work/` directory. Never move, rename or remove the directory itself.
-- `handoff.md` declares human-owned phase: `initialization` or `development`. Phase does not grant task authorization.
-- Direct `main` applies only to human-approved repository initialization/infrastructure instructions, not ordinary application code. Any ambiguous task or phase takes the development branch/PR path.
-- `handoff.md` and Active Work README must agree on the current task and the task file must exist on the authorized work ref. Normally promotion is recorded on `main`. For the explicitly human-approved Phase 0 batch on `phase-0/foundation`, the work-branch promotion is authorized for preparation/execution on that branch only; it does not authorize direct application-code pushes to `main`. If authorization/ref/pointers conflict, stop. Read future task filenames only, never their bodies.
-- Single writer per task/work surface; only one direct-`main` writer. If exclusivity cannot be established or conflicting activity is detected, stop.
+## Authority, authorization and work ref
+- Humans authorize a bounded work package, designate its work branch and promote its microtasks into `workflow/active_work/` in an explicit order. `README.md` is metadata, not an executable task; agents must not select Planning tasks or create new authorizations.
+- Maintain exactly one persistent `workflow/active_work/` directory per ref; never rename or delete it.
+- The designated branch and human promotion are authoritative for that package. Normally tasks can be promoted on `main` before a work branch is created; explicitly approved work-branch promotions (such as `phase-0/foundation`) are equally valid **on that branch**. Do not infer authorization from `main` being empty.
+- `handoff.md` and the Active Work README must agree on the designated ref, current task and queue. If inconsistent, stop for human reconciliation. Inspect queued filenames only, not their bodies.
+- One writer per task/work surface. An unknown or conflicting writer is a blocker.
+- `handoff.md` declares a human-owned workflow phase. The sole direct-`main` exception is explicitly approved repository initialization/governance, not application code. Normal work uses the human-designated branch.
 
-## Entry and bounded context
-1. Read `AGENTS.md`, this operation, phase/current-task sections of `handoff.md`, `workflow/active_work/README.md`, and the one current task file.
-2. Use BLACK SHEEP WALL with `ICC/INDEX.md` only for relevant context. Verify needed facts against `IDENTITY.md`, accepted ADRs and relevant source.
-3. Check task whitelist, acceptance, stop conditions, and Git state. Fetch `origin/main` and validate that the task exists on the authorized ref (`main` by default; explicitly human-promoted Phase 0 batch on `phase-0/foundation` is the sole current exception). Never discard unrelated local changes.
-4. Select Git mode: narrowly permitted setup documentation uses `main`; all application work uses a dedicated reviewed branch/PR. The human-designated Phase 0 branch is the working branch for the four promoted tasks.
+## Task entry and bounded context
+1. Read `AGENTS.md`, this operation, handoff and Active Work pointers, then **only** the current authorized task.
+2. Apply BLACK SHEEP WALL using `ICC/INDEX.md`, and verify relevant facts against `IDENTITY.md`, accepted ADRs, specs and actual source.
+3. Fetch remote refs; validate designated branch and task/pointers, inspect working tree and pre-existing changes. Never discard unrelated edits or overwrite concurrent remote changes.
+4. Check the task objective, allowed surface, acceptance criteria, dependencies and stop conditions. Missing architecture or unsafe/unapproved actions require a human decision.
 
-## Execute and verify
-- Work within the current task's stated objective and source/test surface. Directly required test fixes are allowed; ambiguous architecture, material scope expansion and destructive operations are blockers.
-- Never deploy or restart production runtimes, alter credentials, or write/delete historians without separate explicit approval.
-- Run all task-required checks; record commands, actual pass/fail/skip outcomes and evidence. Do not represent mocks as live integrations.
-- Stop discovery once the required implementation seam is found. Stop after repeated identical failures; no blind retries or unverified installs.
+## Autonomous microtask loop
+1. Implement **only** the current task's authorized objective. Required directly related test repairs are allowed; substantial scope expansion is not.
+2. Run acceptance checks and record commands, real outcomes, evidence, skips and limitations. Never claim mocks contact live systems.
+3. On success, `git mv` the task into `archive/active-work/`, advance the queue pointer to the next **already authorized** task (or none), and update `handoff.md` together with code/evidence.
+4. Commit and push to the designated work branch; never force-push. Confirm the remote commit/tree includes implementation, evidence, archive and consistent next-task pointers.
+5. Record `TASK_CHECKPOINTED`. **Automatically continue** with the next queued, human-authorized task. Do not wait for a PR, human review or merge between tasks.
+6. On failure, retain the task in Active Work, record `TASK_BLOCKED` and stop if a safe within-scope repair is not possible. Never archive a failing task.
 
-## Completion — initialization-only direct main
-1. After verified acceptance, `git mv` the task file to `archive/active-work/`; update the current-task pointers and `handoff.md` in the same commit as code and evidence.
-2. Recheck remote `main` before publishing. Commit/push to `origin/main` without force, only when there are no conflicting changes or another writer.
-3. Verify the remote commit/tree contains the implementation, evidence and archived task. Only then count the task durably complete and consider the next human-promoted task.
+## Work package completion and integration
+- After the last microtask is checkpointed, rerun package-level checks and validate all requested deliverables, evidence, archive files, clean Git status and the remote branch SHA.
+- Only when required checks pass, record/report `WORK_PACKAGE_READY` with branch, final SHA, verification, unresolved **nonblocking** decisions, risks and limitations. Stop execution; do not open a PR.
+- **Only a human may create/open/submit, review/approve or merge a PR.** Human-initiated PRs must pass configured CI, architecture/security/scope review and required approvals before merge. No agent may merge or self-approve.
+- After human merge, confirm the intended changes and archives landed on `origin/main` before declaring `INTEGRATED`. Branch checkpoints are verified work, not integration.
+- An already-open draft PR (including Phase 0 PR #2) is a human-controlled integration artifact, **not** a per-task pause condition. Agents must not create a duplicate or change PR state. Authorized scoped review fixes can be made on the branch; human retains PR control.
+- For explicitly authorized direct-`main` initialization documentation, the confirmed remote checkpoint itself is integrated; no feature/code work is eligible for this exception.
 
-## Completion — regular development via PR
-1. Implement and verify on a dedicated task branch. Stage a **provisional** `git mv` from Active Work into the archive plus evidence and handoff/current-pointer updates in the same proposed changeset.
-2. Push the task branch and open a PR targeting `main`. Never directly push application code to `main`. Report actual checks; await configured checks and human review.
-3. The task remains authorized and incomplete on the human-approved promotion ref while the PR is open (`main` by default; Phase 0 promotion on `phase-0/foundation` is an explicit exception). Do not advance to another task while awaiting required review/merge. If rejected, preserve the task on the promotion ref; revise within scope or stop for human direction.
-4. Only after merge, inspect `origin/main`: verify the task no longer exists in Active Work, its archive and implementation are present, and the pointers agree. Then mark it durably complete and advance. If the promoted work batch was not previously present on `main`, the merged result must still contain the verified archive/evidence and consistent task pointer; the PR history must demonstrate the human-authorized promotion and completion.
+## Recovery and stop conditions
+- Resume by checking current branch, remote head, dirty tree, task presence/archive, queue pointers, previous checkpoint/evidence, and any human-initiated PR state. Never repeat a checkpoint blindly.
+- Verified but uncommitted: revalidate evidence and staged changes. Committed but not pushed: reconcile remote history safely. Pushed but unconfirmed: inspect remote tree. After confirmed checkpoint: advance without requesting human review.
+- If tests cannot be verified, architecture approval is necessary for the next task, a dependency cannot be satisfied safely, a security/production privilege is required, or concurrent changes conflict: stop, preserve evidence and report exactly what is blocking. Proposed ADRs may be drafted without human approval, but must not be marked Accepted.
+- When no authorized task remains, do only final package checks, report readiness/blockers and stop. Planning, ICC, handoff and archives never independently authorize new work.
+- Do not install unverified tools, elevate permissions, refactor outside scope, retry identical failures indefinitely, or expose secrets.
 
-## Recovery
-- Before resuming, inspect working tree, local commits, `origin/main`, task location, handoff pointers, PR/check/merge state (if applicable) and recorded verification.
-- Before verification: task stays in Active Work; document blocker. Verified but uncommitted: validate evidence and staged archive move before checkpointing.
-- Committed but unpublished: compare remote ancestry and working tree; do not repeat implementation or force-push. Published direct-main but unconfirmed: inspect remote tree before advancing.
-- PR open/rejected/checks failing: do not advance; preserve branch and task on `main`. PR merged: confirm archive, code, evidence and task absence on `main` before advancing.
-- Concurrent remote changes, ambiguous state, missing authorization, or unreconcilable pointers: stop and report exact facts for human resolution.
-- When Active Work is empty, stop. Never use Planning, ICC, archives or handoff as an alternative task queue.
-
-## Human ownership
-Humans approve task promotion, workflow phase changes, architectural exceptions, privileged actions and normal development PR merges. An agent never broadens its own authorization.
+## Ownership summary
+**Human:** work authorization and branch, task promotion, phase/architecture changes, privileged actions, PR initiation/review/approval/merge.  
+**Agent:** bounded implementation, evidence, verified branch checkpoint, automatic progression through already-authorized tasks, and final readiness report.
