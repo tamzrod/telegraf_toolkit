@@ -1,19 +1,9 @@
 # Active Work — Telegraf Toolkit
 
-**Human-authorized work package:** Phase 2 Database Registry, strictly **mock/interface-only**, branch `phase-2/database-registry`.
-**Current task:** none — the P2-001–P2-006 batch is complete at mock/interface scope.
-**Authorized queue (strict sequence):**
-1. P2-001-architecture-and-contract-gate.md — **done (verified, archived)**
-2. P2-002-registry-backend-mock-contracts.md — **done (verified, archived)**
-3. P2-003-capability-probe-fixtures.md — **done (verified, archived)**
-4. P2-004-secret-boundary-validation.md — **done (verified, archived)**
-5. P2-005-registry-ui-mock-workflows.md — **done (verified, archived)**
-6. P2-006-registry-quality-gate.md — **done (verified, archived)**
+**Designated preparation branch:** `phase-2/live-registry`.
+**Current task:** none.
+**Authorized queue:** empty.
 
-All six tasks were executed sequentially with verification, archive, commit, push and a confirmed remote checkpoint. No further task is authorized; do not self-promote from Planning.
+Proposed real Registry tasks P2L-001–P2L-005 reside in `planning/microtask/` only. Their presence does not authorize implementation. ADR-0002/0003 must receive explicit human acceptance before their dependent live functionality is developed; safe test targets and privilege boundaries require separate authorization.
 
-The human explicitly approved and promoted all six tasks as one bounded batch. The tasks exist in this ledger, not Planning. Read only the current task body; after acceptance tests succeed, archive with `git mv`, update this pointer and `handoff.md`, commit/push, verify the remote checkpoint and automatically advance to the next authorized task.
-
-**Nonnegotiable architecture gate:** ADR-0002 and ADR-0003 remain **Proposed**. Do not select or implement persistent metadata storage, real credential storage/resolution/key custody, or live InfluxDB access. Work only with mock/in-memory adapters, interfaces, fixtures, negative validation and clearly labeled demo UI. If a task's objective requires a human-only architecture decision, stop that part rather than silently accept an ADR.
-
-Only humans initiate, review, approve and merge PRs. Finish with package verification and report `WORK_PACKAGE_READY`; do not open or modify a PR.
+Humans promote selected tasks into Active Work and align `handoff.md` before CWAL execution. Agents do not self-promote or initiate/manage PRs.
