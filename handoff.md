@@ -1,28 +1,17 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow phase:** `development`; human-designated branch: `phase-2/database-registry`.
-**Authorized package:** P2-001 through P2-006, explicitly human-approved as a **mock/interface-only** Phase 2 batch.
+**Workflow:** isolated real-database integration testing.
+**Designated branch:** `test/real-influxdb-integration`.
+**Human-authorized task:** `TEST-001-real-influxdb-containers-and-toolkit-smoke.md` in `workflow/active_work/`.
 
 ## Current Active Task
-**None.** All six authorized P2 tasks (P2-001–P2-006) are verified, archived and checkpointed on `phase-2/database-registry`. `workflow/active_work/` contains only README.md.
+**TEST-001** — deploy isolated Docker Compose InfluxDB 2 OSS + InfluxDB 3 Core test containers, seed/query synthetic data and run honest Toolkit smoke/integration checks. Sole task; no subsequent queue.
 
-## Authorized queue (strict sequence)
-1. P2-001 — ADR readiness and Registry contracts — **done (verified, archived, checkpointed)**
-2. P2-002 — mock Registry backend domain and in-memory interfaces — **done (verified, archived, checkpointed)**
-3. P2-003 — isolated per-connection capability fixtures — **done (verified, archived, checkpointed)**
-4. P2-004 — secret-reference boundaries and endpoint/TLS/SSRF validation tests — **done (verified, archived, checkpointed)**
-5. P2-005 — Registry UI mock workflows — **done (verified, archived, checkpointed)**
-6. P2-006 — mock quality gate, evidence and handoff — **done (verified, archived, checkpointed)**
+## Authority / safety
+Human authorized this bounded **test-host-only** container work. No production historians, remote/prod servers, broad Docker privileges or real operational Toolkit Registry changes are authorized. Requires exact version/digest pins, initial secret provisioning before exposure, restricted loopback network and no tracked secrets. If the execution host lacks Docker or safe isolation, stop with actual evidence rather than claiming deployment.
 
-The batch is complete at **mock/interface scope only**; see the package-level report and `docs/decisions/phase-2-integration-handoff.md`. No further task is authorized: do not self-promote from Planning.
+ADR-0002 and ADR-0003 remain Proposed; this task does not accept them. Current Toolkit Registry is mock/interface scope; test and report live integration as NOT IMPLEMENTED if code lacks it, rather than inventing success.
 
-Human promotion is complete on this branch. Agent may proceed automatically between **confirmed verified branch checkpoints**, but never read future task bodies before the task is current. Update this handoff and Active Work README atomically with each verified task archive.
-
-## Architectural constraints
-ADR-0002 (metadata store) and ADR-0003 (secret store/key custody) remain **Proposed**. The human approved **only interfaces, in-memory/mock adapters, isolated capability fixtures, validation/security-boundary tests, and mock UI**. No real persistence, credential values/resolution, live InfluxDB connectivity, historian writes, Telegraf or Docker control. No ADR may be marked Accepted or silently implemented.
-
-ADR-0004 and ADR-0005 also remain Proposed. Phase 0 PR #2 and Phase 1 PR #3 are integrated into main.
-
-## PR authority and recovery
-Only humans initiate, review, approve or merge PRs. After completing all six tasks, run final checks and report `WORK_PACKAGE_READY` without opening a PR. Before resuming, inspect remote branch, active/archived tasks, Git status and verification evidence; stop for genuine blockers, never self-promote or force-push.
+## CWAL checkpoint
+Verify results, archive TEST-001 by git mv, record actual test outputs, update pointers, commit/push/remote-confirm and report WORK_PACKAGE_READY only if acceptance achieved. Human controls all PR actions. No auto-promotion.
