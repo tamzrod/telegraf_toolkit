@@ -6,8 +6,8 @@ Task: P2-006 (Phase 2 mock acceptance, audit and integration handoff).
 This document records what the Phase 2 mock/interface batch actually delivers, what remains mock, the exact real-integration work that is blocked, the capability matrix used by tests, and the security boundaries. It is the handoff from the approved mock batch to a future, separately authorized real implementation.
 
 - Decision gate: [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md).
-- Interface contracts: [`docs/contracts/registry.md`](registry.md).
-- Parent inventory: [`docs/contracts/README.md`](README.md).
+- Interface contracts: [`docs/contracts/registry.md`](../contracts/registry.md).
+- Parent inventory: [`docs/contracts/README.md`](../contracts/README.md).
 
 ## What this batch delivers (implemented and verified)
 
