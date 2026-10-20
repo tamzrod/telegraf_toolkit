@@ -1,11 +1,13 @@
 # Active Work — Telegraf Toolkit
 
-**Human-authorized work package:** Phase 1 application shell, on `phase-1/application-shell`.
-**Current task:** none — the authorized Phase 1 queue is complete.
-**Authorized queue (strict sequence):** empty.
+This persistent folder is the sole ledger of **human-authorized** implementation microtasks on the designated work ref.
 
-**Checkpointed:** `P1-001`, `P1-002`, `P1-003`, `P1-004`, `P1-005` → `archive/active-work/` (verified, committed and pushed). See `archive/active-work/P1-*.md` for evidence.
+**Preparation branch:** `phase-2/database-registry`.
+**Current task:** none.
+**Authorized queue:** empty.
 
-The human explicitly approved all five proposals as one sequential work package and promoted them into this ledger. Only read the current task body, never pre-read later tasks. On successful verification, archive by `git mv`, record evidence, commit/push the branch checkpoint, confirm the remote result, update this pointer and `handoff.md`, and automatically proceed to the next already-authorized task.
+Phase 2 P2-001–P2-006 are **planning proposals only** under `planning/microtask/`. Their creation and the branch's existence do not authorize OpenHands to implement them. Only humans may approve/promote selected tasks into this folder and set a matching current-task pointer here and in `handoff.md`.
 
-No scope expansion, agent self-promotion, real historian/database/Docker operations, unaccepted ADR decisions or agent PR actions. After all five tasks pass and the queue is empty, run the final package checks and report `WORK_PACKAGE_READY`; only humans initiate, approve and merge pull requests.
+If a human authorizes a batch, execute one task at a time under Operation CWAL, verifying, archiving, committing, pushing and remote-confirming each checkpoint before advancing. Keep ADR-0002/0003 unresolved until human acceptance, and allow only mock/interface work while dependent architecture remains undecided.
+
+Only humans initiate, review, approve and merge PRs. When the queue is empty, stop; do not self-promote from Planning.
