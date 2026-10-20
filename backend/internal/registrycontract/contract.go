@@ -36,6 +36,10 @@ const (
 	CodeProfileNotFound       ErrorCode = "profile-not-found"
 	CodeReferenceNotFound     ErrorCode = "credential-reference-not-found"
 	CodeDuplicateProfile      ErrorCode = "duplicate-profile"
+	CodeInvalidProfile        ErrorCode = "invalid-profile"
+	CodeScopeIncomplete       ErrorCode = "scope-incomplete"
+	CodeRoleMismatch          ErrorCode = "credential-role-mismatch"
+	CodeSecretMaterial        ErrorCode = "secret-material-rejected"
 )
 
 // secretMarkers are substrings that must never appear in a sanitized error.
@@ -162,7 +166,7 @@ func (e AuditEvent) Validate() error {
 	}
 	probe := &SanitizedError{Code: CodeReferenceNotFound, Message: e.TargetID, Detail: e.Action}
 	if err := probe.Validate(); err != nil {
-		return NewSanitizedError(CodeEndpointRejected, "Audit event must not contain secret material.")
+		return NewSanitizedError(CodeEndpointRejected, "Audit event must not contain sensitive material.")
 	}
 	return nil
 }

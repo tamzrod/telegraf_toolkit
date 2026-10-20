@@ -148,6 +148,13 @@ SanitizedError
 | `selection-incomplete` | A required side was not selected |
 | `tls-validation-failed` | TLS verification failed and was not bypassed |
 | `endpoint-rejected` | The endpoint failed SSRF-aware validation |
+| `profile-not-found` | No profile (or mock capability set) matches the requested identity |
+| `credential-reference-not-found` | No credential reference matches the requested identity |
+| `duplicate-profile` | A profile with the same `connection_id` already exists |
+| `invalid-profile` | A profile is missing a required identity, family or reference |
+| `scope-incomplete` | A logical scope is missing the fields its kind requires |
+| `credential-role-mismatch` | A reference role is incompatible with the requested direction |
+| `secret-material-rejected` | A serialized contract carried secret-like material |
 
 **Open**
 
