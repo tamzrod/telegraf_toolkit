@@ -1,16 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { fetchHealth } from "../../api/client";
-
-const MODULES = [
-  { name: "Overview", status: "scaffold" },
-  { name: "Runtimes", status: "not implemented" },
-  { name: "Pipeline Designer", status: "not implemented" },
-  { name: "Databases", status: "not implemented" },
-  { name: "Credentials", status: "not implemented" },
-  { name: "Canonical Mapper", status: "not implemented" },
-  { name: "Synchronizer", status: "not implemented" },
-  { name: "Audit / Settings", status: "not implemented" },
-];
+import { MODULES } from "../../app/modules";
 
 /**
  * Overview module. It shows the scaffold status only and must never present
@@ -23,10 +14,12 @@ export function OverviewPage() {
   });
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold">Telegraf Toolkit</h1>
+    <section aria-labelledby="overview-heading">
+      <h1 id="overview-heading" className="text-2xl font-semibold">
+        Overview
+      </h1>
       <p className="mt-1 text-sm text-gray-600">
-        Configure. Map. Synchronize. — Phase 0 scaffold.
+        Configure. Map. Synchronize. — Phase 0 scaffold, Phase 1 shell.
       </p>
 
       <section className="mt-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
@@ -61,12 +54,15 @@ export function OverviewPage() {
         </h2>
         <ul className="mt-2 space-y-1 text-sm">
           {MODULES.map((module) => (
-            <li key={module.name}>
-              {module.name} — <span className="text-gray-600">{module.status}</span>
+            <li key={module.id}>
+              <Link to={module.path} className="text-blue-700 underline">
+                {module.label}
+              </Link>{" "}
+              — <span className="text-gray-600">{module.status}</span>
             </li>
           ))}
         </ul>
       </section>
-    </main>
+    </section>
   );
 }
