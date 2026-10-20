@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for the Database Registry. */
 export function DatabasesPage() {
@@ -27,6 +28,7 @@ export function DatabasesPage() {
         reason="Connection registry and capability probing are not implemented in this Phase 1 shell."
         actions={["Add profile", "Test connection", "Edit", "Inspect dependencies"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }

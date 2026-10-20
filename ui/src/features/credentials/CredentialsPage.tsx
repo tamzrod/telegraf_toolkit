@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for credential reference management. */
 export function CredentialsPage() {
@@ -27,6 +28,7 @@ export function CredentialsPage() {
         reason="Credential and secret-reference management is not implemented in this Phase 1 shell."
         actions={["Add reference", "Rotate", "Revoke", "Inspect dependencies"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }

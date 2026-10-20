@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -55,5 +56,52 @@ describe("App scaffold", () => {
     expect(
       await screen.findByText(/Backend unreachable/i),
     ).toBeInTheDocument();
+  });
+
+  it("shows a loading state before the health response resolves", async () => {
+    let resolveFetch: (value: Response) => void = () => {};
+    vi.spyOn(globalThis, "fetch").mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    renderApp();
+
+    expect(screen.getByText(/Loading backend status/i)).toBeInTheDocument();
+
+    resolveFetch(
+      new Response(JSON.stringify(health), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(await screen.findByText(/connected: false/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading backend status/i)).not.toBeInTheDocument();
+  });
+
+  it("retries the health request from the error state", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValue(
+        new Response(JSON.stringify(health), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const user = userEvent.setup();
+    renderApp();
+
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    await user.click(retry);
+
+    expect(await screen.findByText(/connected: false/i)).toBeInTheDocument();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    for (const [url] of fetchSpy.mock.calls) {
+      expect(String(url)).toBe("/api/v1/health");
+    }
   });
 });

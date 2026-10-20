@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchHealth } from "../../api/client";
 import { MODULES } from "../../app/modules";
+import { ErrorState, LoadingState } from "../../components/common/StatePanels";
 
 /**
  * Overview module. It shows the scaffold status only and must never present
  * itself as a live product connection.
  */
 export function OverviewPage() {
-  const { data, isPending, isError } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["health"],
     queryFn: ({ signal }) => fetchHealth(signal),
   });
@@ -32,11 +33,13 @@ export function OverviewPage() {
         <h2 id="api-status" className="text-lg font-medium">
           Backend status
         </h2>
-        {isPending && <p className="mt-2 text-sm">Loading…</p>}
+        {isPending && <LoadingState label="Loading backend status…" />}
         {isError && (
-          <p className="mt-2 text-sm text-red-700">
-            Backend unreachable. Start the API with the documented command.
-          </p>
+          <ErrorState
+            title="Backend unreachable"
+            description="Start the API with the documented command, then retry."
+            onRetry={() => void refetch()}
+          />
         )}
         {data && (
           <ul className="mt-2 space-y-1 text-sm">

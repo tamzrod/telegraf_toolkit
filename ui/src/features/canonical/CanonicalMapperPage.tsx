@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for the dual-database Canonical Mapper. */
 export function CanonicalMapperPage() {
@@ -27,6 +28,7 @@ export function CanonicalMapperPage() {
         reason="Schema browsing and mapping are not implemented in this Phase 1 shell."
         actions={["Select source", "Select destination", "Save mapping", "Export profile"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }

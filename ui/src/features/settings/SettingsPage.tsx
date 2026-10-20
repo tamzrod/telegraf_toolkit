@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for audit logs, permissions and version policy. */
 export function SettingsPage() {
@@ -26,6 +27,7 @@ export function SettingsPage() {
         reason="Audit and settings management is not implemented in this Phase 1 shell."
         actions={["View change log", "Manage permissions", "Version policy"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }

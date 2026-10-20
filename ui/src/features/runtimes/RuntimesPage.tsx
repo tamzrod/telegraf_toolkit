@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for the Telegraf Runtime Manager. */
 export function RuntimesPage() {
@@ -27,6 +28,7 @@ export function RuntimesPage() {
         reason="Runtime management is not implemented in this Phase 1 shell."
         actions={["Add runtime", "Restart", "View logs", "Deploy configuration"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }

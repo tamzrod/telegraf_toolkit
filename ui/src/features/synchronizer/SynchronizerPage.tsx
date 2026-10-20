@@ -3,6 +3,7 @@ import {
   NotImplementedNotice,
   PageHeader,
 } from "../../components/common/ModulePageParts";
+import { StateDemo } from "../../components/common/StateDemo";
 
 /** Feature-local entry point for the historical Synchronizer. */
 export function SynchronizerPage() {
@@ -27,6 +28,7 @@ export function SynchronizerPage() {
         reason="Historical comparison and backfill are not implemented in this Phase 1 shell."
         actions={["New comparison", "Select blocks", "Backfill", "Verify"]}
       />
+      <StateDemo subject="this module's data" />
     </section>
   );
 }
