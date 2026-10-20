@@ -1,13 +1,17 @@
 # Active Work — Telegraf Toolkit
 
-This persistent folder is the sole ledger of **human-authorized** implementation microtasks on the designated work ref.
+**Human-authorized work package:** Phase 2 Database Registry, strictly **mock/interface-only**, branch `phase-2/database-registry`.
+**Current task:** `P2-001-architecture-and-contract-gate.md`.
+**Authorized queue (strict sequence):**
+1. P2-001-architecture-and-contract-gate.md — **current**
+2. P2-002-registry-backend-mock-contracts.md
+3. P2-003-capability-probe-fixtures.md
+4. P2-004-secret-boundary-validation.md
+5. P2-005-registry-ui-mock-workflows.md
+6. P2-006-registry-quality-gate.md
 
-**Preparation branch:** `phase-2/database-registry`.
-**Current task:** none.
-**Authorized queue:** empty.
+The human explicitly approved and promoted all six tasks as one bounded batch. The tasks exist in this ledger, not Planning. Read only the current task body; after acceptance tests succeed, archive with `git mv`, update this pointer and `handoff.md`, commit/push, verify the remote checkpoint and automatically advance to the next authorized task.
 
-Phase 2 P2-001–P2-006 are **planning proposals only** under `planning/microtask/`. Their creation and the branch's existence do not authorize OpenHands to implement them. Only humans may approve/promote selected tasks into this folder and set a matching current-task pointer here and in `handoff.md`.
+**Nonnegotiable architecture gate:** ADR-0002 and ADR-0003 remain **Proposed**. Do not select or implement persistent metadata storage, real credential storage/resolution/key custody, or live InfluxDB access. Work only with mock/in-memory adapters, interfaces, fixtures, negative validation and clearly labeled demo UI. If a task's objective requires a human-only architecture decision, stop that part rather than silently accept an ADR.
 
-If a human authorizes a batch, execute one task at a time under Operation CWAL, verifying, archiving, committing, pushing and remote-confirming each checkpoint before advancing. Keep ADR-0002/0003 unresolved until human acceptance, and allow only mock/interface work while dependent architecture remains undecided.
-
-Only humans initiate, review, approve and merge PRs. When the queue is empty, stop; do not self-promote from Planning.
+Only humans initiate, review, approve and merge PRs. Finish with package verification and report `WORK_PACKAGE_READY`; do not open or modify a PR.
