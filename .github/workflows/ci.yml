@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (format, vet, build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod
+          if [ -f go.sum ]; then git diff --exit-code -- go.sum; fi
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt required for:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+  frontend:
+    name: frontend (lint, build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install (clean, locked)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  policy:
+    name: policy (floating versions, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject floating dependency versions
+        run: |
+          set -eu
+          fail=0
+          if grep -nE '"(latest|stable|next|\*|\^|~)[^"]*"' ui/package.json; then
+            echo "::error::floating version specifier found in ui/package.json"
+            fail=1
+          fi
+          if grep -nE '^\s*go\s+[0-9]+\.[0-9]+$' backend/go.mod; then
+            echo "::error::go directive must pin the patch version"
+            fail=1
+          fi
+          exit "$fail"
+
+      - name: Reject committed secret material
+        run: |
+          set -eu
+          matches="$(grep -rInE 'BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}' \
+            --include='*.go' --include='*.ts' --include='*.tsx' \
+            --include='*.json' --include='*.yml' --include='*.yaml' \
+            . || true)"
+          if [ -n "$matches" ]; then
+            echo "$matches"
+            echo "::error::possible secret material committed"
+            exit 1
+          fi
