@@ -5,15 +5,15 @@
 **Authorized package:** P2-001 through P2-006, explicitly human-approved as a **mock/interface-only** Phase 2 batch.
 
 ## Current Active Task
-**P2-005:** `workflow/active_work/P2-005-registry-ui-mock-workflows.md`.
+**P2-006:** `workflow/active_work/P2-006-registry-quality-gate.md`.
 
 ## Authorized queue (strict sequence)
 1. P2-001 — ADR readiness and Registry contracts — **done (verified, archived, checkpointed)**
 2. P2-002 — mock Registry backend domain and in-memory interfaces — **done (verified, archived, checkpointed)**
 3. P2-003 — isolated per-connection capability fixtures — **done (verified, archived, checkpointed)**
 4. P2-004 — secret-reference boundaries and endpoint/TLS/SSRF validation tests — **done (verified, archived, checkpointed)**
-5. P2-005 — Registry UI mock workflows (**current**)
-6. P2-006 — mock quality gate, evidence and handoff
+5. P2-005 — Registry UI mock workflows — **done (verified, archived, checkpointed)**
+6. P2-006 — mock quality gate, evidence and handoff (**current**)
 
 Human promotion is complete on this branch. Agent may proceed automatically between **confirmed verified branch checkpoints**, but never read future task bodies before the task is current. Update this handoff and Active Work README atomically with each verified task archive.
 

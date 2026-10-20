@@ -41,6 +41,11 @@ vi.spyOn(globalThis, "fetch").mockResolvedValue(
 
 describe("feature module entry points", () => {
   const nonOverviewModules = MODULES.filter((module) => module.path !== "/");
+  // Databases gained an authorized, mock-only Phase 2 registry workflow, so it
+  // is no longer an inert shell. Its safety boundary is asserted separately.
+  const inertModules = nonOverviewModules.filter(
+    (module) => module.id !== "databases",
+  );
 
   it("registers exactly the eight primary areas", () => {
     expect(MODULES).toHaveLength(8);
@@ -58,7 +63,7 @@ describe("feature module entry points", () => {
   });
 
   it.each(
-    nonOverviewModules.map((module) => [module.label, module.path] as const),
+    inertModules.map((module) => [module.label, module.path] as const),
   )(
     "%s is visibly non-operational with disabled actions",
     async (_label, path) => {
@@ -82,6 +87,23 @@ describe("feature module entry points", () => {
       }
     },
   );
+
+  it("keeps Databases labeled as not implemented with disabled mutation controls", async () => {
+    renderAt("/databases");
+
+    const notice = await screen.findByText(/Mock workflow only/i);
+    expect(notice).toBeInTheDocument();
+
+    const plannedActions = screen
+      .getByRole("heading", { level: 2, name: /planned actions/i })
+      .closest("section") as HTMLElement;
+    const buttons = within(plannedActions).getAllByRole("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("aria-disabled", "true");
+    }
+  });
 
   it("keeps Overview as the only scaffold-labeled module", () => {
     const scaffoldModules = MODULES.filter(

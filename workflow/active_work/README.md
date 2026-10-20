@@ -1,14 +1,14 @@
 # Active Work — Telegraf Toolkit
 
 **Human-authorized work package:** Phase 2 Database Registry, strictly **mock/interface-only**, branch `phase-2/database-registry`.
-**Current task:** `P2-005-registry-ui-mock-workflows.md`.
+**Current task:** `P2-006-registry-quality-gate.md`.
 **Authorized queue (strict sequence):**
 1. P2-001-architecture-and-contract-gate.md — **done (verified, archived)**
 2. P2-002-registry-backend-mock-contracts.md — **done (verified, archived)**
 3. P2-003-capability-probe-fixtures.md — **done (verified, archived)**
 4. P2-004-secret-boundary-validation.md — **done (verified, archived)**
-5. P2-005-registry-ui-mock-workflows.md — **current**
-6. P2-006-registry-quality-gate.md
+5. P2-005-registry-ui-mock-workflows.md — **done (verified, archived)**
+6. P2-006-registry-quality-gate.md — **current**
 
 The human explicitly approved and promoted all six tasks as one bounded batch. The tasks exist in this ledger, not Planning. Read only the current task body; after acceptance tests succeed, archive with `git mv`, update this pointer and `handoff.md`, commit/push, verify the remote checkpoint and automatically advance to the next authorized task.
 

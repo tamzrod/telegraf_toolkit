@@ -165,7 +165,11 @@ describe("application shell", () => {
       }),
     );
 
-    for (const module of MODULES.filter((entry) => entry.path !== "/")) {
+    // Databases has an authorized mock registry workflow that calls the typed
+    // registry endpoint, so it is exercised separately (see DatabasesPage.test).
+    for (const module of MODULES.filter(
+      (entry) => entry.path !== "/" && entry.id !== "databases",
+    )) {
       renderApp(module.path);
       await screen.findByRole("heading", { level: 1, name: module.label });
     }
