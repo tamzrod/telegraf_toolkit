@@ -1,12 +1,12 @@
 # Active Work — Telegraf Toolkit
 
 **Human-authorized work package:** Phase 2 Database Registry, strictly **mock/interface-only**, branch `phase-2/database-registry`.
-**Current task:** `P2-003-capability-probe-fixtures.md`.
+**Current task:** `P2-004-secret-boundary-validation.md`.
 **Authorized queue (strict sequence):**
 1. P2-001-architecture-and-contract-gate.md — **done (verified, archived)**
 2. P2-002-registry-backend-mock-contracts.md — **done (verified, archived)**
-3. P2-003-capability-probe-fixtures.md — **current**
-4. P2-004-secret-boundary-validation.md
+3. P2-003-capability-probe-fixtures.md — **done (verified, archived)**
+4. P2-004-secret-boundary-validation.md — **current**
 5. P2-005-registry-ui-mock-workflows.md
 6. P2-006-registry-quality-gate.md
 

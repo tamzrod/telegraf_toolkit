@@ -80,8 +80,16 @@ ProbedCapabilities
 
 - Capability matrix schema and the version/edition support matrix (ADR-E, not yet proposed).
 - Probe result freshness/TTL and re-probe triggers (storage depends on ADR-0002).
-- How "unsupported" is distinguished from "unknown".
+- Final persistence/representation of `unsupported` versus `unknown` (storage depends on ADR-0002).
 - Live probing, which needs real scoped credentials ([ADR-0003](../adr/0003-secret-store-integration.md)).
+
+**Probe outcome vocabulary (interface)**
+
+A probe returns one of three outcomes per capability: `supported`, `unsupported` or `unknown`. `unknown` is deliberately distinct from `unsupported`: a probe that could not complete must never be recorded as a capability absence, and `unknown` is never treated as support.
+
+**Edition variance (interface)**
+
+Capability expectations are keyed by **edition**, not major version, so same-version editions may differ (for example a 2.x OSS versus a 2.x Cloud fixture, or a 3.x Core versus a 3.x Serverless fixture). The isolated fixture matrix lives in `backend/internal/registrycontract/probe.go`; every entry is a test expectation, not a live probe result.
 
 **Rules**
 
