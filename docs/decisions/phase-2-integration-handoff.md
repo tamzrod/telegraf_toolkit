@@ -3,6 +3,15 @@
 Status: **Interface/mock scope only — not a live Registry.**
 Task: P2-006 (Phase 2 mock acceptance, audit and integration handoff).
 
+> **Status update (2026-10-21, P2L-001):** ADR-0002 (SQLite metadata store) and
+> ADR-0003 (secret store) have since been **accepted** by the human, and P2L-001
+> has implemented the ADR-0002 persistence boundary — profiles, credential
+> *references* and audit events now persist in SQLite with versioned migrations
+> ([`docs/METADATA_STORE.md`](../METADATA_STORE.md)). The tables below describe
+> the state at the time of P2-006; the rows that were "blocked by ADR-0002" are
+> now unblocked, and secret handling/live probing remain gated on the ADR-0003
+> implementation task (P2L-002) and later tasks.
+
 This document records what the Phase 2 mock/interface batch actually delivers, what remains mock, the exact real-integration work that is blocked, the capability matrix used by tests, and the security boundaries. It is the handoff from the approved mock batch to a future, separately authorized real implementation.
 
 - Decision gate: [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md).

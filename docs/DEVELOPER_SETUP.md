@@ -21,7 +21,7 @@ published checksum before use. Do not substitute a floating version.
 From a fresh clone:
 
 ```bash
-# Backend: no external module downloads are required (standard library only).
+# Backend: modules are pinned in go.mod/go.sum and downloaded once.
 cd backend
 go vet ./...
 go build ./...
@@ -31,6 +31,10 @@ go test ./...
 cd ../ui
 npm ci
 ```
+
+The backend has one third-party dependency, the pinned pure-Go SQLite driver
+`modernc.org/sqlite v1.60.1` (no CGO toolchain required). The first build
+downloads it; subsequent builds are offline.
 
 `npm ci` is used instead of `npm install` so the committed
 `ui/package-lock.json` is authoritative and the install is reproducible.
@@ -184,7 +188,18 @@ are a guardrail, not proof of accessibility conformance.
 
 ## Scaffold boundary
 
-The API and UI are scaffolds. The health payload reports `scaffold: true` and
-`connected: false` so no consumer mistakes them for live connections. Metadata
-store, secret store, host-agent interface and packaging remain **Proposed** ADRs
-(`docs/adr/0002`–`0005`), not implemented.
+The API and UI remain scaffolds in their user-facing behavior. The health
+payload reports `scaffold: true` and `connected: false` so no consumer mistakes
+them for live connections. The **control-plane metadata store** (persistent
+SQLite per [ADR-0002](adr/0002-metadata-store-selection.md)), the
+**envelope-encrypted secret store** (per [ADR-0003](adr/0003-secret-store-integration.md))
+and an **authorized Registry HTTP API** (see [`REGISTRY_API.md`](REGISTRY_API.md))
+are now real; see also [`METADATA_STORE.md`](METADATA_STORE.md) and
+[`SECRET_STORE.md`](SECRET_STORE.md). The host-agent interface and packaging
+remain **Proposed** ADRs (`docs/adr/0004`–`0005`), not implemented. No capability
+probe or historian read/write exists yet.
+
+The backend accepts three optional flags: `-store` (metadata DB path), `-key-file`
+(master key for the secret store) and `-token-file` (authentication tokens). With
+no token file the Registry data routes are not registered, so there is no
+anonymously reachable Registry surface.

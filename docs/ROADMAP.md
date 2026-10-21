@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 foundation and Phase 1 application shell merged into `main` (PR #2 and PR #3). Phase 2 Database Registry mock/interface foundation completed and branch-verified (P2-001–P2-006), pending human PR review and merge; no operational database connectivity implemented yet.
+**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). Toolkit-to-InfluxDB connectivity remains NOT IMPLEMENTED; the operational Phase 2 Registry is the next delivery milestone.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -9,9 +9,9 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 
 | Phase | Outcome | Status |
 | --- | --- | --- |
-| 0 | Repository and engineering foundation | Scaffold merged; outstanding ADR acceptance |
+| 0 | Repository and engineering foundation | Engineering scaffold merged; ADR-0002/0003 accepted for single-host Registry on 2026-10-21; ADR-0004/0005 still Proposed |
 | 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
-| 2 | Database Registry and credential references | Mock/interface scope verified on `phase-2/database-registry`; real connectivity blocked on ADR-0002/0003 |
+| 2 | Database Registry and credential references | Mock/interface scope merged in PR #4; isolated InfluxDB 2/3 tests merged in PR #5; live Toolkit connectivity NOT IMPLEMENTED; operational work authorized only via CWAL |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Not started |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
@@ -32,7 +32,7 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 ### Remaining
 - [x] Define versioned API/domain contracts for connections, credential references, capability probes, canonical schemas, mapping profiles, runtime/revisions, sync jobs/blocks and audit events. ([`docs/contracts/README.md`](contracts/README.md))
-- [x] Prepare decision-ready **Proposed** ADRs for the outstanding architectural choices (metadata store, secret-store integration, host-agent privilege boundary, initial packaging): [`docs/adr/0002`](adr/0002-metadata-store-selection.md)–[`0005`](adr/0005-initial-production-packaging.md). These are authored proposals only: **none is an accepted architecture decision.** Acceptance is outstanding and human-owned, so the underlying choices remain unresolved.
+- [x] Prepare decision-ready **Proposed** ADRs for the outstanding architectural choices (metadata store, secret-store integration, host-agent privilege boundary, initial packaging): [`docs/adr/0002`](adr/0002-metadata-store-selection.md)–[`0005`](adr/0005-initial-production-packaging.md). ADR-0002 and ADR-0003 were human-accepted on 2026-10-21 for single-host SQLite and backend-only envelope encryption with separate key custody/rotation. ADR-0004 and ADR-0005 remain Proposed.
 - [x] Select and pin exact application/toolchain dependency versions; commit lockfiles and checksums as applicable. (Go 1.27.3; `ui/package-lock.json`; see [`docs/DEVELOPMENT.md`](DEVELOPMENT.md))
 - [x] Establish CI checks (format, lint, build, tests, version-policy and secret safety). ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
 - [x] Establish local mock data, test fixtures and isolated development environments without real historian writes. ([`docs/DEVELOPER_SETUP.md`](DEVELOPER_SETUP.md))
@@ -40,7 +40,7 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 **Exit criteria:** foundational contracts are reviewable; reproducible builds/tests and CI exist for the created scaffold; missing architectural decisions needed for the next phase are resolved explicitly. No live deployment is implied.
 
-> **Status note (P0-005):** The architectural ADRs are authored as **Proposed** only. Metadata store, secret-store integration, host-agent privilege boundary and production packaging are **not yet accepted decisions**, so Phase 0 exit criteria are not fully satisfied for architecture until a human accepts them. Do not treat these proposals as resolved architecture.
+> **Architecture update (2026-10-21):** ADR-0002 (SQLite single-host metadata) and ADR-0003 (backend-only envelope encryption with separate key custody and rotation) are Accepted. Host-agent privilege boundary ADR-0004 and production packaging ADR-0005 remain Proposed; do not imply they are resolved.
 
 ## Phase 1 — Application shell and mock workflows
 
@@ -61,15 +61,22 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 - [x] Implement typed validation, in-memory mock adapters and an edition-keyed capability fixture matrix with tests. (`backend/internal/registrycontract/`)
 - [x] Implement the credential-reference boundary, redaction, a deny-by-default endpoint threat model and rotation ordering with tests. (`backend/internal/registrycontract/security.go`)
 - [x] Implement a typed browser Registry contract and a clearly labeled Databases mock workflow with explicit source/destination selection. (`ui/src/api/registry.ts`, `ui/src/features/databases/`)
-- [ ] Implement reusable source/destination InfluxDB connection profiles with explicit database/bucket/retention scope. **Blocked:** persistent storage requires accepted ADR-0002.
-- [ ] Probe actual query/write/schema capabilities for InfluxDB 1.x, 2.x and 3.x by edition/deployment rather than assuming version-wide parity. **Blocked:** live probing requires accepted ADR-0003 (scoped credentials).
-- [ ] Establish protected server-side secret references and scoped read/write permissions; no plaintext secrets in browser responses, logs, exports or Git. **Partially delivered:** references, boundary and redaction exist; real storage/resolution is **blocked** on accepted ADR-0003.
-- [ ] Implement backend-authorized test connection, sanitized errors, TLS policy and SSRF-aware endpoint validation. **Partially delivered:** sanitized errors, TLS policy and literal-host SSRF validation exist; live test-connection is blocked on ADR-0003.
-- [ ] Expose profile health, capabilities, usage/dependencies and credential rotation/revocation workflow with audit. **Partially delivered:** mock capability/credential/audit surfaces exist; persistence and real audit are blocked on ADR-0002/0003.
+- [x] Implement reusable source/destination InfluxDB connection profiles with explicit database/bucket/retention scope. **Persistent storage delivered (P2L-001):** profiles, scopes, credential *references* and audit events persist in the ADR-0002 SQLite metadata store with versioned migrations, restart durability, concurrency and backup/restore tests ([`docs/METADATA_STORE.md`](METADATA_STORE.md)). Server-authorized profile serving is P2L-003.
+- [ ] Probe actual query/write/schema capabilities for InfluxDB 1.x, 2.x and 3.x by edition/deployment rather than assuming version-wide parity. **Partially delivered (P2L-004):** a read-only, SSRF-protected live prober identifies editions and capability sets from real responses, verified against the pinned InfluxDB 2 OSS v2.9.1 and 3 Core v3.12.1 test containers ([`docs/LIVE_PROBING.md`](LIVE_PROBING.md)). **InfluxDB 1.x is unverified** (no isolated 1.x instance); a full compatibility matrix is ADR-E, not yet proposed.
+- [x] Establish protected server-side secret references and scoped read/write permissions; no plaintext secrets in browser responses, logs, exports or Git. **Delivered (P2L-002):** an envelope-encrypted secret store (AES-256-GCM, externally provisioned key file, server-only resolver, rotation with recovery) stores values as ciphertext envelopes in the metadata DB while keys stay outside it ([`docs/SECRET_STORE.md`](SECRET_STORE.md)). Server-authorized HTTP routes are P2L-003.
+- [x] Implement backend-authorized test connection, sanitized errors, TLS policy and SSRF-aware endpoint validation. **Delivered (P2L-003/P2L-004):** sanitized errors, TLS policy, a server-authorized API with RBAC and denial tests ([`docs/REGISTRY_API.md`](REGISTRY_API.md)), a server-side credential resolver (P2L-002), and a read-only capability prober with DNS-resolved peer checks, redirect refusal and deny-by-default SSRF policy ([`docs/LIVE_PROBING.md`](LIVE_PROBING.md)).
+- [x] Expose profile health, capabilities, usage/dependencies and credential rotation/revocation workflow with audit. **Delivered (P2L-001–P2L-005):** persistent profile/reference/audit store, envelope-encrypted credential store with rotation, authorized API, read-only live capability probing and live UI listing ([`docs/LIVE_UI.md`](LIVE_UI.md)). Usage/dependency inspection and browser write flows remain future work.
 
-> **Status note (P2-006):** Phase 2 is verified at **mock/interface scope only** on `phase-2/database-registry`. No profile is persisted, no credential is stored or resolved, and no live InfluxDB connectivity exists. ADR-0002 and ADR-0003 remain **Proposed**. See [`docs/decisions/phase-2-integration-handoff.md`](decisions/phase-2-integration-handoff.md) for the exact blocked real-integration work. Exit criteria are **not** met for live Registry readiness.
+> **Integrated status (PRs #4/#5):** Phase 2 mock Registry was merged by PR #4. TEST-001/TEST-002 delivered a real InfluxDB 2 OSS v2.9.1 and InfluxDB 3 Core v3.12.1 isolated test harness by PR #5, with 16/16 direct DB tests passing twice on retained state. ADR-0002/0003 are Accepted; the operational live Registry was then implemented on `phase-2/live-registry-implementation` through authorized CWAL tasks P2L-001–P2L-005 (persistent metadata store, envelope-encrypted secret store, authorized API, read-only live probing, live UI listing). These are checkpointed on the unmerged work branch pending human PR review. No InfluxDB 1.x deployment was validated. Browser write flows and usage/dependency inspection remain future work.
 
 **Exit criteria:** registered profiles are reusable across approved modules; permissions and secret isolation are tested; supported capabilities and unsupported cases are explicitly reported.
+
+### Real database test infrastructure (merged PR #5)
+
+- [x] Pin and deploy isolated InfluxDB 2 OSS v2.9.1 and InfluxDB 3 Core v3.12.1 containers with synthetic-only data and test credentials.
+- [x] Verify direct authentication, supported read/write query APIs, persistence across restart and rejection of invalid tokens (16/16 DB checks in TEST-001).
+- [x] Verify repeatable runs with retained state and safe credential-reuse failure modes (TEST-002).
+- [ ] Connect the Toolkit Registry backend and UI to these live test instances; currently no authenticated backend Registry endpoint or real capability probe exists.
 
 ## Phase 3 — Dual-database Canonical Registry / Taglist Mapper
 
@@ -135,4 +142,4 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 Telegraf Toolkit manages official Telegraf runtimes, mapping and historian reconciliation; it does not replace Telegraf or InfluxDB. Live collection and historical repair have independent lifecycles; schema/mapping save actions never imply deployment or repair. Actual support is determined by probed capabilities, not optimistic version labels.
 
-Open decisions: metadata store, host-agent interface, production packaging and concrete adapters. Exact dependency versions must be chosen and pinned when scaffolding, not invented in documentation.
+Accepted for the initial single-host Registry: SQLite metadata and envelope-encrypted secret storage (ADR-0002/0003). Open decisions: host-agent privilege interface, production packaging, and later adapters/multi-host support. Exact dependency versions must be chosen and pinned when scaffolding, not invented in documentation.

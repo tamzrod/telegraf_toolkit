@@ -7,7 +7,7 @@
  * "not implemented". Nothing here implies a live backend connection.
  */
 
-export type ModuleStatus = "scaffold" | "not implemented";
+export type ModuleStatus = "scaffold" | "partial" | "not implemented";
 
 export type ModuleDefinition = {
   /** Stable identifier, also used as a React key and in tests. */
@@ -52,7 +52,7 @@ export const MODULES: ModuleDefinition[] = [
     label: "Databases",
     description:
       "InfluxDB connection profiles, dialect capabilities, health and dependencies.",
-    status: "not implemented",
+    status: "partial",
   },
   {
     id: "credentials",

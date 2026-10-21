@@ -87,6 +87,7 @@ type ConnectionProfile struct {
 	DisplayName     string       `json:"display_name"`
 	Family          Family       `json:"family"`
 	MajorVersion    int          `json:"major_version"`
+	Endpoint        string       `json:"endpoint"`
 	Scope           Scope        `json:"scope"`
 	Capabilities    Capabilities `json:"capabilities"`
 	CredentialRefID string       `json:"credential_ref_id"`
@@ -136,6 +137,7 @@ func Profile1x() ConnectionProfile {
 		DisplayName:  "MOCK InfluxDB 1.x (plant-a)",
 		Family:       FamilyInfluxDB,
 		MajorVersion: 1,
+		Endpoint:     "http://127.0.0.1:18086",
 		Scope: Scope{
 			Kind:            ScopeDatabaseRetentionPolicy,
 			Database:        "telemetry",
@@ -159,6 +161,7 @@ func Profile2x() ConnectionProfile {
 		DisplayName:  "MOCK InfluxDB 2.x (plant-b)",
 		Family:       FamilyInfluxDB,
 		MajorVersion: 2,
+		Endpoint:     "http://127.0.0.1:18086",
 		Scope: Scope{
 			Kind:         ScopeOrganizationBucket,
 			Organization: "acme",
@@ -182,6 +185,7 @@ func Profile3x() ConnectionProfile {
 		DisplayName:  "MOCK InfluxDB 3.x (plant-c)",
 		Family:       FamilyInfluxDB,
 		MajorVersion: 3,
+		Endpoint:     "http://127.0.0.1:18181",
 		Scope: Scope{
 			Kind:     ScopeDatabase,
 			Database: "telemetry_v3",

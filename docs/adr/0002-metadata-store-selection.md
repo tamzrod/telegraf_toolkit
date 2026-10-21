@@ -1,7 +1,7 @@
 # ADR-0002: Metadata Store Selection
 
-- **Status:** Proposed
-- **Date:** 2026-10-20
+- **Status:** Accepted
+- **Date:** 2026-10-21
 - **Scope:** Persistence of Toolkit control-plane metadata (connection profiles, logical scopes, capability probe results, credential *references*, canonical schemas, mapping profiles, runtime revisions, sync jobs/blocks, verification states, audit events).
 - **Deciders:** Human architecture owner (acceptance required).
 
@@ -51,12 +51,15 @@ The store must be operable on a single host (see the Docker Compose single-host 
 
 ## Recommendation
 
-**Proposed, not accepted.** A staged approach is recommended: start with an embedded relational store (Option A) for the single-host foundation, and adopt an external relational server (Option B) only when validated concurrency, availability or multi-host requirements demand it. This keeps the initial deployment minimal while preserving a migration path. **Human acceptance is required** before implementation commits to either option.
+**Accepted 2026-10-21 by human architecture owner.** A staged approach is selected: start with an embedded relational store (Option A) for the single-host foundation, and adopt an external relational server (Option B) only when validated concurrency, availability or multi-host requirements demand it. This keeps the initial deployment minimal while preserving a migration path. Implementation of Option A is authorized through separately promoted CWAL tasks; a later PostgreSQL migration needs a new explicit decision.
 
-## Decisions requiring human acceptance
+## Accepted decision and implementation limits
 
-- Which store (A vs B) is the accepted target, and whether the staged A→B path is acceptable.
-- Whether multi-host management is in scope for the next phase (which would bias toward B).
+- **Option A: SQLite** embedded relational metadata persistence for the initial **single-host** Toolkit control plane, with versioned migrations, safe transactions, backup/restore tests and concurrency limits documented.
+- Design the storage boundary so a future PostgreSQL adapter/migration is possible; PostgreSQL is **not** selected for the initial deployment.
+- **Multi-host control-plane management is out of scope for this delivery** and requires a later explicit architecture decision.
+- The metadata store holds credential **references only**, not secret values; see ADR-0003.
+- This ADR acceptance is a design decision, not permission for production access. Tasks still require CWAL authorization.
 
 ## References
 

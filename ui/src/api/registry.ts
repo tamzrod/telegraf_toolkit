@@ -50,11 +50,73 @@ export type RegistryProfile = {
   capabilities: RegistryCapabilities;
   /** Absent or null when no credential reference is attached. */
   credentialRef?: RegistryCredentialRef | null;
+  /**
+   * Opaque credential reference ID reported by the live API. It is present when
+   * a profile carries a reference but the API did not return full reference
+   * metadata. It is never a credential value.
+   */
+  credentialRefId?: string | null;
   mock: boolean;
   note: string;
 };
 
 const OUTCOMES: CapabilityOutcome[] = ["supported", "unsupported", "unknown"];
+
+/**
+ * Wire shape returned by the live authorized API (`GET /api/v1/registry/profiles`).
+ *
+ * The live backend emits snake_case keys and a credential reference ID, never a
+ * credential value. The browser-side view model (`RegistryProfile`) is derived
+ * from this shape by `toRegistryProfile`.
+ */
+export type ApiScope = {
+  kind: RegistryScopeKind;
+  database?: string;
+  retention_policy?: string;
+  organization?: string;
+  bucket?: string;
+};
+
+export type ApiCapabilities = {
+  query_dialects: string[];
+  write_protocols: string[];
+  schema_discovery: boolean;
+};
+
+export type ApiCredentialRef = {
+  credential_ref_id: string;
+  alias: string;
+  role: "read" | "write" | "admin";
+  fingerprint?: string;
+  last_rotated?: string;
+  expires_at?: string;
+  mock: boolean;
+};
+
+export type ApiProfile = {
+  connection_id: string;
+  display_name: string;
+  family: string;
+  major_version: number;
+  endpoint: string;
+  scope: ApiScope;
+  capabilities: ApiCapabilities;
+  credential_ref_id: string;
+  mock: boolean;
+  note: string;
+};
+
+export type ApiCapabilityOutcomeMap = Record<string, CapabilityOutcome>;
+
+export type ApiProbeResult = {
+  connection_id: string;
+  edition: string;
+  query_dialects: ApiCapabilityOutcomeMap;
+  write_protocols: ApiCapabilityOutcomeMap;
+  schema_discovery: CapabilityOutcome;
+  probed_at: string;
+  mock: boolean;
+};
 
 const SECRET_LIKE_KEYS = [
   "value",
@@ -166,6 +228,134 @@ export function isRegistryProfile(value: unknown): value is RegistryProfile {
 
 export function isRegistryProfileList(value: unknown): value is RegistryProfile[] {
   return Array.isArray(value) && value.every(isRegistryProfile);
+}
+
+function isApiScope(value: unknown): value is ApiScope {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const kind = value.kind;
+  if (
+    kind !== "database-retention-policy" &&
+    kind !== "organization-bucket" &&
+    kind !== "database"
+  ) {
+    return false;
+  }
+  if (kind === "database-retention-policy") {
+    return typeof value.database === "string" && typeof value.retention_policy === "string";
+  }
+  if (kind === "organization-bucket") {
+    return typeof value.organization === "string" && typeof value.bucket === "string";
+  }
+  return typeof value.database === "string";
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/**
+ * Runtime guard for a live API profile. It rejects any payload carrying a
+ * secret-like key, so a credential value can never reach a feature component
+ * through this path.
+ */
+export function isApiProfile(value: unknown): value is ApiProfile {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  const capabilities = value.capabilities;
+  if (!isRecord(capabilities)) {
+    return false;
+  }
+  return (
+    typeof value.connection_id === "string" &&
+    typeof value.display_name === "string" &&
+    typeof value.family === "string" &&
+    typeof value.major_version === "number" &&
+    typeof value.endpoint === "string" &&
+    isApiScope(value.scope) &&
+    isStringArray(capabilities.query_dialects) &&
+    isStringArray(capabilities.write_protocols) &&
+    typeof capabilities.schema_discovery === "boolean" &&
+    typeof value.credential_ref_id === "string" &&
+    typeof value.mock === "boolean" &&
+    typeof value.note === "string"
+  );
+}
+
+export function isApiProfileList(value: unknown): value is ApiProfile[] {
+  return Array.isArray(value) && value.every(isApiProfile);
+}
+
+export function isApiProbeResult(value: unknown): value is ApiProbeResult {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.connection_id === "string" &&
+    typeof value.edition === "string" &&
+    isOutcomeMap(value.query_dialects) &&
+    isOutcomeMap(value.write_protocols) &&
+    isOutcome(value.schema_discovery) &&
+    typeof value.probed_at === "string" &&
+    typeof value.mock === "boolean"
+  );
+}
+
+/**
+ * Converts a live API profile into the browser view model.
+ *
+ * The live API reports positively-supported capabilities as lists; a capability
+ * absent from the list is `unsupported`, which is exactly what the backend
+ * observed. `unknown` is not produced here: the live prober only records
+ * confirmed outcomes, and `unknown` remains reserved for a probe that could not
+ * complete.
+ */
+export function toRegistryProfile(api: ApiProfile): RegistryProfile {
+  const dialects: Record<string, CapabilityOutcome> = {};
+  for (const dialect of ["influxql", "flux", "sql"]) {
+    dialects[dialect] = api.capabilities.query_dialects.includes(dialect)
+      ? "supported"
+      : "unsupported";
+  }
+  const protocols: Record<string, CapabilityOutcome> = {};
+  for (const protocol of ["line-protocol"]) {
+    protocols[protocol] = api.capabilities.write_protocols.includes(protocol)
+      ? "supported"
+      : "unsupported";
+  }
+  const scope: RegistryScope =
+    api.scope.kind === "database-retention-policy"
+      ? {
+          kind: "database-retention-policy",
+          database: api.scope.database,
+          retentionPolicy: api.scope.retention_policy,
+        }
+      : api.scope.kind === "organization-bucket"
+        ? {
+            kind: "organization-bucket",
+            organization: api.scope.organization,
+            bucket: api.scope.bucket,
+          }
+        : { kind: "database", database: api.scope.database };
+
+  return {
+    connectionId: api.connection_id,
+    displayName: api.display_name,
+    family: api.family,
+    majorVersion: api.major_version,
+    scope,
+    capabilities: {
+      queryDialects: dialects,
+      writeProtocols: protocols,
+      schemaDiscovery: api.capabilities.schema_discovery ? "supported" : "unsupported",
+    },
+    credentialRef: null,
+    credentialRefId: api.credential_ref_id === "" ? null : api.credential_ref_id,
+    mock: api.mock,
+    note: api.note,
+  };
 }
 
 /** Stable, human-readable scope identity. */

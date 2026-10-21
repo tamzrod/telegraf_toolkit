@@ -45,7 +45,7 @@ The initial development/test baseline is the **official Telegraf 1.40.1 release*
 
 ## Technology status
 
-Frontend direction: **React + TypeScript SPA** with a **Go backend**. Exact dependency versions will be pinned when scaffolding. Metadata store, deployment packaging, remote management interface, and Telegraf integration details remain to be finalized. Documentation only so far.
+Frontend direction: **React + TypeScript SPA** with a **Go backend**. Exact dependency versions are pinned when scaffolding. The control-plane metadata store is now implemented as persistent SQLite per [ADR-0002](docs/adr/0002-metadata-store-selection.md) ([`docs/METADATA_STORE.md`](docs/METADATA_STORE.md)); the secret store ([ADR-0003](docs/adr/0003-secret-store-integration.md)) is accepted but not yet implemented. Deployment packaging, remote management interface, and Telegraf integration details remain to be finalized.
 
 ## License
 

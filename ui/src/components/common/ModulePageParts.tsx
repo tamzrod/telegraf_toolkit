@@ -6,15 +6,17 @@
  * Telegraf runtime, Docker daemon or historian.
  */
 
-export type ModuleStatus = "scaffold" | "not implemented";
+export type ModuleStatus = "scaffold" | "partial" | "not implemented";
 
 const STATUS_LABELS: Record<ModuleStatus, string> = {
   scaffold: "Scaffold",
+  partial: "Partially implemented",
   "not implemented": "Not implemented",
 };
 
 const STATUS_CLASSES: Record<ModuleStatus, string> = {
   scaffold: "bg-amber-100 text-amber-900",
+  partial: "bg-blue-100 text-blue-900",
   "not implemented": "bg-gray-200 text-gray-700",
 };
 

@@ -40,6 +40,7 @@ const (
 	CodeScopeIncomplete       ErrorCode = "scope-incomplete"
 	CodeRoleMismatch          ErrorCode = "credential-role-mismatch"
 	CodeSecretMaterial        ErrorCode = "secret-material-rejected"
+	CodeCredentialNotBound    ErrorCode = "credential-not-bound"
 )
 
 // secretMarkers are substrings that must never appear in a sanitized error.
@@ -197,6 +198,47 @@ type CredentialRefStore interface {
 type AuditSink interface {
 	Record(event AuditEvent) error
 	List() ([]AuditEvent, error)
+}
+
+// CredentialBinding is a server-authoritative approval that associates a
+// credential reference with a specific profile identity: the connection ID, the
+// exact endpoint and the canonical scope. A probe resolves a credential only
+// when a binding matching the profile's identity exists, so a principal that can
+// write profiles cannot attach another principal's stored secret to an
+// endpoint/scope of its choosing (P2L-007).
+//
+// The binding stores no secret value: it records only the reference and the
+// profile identity it is approved for.
+type CredentialBinding struct {
+	CredentialRefID string `json:"credential_ref_id"`
+	ConnectionID    string `json:"connection_id"`
+	Endpoint        string `json:"endpoint"`
+	Scope           string `json:"scope"`
+	// ApprovedBy is the identity reference of the principal that created the
+	// binding. It is an audit aid, never a credential.
+	ApprovedBy string `json:"approved_by"`
+}
+
+// CanonicalScope returns the stable scope identity used for binding comparison,
+// matching fixtures.Scope.String so a binding cannot be forged by reordering or
+// renaming scope fields.
+func CanonicalScope(scope fixtures.Scope) string { return scope.String() }
+
+// BindingMatches reports whether a binding approves exactly the given profile
+// identity. All four fields must match, so a change to the endpoint or scope of
+// a profile invalidates any prior binding.
+func BindingMatches(binding CredentialBinding, connectionID, endpoint string, scope fixtures.Scope) bool {
+	return binding.ConnectionID == connectionID &&
+		binding.Endpoint == endpoint &&
+		binding.Scope == CanonicalScope(scope)
+}
+
+// CredentialBindingStore persists approved credential bindings.
+type CredentialBindingStore interface {
+	Put(binding CredentialBinding) error
+	Get(credentialRefID, connectionID string) (CredentialBinding, bool, error)
+	List() ([]CredentialBinding, error)
+	Delete(credentialRefID, connectionID string) error
 }
 
 // CheckSelection returns a sanitized error when the source/destination pair
