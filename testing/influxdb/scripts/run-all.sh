@@ -38,8 +38,35 @@ report="${REPORTS_DIR}/integration-$(date -u +%Y%m%dT%H%M%SZ).txt"
   echo
 } > "${report}"
 
-echo "### 1. init secrets"
-"${SCRIPT_DIR}/init-secrets.sh" 2>&1 | sanitize_stream | tee -a "${report}"
+echo "### 1. ensure test credentials"
+# Existing bind-mounted databases retain their original bootstrap credentials.
+# Reuse a complete secret set on repeated runs; do not silently overwrite it.
+secret_files=(
+  "${SECRETS_DIR}/influxdb2-admin-username"
+  "${SECRETS_DIR}/influxdb2-admin-password"
+  "${SECRETS_DIR}/influxdb2-admin-token"
+  "${SECRETS_DIR}/influxdb3-admin-token.json"
+)
+found=0
+for secret_file in "${secret_files[@]}"; do
+  if [ -f "${secret_file}" ]; then found=$((found + 1)); fi
+done
+if [ "${found}" -eq 0 ]; then
+  # Refuse to bootstrap new credentials against existing initialized data.
+  if [ -d "${ROOT_DIR}/data" ] && find "${ROOT_DIR}/data" -type f -print -quit 2>/dev/null | grep -q .; then
+    echo "BLOCKED: test data exists but credential files are missing. Restore credentials or explicitly purge test data before reinitializing." >&2
+    exit 2
+  fi
+  "${SCRIPT_DIR}/init-secrets.sh" 2>&1 | sanitize_stream | tee -a "${report}"
+elif [ "${found}" -eq "${#secret_files[@]}" ]; then
+  for secret_file in "${secret_files[@]}"; do
+    if [ ! -r "${secret_file}" ]; then echo "BLOCKED: existing test credential unreadable." >&2; exit 2; fi
+  done
+  echo "Reusing existing test credentials (values not displayed)." | tee -a "${report}"
+else
+  echo "BLOCKED: incomplete test credential set. Restore all four files or explicitly purge the test stack before regeneration." >&2
+  exit 2
+fi
 
 echo "### 2. bring up stack"
 "${SCRIPT_DIR}/up.sh" 2>&1 | sanitize_stream | tee -a "${report}"
