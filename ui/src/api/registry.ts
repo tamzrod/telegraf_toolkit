@@ -109,6 +109,54 @@ export type ApiProfile = {
 export type ApiCapabilityOutcomeMap = Record<string, CapabilityOutcome>;
 
 /**
+ * The body the browser may send to create a connection profile.
+ *
+ * It carries **no** credential field: a browser-created profile is unbound.
+ * Attaching a stored credential is an administrator-only operation that is
+ * gated until the credential lifecycle is delivered (P2C-005), so the browser
+ * cannot smuggle a reference or a value into the create request.
+ */
+export type ApiProfileInput = {
+  connection_id: string;
+  display_name: string;
+  family: string;
+  major_version: number;
+  endpoint: string;
+  scope: ApiScope;
+  capabilities: ApiCapabilities;
+  note: string;
+};
+
+/**
+ * Validates a create body before it is sent.
+ *
+ * The check is a client-side guard only: the server validates again and is
+ * authoritative. It refuses a body that carries a secret-like key, so a
+ * credential value can never leave the browser in a registry request.
+ */
+export function isApiProfileInput(value: unknown): value is ApiProfileInput {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  if (
+    typeof value.connection_id !== "string" ||
+    typeof value.display_name !== "string" ||
+    typeof value.family !== "string" ||
+    typeof value.major_version !== "number" ||
+    typeof value.endpoint !== "string" ||
+    typeof value.note !== "string"
+  ) {
+    return false;
+  }
+  if (!isApiScope(value.scope) || !isApiCapabilities(value.capabilities)) {
+    return false;
+  }
+  // The create body must not carry a credential reference or a credential
+  // value: a browser-created profile is unbound.
+  return !("credential_ref_id" in value) && !("credentialRefId" in value);
+}
+
+/**
  * One bounded, read-only capability check that was actually performed.
  *
  * The observation is the evidence behind a capability outcome: the check that
@@ -271,6 +319,20 @@ function isApiScope(value: unknown): value is ApiScope {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/**
+ * Runtime guard for the capabilities block of a live API payload.
+ */
+export function isApiCapabilities(value: unknown): value is ApiCapabilities {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    isStringArray(value.query_dialects) &&
+    isStringArray(value.write_protocols) &&
+    typeof value.schema_discovery === "boolean"
+  );
 }
 
 /**
