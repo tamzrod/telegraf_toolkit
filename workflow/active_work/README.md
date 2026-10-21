@@ -1,21 +1,9 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `phase-2/live-registry-implementation`
-**Current task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
-**Human-authorized queue:** empty.
+**Current human-authorized task:** `P2L-007-credential-profile-authorization.md`
+**Authorized queue:** P2L-007 only.
 
-P2L-006 (pre-PR live-probe security hardening) is complete, verified and
-archived. No task remains authorized.
+Independent pre-PR finding HIGH: a configurator may enumerate credential-reference IDs, create an attacker-endpoint profile referencing another stored secret, and probe it. Close this credential-to-profile binding/privilege escalation path in server code, not UI alone. Preserve P2L-006 protections and deny arbitrary existing credential-ref association. See current task acceptance for adversarial tests, isolated real DB integration and quality gates.
 
-Security remediation delivered: the live prober now pins validated peer
-addresses and re-validates the connected peer (DNS-rebinding fix), and the probe
-route resolves the endpoint and credential server-side from the stored profile so
-a caller cannot forward a stored secret to an arbitrary host. Production-default
-SSRF denial is preserved; the isolated-test loopback exception remains opt-in.
-Validated with hostile-unit tests, role/scope/credential-binding tests, the
-actual InfluxDB 2/3 test harness, `make check`, `go test -race ./...` and
-`scripts/policy-check.sh`.
-
-Operation CWAL: the sole task is fixed, verified, archived by `git mv`, both
-pointers set to an empty queue, committed/pushed and remote-confirmed. Report
-`WORK_PACKAGE_READY`. No self-promotion, production access or PR actions.
+Operation CWAL: execute only P2L-007, verify, archive via `git mv`, reset both pointers to empty queue, commit/push/remote-confirm and report `WORK_PACKAGE_READY`. Stop honestly if blocked. Human-only PR actions.
