@@ -17,8 +17,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 )
@@ -31,14 +33,35 @@ type API struct {
 	service       *registryservice.Service
 	authenticator *authz.Authenticator
 	authorizer    *authz.Authorizer
+	prober        *liveprobe.Prober
+	probePolicy   liveprobe.Policy
+}
+
+// Options configures the API.
+type Options struct {
+	Service       *registryservice.Service
+	Authenticator *authz.Authenticator
+	// Prober enables the read-only capability probe route when non-nil.
+	Prober *liveprobe.Prober
+	// ProbePolicy is the endpoint policy applied to probes. The zero value is
+	// deny-by-default; a test-only loopback exception must be passed explicitly
+	// and never as a production default.
+	ProbePolicy liveprobe.Policy
 }
 
 // New builds the Registry API.
 func New(service *registryservice.Service, authenticator *authz.Authenticator) *API {
+	return NewWithOptions(Options{Service: service, Authenticator: authenticator})
+}
+
+// NewWithOptions builds the Registry API with an optional prober.
+func NewWithOptions(opts Options) *API {
 	return &API{
-		service:       service,
-		authenticator: authenticator,
+		service:       opts.Service,
+		authenticator: opts.Authenticator,
 		authorizer:    authz.NewAuthorizer(),
+		prober:        opts.Prober,
+		probePolicy:   opts.ProbePolicy,
 	}
 }
 
@@ -48,6 +71,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/registry/profiles/", a.handleProfile)
 	mux.HandleFunc("/api/v1/registry/credentials", a.handleCredentials)
 	mux.HandleFunc("/api/v1/registry/audit", a.handleAudit)
+	if a.prober != nil {
+		mux.HandleFunc("/api/v1/registry/probe", a.handleProbe)
+	}
 }
 
 // principal authenticates the request. It returns an anonymous principal and
@@ -214,6 +240,109 @@ func (a *API) deleteProfile(w http.ResponseWriter, r *http.Request, connectionID
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// probeRequest is the accepted body for a capability probe.
+type probeRequest struct {
+	ConnectionID  string `json:"connection_id"`
+	Endpoint      string `json:"endpoint"`
+	CredentialRef string `json:"credential_ref_id"`
+	DeadlineMS    int    `json:"deadline_ms"`
+}
+
+// probeResponse is the sanitized probe result. It carries the three-valued
+// capability vocabulary and never a credential value or a resolved secret.
+type probeResponse struct {
+	ConnectionID    string                                   `json:"connection_id"`
+	Edition         string                                   `json:"edition"`
+	QueryDialects   map[string]registrycontract.ProbeOutcome `json:"query_dialects"`
+	WriteProtocols  map[string]registrycontract.ProbeOutcome `json:"write_protocols"`
+	SchemaDiscovery registrycontract.ProbeOutcome            `json:"schema_discovery"`
+	ProbedAt        string                                   `json:"probed_at"`
+	Mock            bool                                     `json:"mock"`
+}
+
+// handleProbe performs a consented, read-only capability probe. It requires the
+// profile.probe permission and the endpoint policy configured on the API; the
+// credential is resolved server-side and never returned.
+func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	if !a.authorize(w, principal, authz.PermProfileProbe) {
+		return
+	}
+	var input probeRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+		return
+	}
+	deadline := time.Duration(input.DeadlineMS) * time.Millisecond
+	if deadline <= 0 {
+		deadline = 10 * time.Second
+	}
+	if deadline > 30*time.Second {
+		deadline = 30 * time.Second
+	}
+
+	// Resolve the credential server-side. The value is used only to authenticate
+	// the probe and is never returned or logged.
+	var credential liveprobe.Credential
+	if strings.TrimSpace(input.CredentialRef) != "" {
+		value, err := a.service.ResolveCredential(r.Context(), input.CredentialRef)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		credential = credentialFor(value)
+	}
+
+	result, err := a.prober.Probe(r.Context(), liveprobe.Request{
+		ConnectionID: input.ConnectionID,
+		Endpoint:     input.Endpoint,
+		Policy:       a.probePolicy,
+		Credential:   credential,
+		Deadline:     deadline,
+		MaxRequests:  6,
+	})
+	if err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+
+	// Record the probe as an audited action attributed to the acting principal.
+	if err := a.service.RecordProbe(r.Context(), principal.ID, result.Edition); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The probe result could not be recorded.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, probeResponse{
+		ConnectionID:    result.ConnectionID,
+		Edition:         result.Edition,
+		QueryDialects:   result.QueryDialects,
+		WriteProtocols:  result.WriteProtocols,
+		SchemaDiscovery: result.SchemaDiscovery,
+		ProbedAt:        result.ProbedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Mock:            result.Mock,
+	})
+}
+
+// credentialFor infers the HTTP authorization scheme for a resolved credential.
+// InfluxDB 3 uses a Bearer token; InfluxDB 2 uses a Token. The scheme is chosen
+// without inspecting the value's contents beyond a length heuristic, and the
+// value is never logged.
+func credentialFor(value string) liveprobe.Credential {
+	// InfluxDB 3 Core admin tokens carry the "apiv3_" prefix; everything else is
+	// treated as an InfluxDB 2 API token.
+	if strings.HasPrefix(value, "apiv3_") {
+		return liveprobe.Credential{Scheme: "Bearer", Value: value}
+	}
+	return liveprobe.Credential{Scheme: "Token", Value: value}
 }
 
 // writeSanitizedError maps a service error to a sanitized HTTP response. A

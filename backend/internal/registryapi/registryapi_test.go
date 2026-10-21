@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
@@ -288,5 +289,98 @@ func TestMethodNotAllowed(t *testing.T) {
 	rec := do(t, api, http.MethodPut, "/api/v1/registry/profiles", "admin-token", sampleProfileBody())
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("PUT = %d, want 405", rec.Code)
+	}
+}
+
+// newProbeAPI builds an API with a prober using the explicit test policy.
+func newProbeAPI(t *testing.T) *API {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := metadatastore.Open(context.Background(), metadatastore.Options{Path: filepath.Join(dir, "metadata.db")})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+
+	authenticator := authz.NewAuthenticator()
+	admin, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
+	_ = authenticator.RegisterToken("admin-token", admin)
+	viewer, _ := authz.NewPrincipal("bob", authz.RoleViewer)
+	_ = authenticator.RegisterToken("viewer-token", viewer)
+
+	return NewWithOptions(Options{
+		Service:       service,
+		Authenticator: authenticator,
+		Prober:        liveprobe.New(nil),
+		ProbePolicy:   liveprobe.TestPolicy(),
+	})
+}
+
+func TestProbeRouteRequiresPermission(t *testing.T) {
+	api := newProbeAPI(t)
+	// Anonymous is rejected.
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "", map[string]any{"endpoint": "http://127.0.0.1:1"}); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous probe = %d, want 401", rec.Code)
+	}
+	// A viewer lacks profile.probe.
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "viewer-token", map[string]any{"endpoint": "http://127.0.0.1:1"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer probe = %d, want 403", rec.Code)
+	}
+}
+
+func TestProbeRouteRejectsPrivateTargetUnderDefaultPolicy(t *testing.T) {
+	// Build an API whose policy is the production default: a loopback target
+	// must be refused even for an authorized principal.
+	dir := t.TempDir()
+	store, err := metadatastore.Open(context.Background(), metadatastore.Options{Path: filepath.Join(dir, "metadata.db")})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+	authenticator := authz.NewAuthenticator()
+	admin, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
+	_ = authenticator.RegisterToken("admin-token", admin)
+	api := NewWithOptions(Options{
+		Service:       service,
+		Authenticator: authenticator,
+		Prober:        liveprobe.New(nil),
+		ProbePolicy:   liveprobe.DefaultPolicy(),
+	})
+
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
+		"endpoint": "http://127.0.0.1:8086",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("loopback probe under default policy = %d, want 400", rec.Code)
+	}
+}
+
+func TestProbeRouteSucceedsAgainstFixture(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name":"influxdb","version":"v2.9.1","status":"pass"}`))
+	}))
+	defer target.Close()
+
+	api := newProbeAPI(t)
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
+		"connection_id": "fixture-2x",
+		"endpoint":      target.URL,
+		"deadline_ms":   2000,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("probe = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var payload probeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Edition != "influxdb-2.x-oss" {
+		t.Fatalf("edition = %q, want influxdb-2.x-oss", payload.Edition)
+	}
+	if payload.Mock {
+		t.Fatal("a live probe must not be labeled mock")
 	}
 }

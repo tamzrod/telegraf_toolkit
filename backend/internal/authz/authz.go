@@ -38,6 +38,7 @@ type Permission string
 const (
 	PermProfileRead       Permission = "profile.read"
 	PermProfileWrite      Permission = "profile.write"
+	PermProfileProbe      Permission = "profile.probe"
 	PermCredentialRead    Permission = "credential.read"
 	PermCredentialWrite   Permission = "credential.write"
 	PermAuditRead         Permission = "audit.read"
@@ -53,17 +54,20 @@ var rolePermissions = map[Role]map[Permission]bool{
 	},
 	RoleOperator: {
 		PermProfileRead:    true,
+		PermProfileProbe:   true,
 		PermCredentialRead: true,
 	},
 	RoleConfigurator: {
 		PermProfileRead:    true,
-		PermCredentialRead: true,
 		PermProfileWrite:   true,
+		PermProfileProbe:   true,
+		PermCredentialRead: true,
 	},
 	RoleAdministrator: {
 		PermProfileRead:       true,
-		PermCredentialRead:    true,
 		PermProfileWrite:      true,
+		PermProfileProbe:      true,
+		PermCredentialRead:    true,
 		PermCredentialWrite:   true,
 		PermAuditRead:         true,
 		PermCredentialResolve: true,

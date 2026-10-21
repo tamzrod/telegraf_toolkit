@@ -184,6 +184,16 @@ func (s *Service) ListAudit(ctx context.Context) ([]registrycontract.AuditEvent,
 	return s.audit.List()
 }
 
+// RecordProbe records a read-only capability probe as an audited action. The
+// target is the probed edition; no credential value or endpoint secret is
+// recorded.
+func (s *Service) RecordProbe(ctx context.Context, actor, edition string) error {
+	if actor == "" {
+		actor = "system"
+	}
+	return s.recordAuditAs(ctx, actor, "profile.probe", registrycontract.TargetProfile, edition, registrycontract.OutcomeSucceeded)
+}
+
 func (s *Service) recordAudit(ctx context.Context, action string, kind registrycontract.TargetKind, targetID string, outcome registrycontract.Outcome) error {
 	return s.recordAuditAs(ctx, "system", action, kind, targetID, outcome)
 }

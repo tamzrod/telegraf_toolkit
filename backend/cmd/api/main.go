@@ -20,6 +20,7 @@ import (
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/httpapi"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
@@ -37,10 +38,11 @@ func main() {
 	storePath := flag.String("store", defaultStorePath, "SQLite metadata store path (ADR-0002)")
 	keyPath := flag.String("key-file", "", "path to the externally provisioned master key file (ADR-0003)")
 	tokenPath := flag.String("token-file", "", "path to the externally provisioned authentication token file")
+	allowTestProbe := flag.Bool("allow-test-probe-policy", false, "allow the loopback/insecure-TLS capability-probe policy (isolated test harness only; never a production default)")
 	flag.Parse()
 
 	registry := openRegistry(*storePath, *keyPath)
-	api := openRegistryAPI(registry, *tokenPath)
+	api := openRegistryAPI(registry, *tokenPath, *allowTestProbe)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -121,7 +123,11 @@ func attachSecretStore(service *registryservice.Service, store *metadatastore.St
 // Registry service and a valid authentication token file; without either it
 // returns nil so no data route is registered and there is no anonymously
 // reachable registry surface.
-func openRegistryAPI(registry *registryservice.Service, tokenPath string) *registryapi.API {
+//
+// allowTestProbePolicy enables the explicit, documented loopback/insecure-TLS
+// probe policy for the isolated testing/influxdb harness. It is never a
+// production default and must be requested deliberately.
+func openRegistryAPI(registry *registryservice.Service, tokenPath string, allowTestProbePolicy bool) *registryapi.API {
 	if registry == nil {
 		return nil
 	}
@@ -134,6 +140,17 @@ func openRegistryAPI(registry *registryservice.Service, tokenPath string) *regis
 		log.Printf("authentication token file unavailable (%s): %v", tokenPath, err)
 		return nil
 	}
+
+	probePolicy := liveprobe.DefaultPolicy()
+	if allowTestProbePolicy {
+		probePolicy = liveprobe.TestPolicy()
+		log.Printf("capability probing uses the TEST loopback/insecure-TLS policy (not for production)")
+	}
 	log.Printf("registry API ready (roles: %v)", authz.KnownRoles())
-	return registryapi.New(registry, authenticator)
+	return registryapi.NewWithOptions(registryapi.Options{
+		Service:       registry,
+		Authenticator: authenticator,
+		Prober:        liveprobe.New(nil),
+		ProbePolicy:   probePolicy,
+	})
 }

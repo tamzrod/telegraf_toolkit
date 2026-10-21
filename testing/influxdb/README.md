@@ -69,6 +69,9 @@ cp .env.example .env
 # 4. run the Toolkit scaffold smoke test
 GO_BIN=/path/to/go ./scripts/toolkit-smoke.sh
 
+# 5. run the read-only live capability probes (task P2L-004)
+GO_BIN=/path/to/go ./scripts/live-probe.sh
+
 # ...or do everything in one go and write sanitized evidence
 GO_BIN=/path/to/go ./scripts/run-all.sh --teardown
 
@@ -120,6 +123,11 @@ InfluxDB 3 Core
 - `GET /api/v1/registry/profiles` is reported **NOT IMPLEMENTED** — the browser
   client calls this path but the backend has no live Registry endpoint. This is
   a deliberate, honest result, not a failure.
+
+`scripts/live-probe.sh` runs the read-only live capability probes
+(`backend/internal/liveprobe`, task P2L-004) against the running containers. It
+performs GET requests only, never writes, and requires the isolated stack to be
+up. See [`docs/LIVE_PROBING.md`](../../docs/LIVE_PROBING.md).
 
 ## Evidence and ignored paths
 
