@@ -20,12 +20,15 @@ package liveprobe
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
@@ -93,25 +96,19 @@ type Request struct {
 
 // Prober performs read-only capability probes.
 type Prober struct {
-	client   *http.Client
 	resolver Resolver
 }
 
 // New builds a prober. A nil resolver uses the system resolver.
+//
+// The prober holds no shared HTTP client: each probe builds a client bound to
+// the exact IP addresses it validated, so a DNS answer cannot change between
+// validation and connection (P2L-006, F-01).
 func New(resolver Resolver) *Prober {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	return &Prober{
-		// The transport dials the already-validated peer and never follows
-		// redirects, so a validated endpoint cannot redirect to a denied target.
-		client: &http.Client{
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		resolver: resolver,
-	}
+	return &Prober{resolver: resolver}
 }
 
 // Result is the outcome of a probe. It carries the three-valued capability
@@ -148,7 +145,15 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := p.resolveAndCheckPeers(ctx, endpoint.Hostname(), req.Policy); err != nil {
+	// Resolve once and pin the validated peer addresses. The HTTP client built
+	// below dials only these addresses, so a second, attacker-influenced DNS
+	// lookup cannot redirect the connection to a denied host (F-01).
+	peers, err := p.resolveAndCheckPeers(ctx, endpoint.Hostname(), req.Policy)
+	if err != nil {
+		return Result{}, err
+	}
+	client, err := newPinnedClient(endpoint, peers, req.Policy)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -183,7 +188,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Result, error) {
 		}
 		budget--
 		result.Requests++
-		return p.get(ctx, root+path, req.Credential)
+		return p.get(ctx, client, root+path, req.Credential)
 	}
 
 	edition, err := p.probeEdition(root, get, req.Credential)
@@ -254,8 +259,9 @@ func (p *Prober) probeEdition(root string, get func(string) (int, string, error)
 }
 
 // get performs a single read-only GET. The response body is bounded and the
-// credential is never echoed.
-func (p *Prober) get(ctx context.Context, rawURL string, cred Credential) (int, string, error) {
+// credential is never echoed. The client is bound to the validated peer
+// addresses for this probe.
+func (p *Prober) get(ctx context.Context, client *http.Client, rawURL string, cred Credential) (int, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return 0, "", registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The probe request could not be constructed.")
@@ -264,7 +270,7 @@ func (p *Prober) get(ctx context.Context, rawURL string, cred Credential) (int, 
 	if cred.Value != "" && cred.Scheme != "" {
 		request.Header.Set("Authorization", cred.Scheme+" "+cred.Value)
 	}
-	response, err := p.client.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return 0, "", registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint could not be reached.")
 	}
@@ -294,33 +300,138 @@ func validateEndpoint(raw string, policy Policy) (*url.URL, error) {
 	return u, nil
 }
 
-// resolveAndCheckPeers resolves a hostname and refuses the endpoint when any
-// resolved address is in a denied class. Checking every address closes the
-// DNS-rebinding gap where one lookup returns an allowed address and another a
-// denied one.
-func (p *Prober) resolveAndCheckPeers(ctx context.Context, host string, policy Policy) error {
+// resolveAndCheckPeers resolves a hostname once and returns the validated peer
+// addresses. It refuses the endpoint when any resolved address is in a denied
+// class. The returned addresses are the ONLY addresses the probe may connect
+// to, which closes the DNS-rebinding gap: there is no second, unvalidated
+// lookup at dial time.
+func (p *Prober) resolveAndCheckPeers(ctx context.Context, host string, policy Policy) ([]net.IP, error) {
 	if host == "" {
-		return registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "Endpoint must include a host.")
+		return nil, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "Endpoint must include a host.")
 	}
 	lower := strings.ToLower(host)
 	if lower == "metadata.google.internal" || lower == "metadata.goog" {
 		if !policy.AllowPrivate {
-			return registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "Endpoint targets a cloud metadata service, which is denied.")
+			return nil, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "Endpoint targets a cloud metadata service, which is denied.")
 		}
 	}
 	addrs, err := p.resolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint host could not be resolved.")
+		return nil, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint host could not be resolved.")
 	}
 	if len(addrs) == 0 {
-		return registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint host resolved to no addresses.")
+		return nil, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint host resolved to no addresses.")
 	}
+	peers := make([]net.IP, 0, len(addrs))
+	seen := make(map[string]bool, len(addrs))
 	for _, addr := range addrs {
 		if err := classifyPeer(addr.IP, policy); err != nil {
-			return err
+			return nil, err
+		}
+		// De-duplicate so the dialer has a compact, deterministic list.
+		key := addr.IP.String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		peers = append(peers, addr.IP)
+	}
+	return peers, nil
+}
+
+// newPinnedClient builds an HTTP client bound to a fixed set of validated peer
+// addresses for the given endpoint.
+//
+// Guarantees (P2L-006, F-01):
+//   - The dialer connects only to one of the pinned IPs, never re-resolving the
+//     hostname, so a DNS answer that changes after validation cannot redirect
+//     the connection.
+//   - A Control hook re-validates the actual peer address immediately before the
+//     socket connects, so a mis-pinned or redirected dial still fails closed.
+//   - TLS uses the endpoint hostname for SNI and certificate verification (it is
+//     never disabled); plain http is only permitted by policy.
+//   - No proxy is used, so an environment proxy cannot bypass the IP pinning.
+//   - Redirects are refused, deadlines are honoured by the request context, and
+//     response bodies are bounded by the caller.
+func newPinnedClient(endpoint *url.URL, peers []net.IP, policy Policy) (*http.Client, error) {
+	if len(peers) == 0 {
+		return nil, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "No validated peer address is available for the endpoint.")
+	}
+	port := endpoint.Port()
+	if port == "" {
+		if endpoint.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
 		}
 	}
-	return nil
+
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	transport := &http.Transport{
+		// A nil Proxy disables environment-proxy discovery, so HTTP_PROXY cannot
+		// tunnel the request to an unvalidated host.
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var lastErr error
+			for _, ip := range peers {
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			if lastErr == nil {
+				lastErr = fmt.Errorf("no validated peer address")
+			}
+			return nil, lastErr
+		},
+		TLSClientConfig: &tls.Config{
+			// ServerName pins SNI and the verified certificate hostname to the
+			// endpoint host. InsecureSkipVerify is never set true.
+			ServerName: endpoint.Hostname(),
+			MinVersion: tls.VersionTLS12,
+		},
+		ForceAttemptHTTP2:   false,
+		MaxIdleConns:        2,
+		IdleConnTimeout:     5 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableKeepAlives:   true,
+	}
+	// Wrap the dialer so the connected peer is validated. net.Dialer.Control is
+	// invoked after the address is resolved and before connect; because we pass a
+	// literal IP, the address it sees is the pinned peer.
+	dialer.Control = func(network, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("unexpected dial address %q", address)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return fmt.Errorf("dial address %q is not an IP", address)
+		}
+		if !pinnedContains(peers, ip) {
+			return fmt.Errorf("dial address %q is not a validated peer", address)
+		}
+		return classifyPeer(ip, policy)
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return client, nil
+}
+
+// pinnedContains reports whether an IP is one of the pinned peers.
+func pinnedContains(peers []net.IP, ip net.IP) bool {
+	for _, peer := range peers {
+		if peer.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // classifyPeer rejects a resolved peer address that the policy does not permit.

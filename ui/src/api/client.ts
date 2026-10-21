@@ -134,12 +134,14 @@ export async function fetchLiveRegistryProfiles(
 }
 
 /**
- * Performs a read-only capability probe through the authorized API. The
- * credential is resolved server-side; the browser sends only an endpoint and an
- * optional credential reference ID, never a value.
+ * Performs a read-only capability probe through the authorized API.
+ *
+ * The browser sends only a connection profile ID. The endpoint and credential
+ * are resolved server-side from the stored profile, so the browser cannot direct
+ * a stored secret to an origin of its choosing.
  */
 export async function probeCapabilities(
-  input: { connectionId: string; endpoint: string; credentialRefId?: string; deadlineMs?: number },
+  input: { connectionId: string; deadlineMs?: number },
   signal?: AbortSignal,
 ): Promise<ApiProbeResult> {
   return requestJson("/registry/probe", isApiProbeResult, {
@@ -147,8 +149,6 @@ export async function probeCapabilities(
     method: "POST",
     body: {
       connection_id: input.connectionId,
-      endpoint: input.endpoint,
-      credential_ref_id: input.credentialRefId ?? "",
       deadline_ms: input.deadlineMs ?? 0,
     },
   });

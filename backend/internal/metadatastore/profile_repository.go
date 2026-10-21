@@ -39,13 +39,13 @@ func (r *ProfileRepository) Put(profile fixtures.ConnectionProfile) error {
 
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO connection_profiles (
-			connection_id, display_name, family, major_version,
+			connection_id, display_name, family, major_version, endpoint,
 			scope_kind, scope_database, scope_retention_policy,
 			scope_organization, scope_bucket,
 			query_dialects, write_protocols, schema_discovery,
 			credential_ref_id, mock, note
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		profile.ConnectionID, profile.DisplayName, string(profile.Family), profile.MajorVersion,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		profile.ConnectionID, profile.DisplayName, string(profile.Family), profile.MajorVersion, profile.Endpoint,
 		string(profile.Scope.Kind), profile.Scope.Database, profile.Scope.RetentionPolicy,
 		profile.Scope.Organization, profile.Scope.Bucket,
 		string(dialects), string(protocols), boolToInt(profile.Capabilities.SchemaDiscovery),
@@ -67,7 +67,7 @@ func (r *ProfileRepository) Get(connectionID string) (fixtures.ConnectionProfile
 	defer cancel()
 
 	row := r.db.QueryRowContext(ctx, `
-		SELECT connection_id, display_name, family, major_version,
+		SELECT connection_id, display_name, family, major_version, endpoint,
 		       scope_kind, scope_database, scope_retention_policy,
 		       scope_organization, scope_bucket,
 		       query_dialects, write_protocols, schema_discovery,
@@ -91,7 +91,7 @@ func (r *ProfileRepository) List() ([]fixtures.ConnectionProfile, error) {
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT connection_id, display_name, family, major_version,
+		SELECT connection_id, display_name, family, major_version, endpoint,
 		       scope_kind, scope_database, scope_retention_policy,
 		       scope_organization, scope_bucket,
 		       query_dialects, write_protocols, schema_discovery,
@@ -152,7 +152,7 @@ func scanProfile(s scanner) (fixtures.ConnectionProfile, error) {
 		mock       int
 	)
 	if err := s.Scan(
-		&profile.ConnectionID, &profile.DisplayName, &family, &profile.MajorVersion,
+		&profile.ConnectionID, &profile.DisplayName, &family, &profile.MajorVersion, &profile.Endpoint,
 		&scopeKind, &profile.Scope.Database, &profile.Scope.RetentionPolicy,
 		&profile.Scope.Organization, &profile.Scope.Bucket,
 		&dialects, &protocols, &schemaDisc,

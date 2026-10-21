@@ -39,19 +39,18 @@ export function useLiveRegistryProfiles(
 /**
  * Mutation that performs a read-only capability probe through the authorized
  * API. The result is a live, three-valued capability report; it is not mock.
+ *
+ * Only the connection ID is sent: the endpoint and credential are resolved
+ * server-side from the stored profile.
  */
 export function useProbeCapabilities(): UseMutationResult<
   ApiProbeResult,
   Error,
-  { connectionId: string; endpoint: string; credentialRefId?: string }
+  { connectionId: string }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: {
-      connectionId: string;
-      endpoint: string;
-      credentialRefId?: string;
-    }) => probeCapabilities(input),
+    mutationFn: (input: { connectionId: string }) => probeCapabilities(input),
     onSuccess: () => {
       // A probe does not change the profile list, but refresh it so any
       // server-side state stays consistent.

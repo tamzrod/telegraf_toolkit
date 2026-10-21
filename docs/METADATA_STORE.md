@@ -64,14 +64,17 @@ Current set:
 | 1 | `initial-control-plane-metadata` | `connection_profiles`, `credential_refs`, `audit_events` |
 | 2 | `audit-and-profile-lookup-indexes` | lookup indexes on audit target, audit time, profile family |
 | 3 | `encrypted-secret-envelopes` | `secret_envelopes` (ciphertext envelopes only) |
+| 4 | `profile-endpoint` | `connection_profiles.endpoint` (server-resolved probe target) |
 
 A test builds a database at version 1, writes a row, upgrades to the current
 version, and asserts the row survives — proving later migrations are additive.
 
 ### Tables
 
-- `connection_profiles` — profile metadata and a `credential_ref_id`
-  **reference**. There is deliberately no column for a credential value.
+- `connection_profiles` — profile metadata, a `credential_ref_id`
+  **reference**, and the profile `endpoint`. There is deliberately no column for
+  a credential value. The endpoint is part of the profile identity, so a probe
+  resolves its target server-side rather than from a caller-supplied host.
 - `credential_refs` — alias, role, fingerprint, last-rotated, expiry, mock
   discriminator. No value column.
 - `audit_events` — append-oriented actor/action/target/outcome/timestamp. No

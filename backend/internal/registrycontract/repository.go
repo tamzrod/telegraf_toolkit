@@ -3,6 +3,7 @@ package registrycontract
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -56,6 +57,9 @@ func ValidateProfile(profile fixtures.ConnectionProfile) error {
 	if err := ValidateScope(profile.Scope); err != nil {
 		return err
 	}
+	if err := ValidateProfileEndpoint(profile.Endpoint); err != nil {
+		return err
+	}
 	if strings.TrimSpace(profile.CredentialRefID) == "" {
 		return NewSanitizedError(CodeInvalidProfile, "A profile requires a credential reference ID, never a value.")
 	}
@@ -65,6 +69,31 @@ func ValidateProfile(profile fixtures.ConnectionProfile) error {
 	}
 	if err := scanForSecretMaterial(string(blob)); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidateProfileEndpoint enforces that a profile carries a structurally valid
+// absolute http(s) endpoint with no embedded credentials. It deliberately does
+// not apply the private/loopback policy: that is a per-probe decision governed
+// by the liveprobe Policy, so a profile can legitimately record an isolated
+// test endpoint while the production probe policy still denies it. This makes
+// the endpoint an immutable part of the profile identity, so a probe cannot be
+// pointed at a caller-chosen host.
+func ValidateProfileEndpoint(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return NewSanitizedError(CodeInvalidProfile, "A profile requires an endpoint.")
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return NewSanitizedError(CodeInvalidProfile, "A profile endpoint must be an absolute URL.")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return NewSanitizedError(CodeInvalidProfile, "A profile endpoint scheme must be http or https.")
+	}
+	if u.User != nil {
+		return NewSanitizedError(CodeInvalidProfile, "A profile endpoint must not embed credentials.")
 	}
 	return nil
 }

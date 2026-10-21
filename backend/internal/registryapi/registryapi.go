@@ -242,12 +242,13 @@ func (a *API) deleteProfile(w http.ResponseWriter, r *http.Request, connectionID
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// probeRequest is the accepted body for a capability probe.
+// probeRequest is the accepted body for a capability probe. It carries only a
+// connection profile ID: the endpoint and credential reference are resolved
+// server-side from that profile, so a caller cannot direct a stored credential
+// to an arbitrary host (P2L-006, F-02).
 type probeRequest struct {
-	ConnectionID  string `json:"connection_id"`
-	Endpoint      string `json:"endpoint"`
-	CredentialRef string `json:"credential_ref_id"`
-	DeadlineMS    int    `json:"deadline_ms"`
+	ConnectionID string `json:"connection_id"`
+	DeadlineMS   int    `json:"deadline_ms"`
 }
 
 // probeResponse is the sanitized probe result. It carries the three-valued
@@ -263,8 +264,13 @@ type probeResponse struct {
 }
 
 // handleProbe performs a consented, read-only capability probe. It requires the
-// profile.probe permission and the endpoint policy configured on the API; the
-// credential is resolved server-side and never returned.
+// profile.probe permission and the endpoint policy configured on the API.
+//
+// The endpoint and credential are resolved server-side from the stored profile
+// named by the request. The caller cannot supply an endpoint or a credential
+// reference, so a principal with profile.probe cannot forward a stored secret to
+// an origin of its choosing (P2L-006, F-02). The resolved secret is used only to
+// authenticate the probe and is never returned or logged.
 func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 	principal, ok := a.principal(w, r)
 	if !ok {
@@ -282,6 +288,28 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
 		return
 	}
+	if strings.TrimSpace(input.ConnectionID) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A probe requires a connection profile ID.")
+		return
+	}
+
+	// Resolve the profile server-side. Only the profile's own endpoint and
+	// credential reference are used; the request cannot override either.
+	profile, found, err := a.service.GetProfile(r.Context(), input.ConnectionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The profile could not be read.")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, string(registrycontract.CodeProfileNotFound), "No profile matches the requested identity.")
+		return
+	}
+	if err := registrycontract.ValidateProfileEndpoint(profile.Endpoint); err != nil {
+		// A profile with no valid endpoint cannot be probed.
+		writeSanitizedError(w, err)
+		return
+	}
+
 	deadline := time.Duration(input.DeadlineMS) * time.Millisecond
 	if deadline <= 0 {
 		deadline = 10 * time.Second
@@ -290,11 +318,11 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 		deadline = 30 * time.Second
 	}
 
-	// Resolve the credential server-side. The value is used only to authenticate
-	// the probe and is never returned or logged.
+	// Resolve the profile's own credential server-side, if it has one. The value
+	// is used only to authenticate the probe and is never returned or logged.
 	var credential liveprobe.Credential
-	if strings.TrimSpace(input.CredentialRef) != "" {
-		value, err := a.service.ResolveCredential(r.Context(), input.CredentialRef)
+	if strings.TrimSpace(profile.CredentialRefID) != "" {
+		value, err := a.service.ResolveCredential(r.Context(), profile.CredentialRefID)
 		if err != nil {
 			writeSanitizedError(w, err)
 			return
@@ -303,8 +331,8 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.prober.Probe(r.Context(), liveprobe.Request{
-		ConnectionID: input.ConnectionID,
-		Endpoint:     input.Endpoint,
+		ConnectionID: profile.ConnectionID,
+		Endpoint:     profile.Endpoint,
 		Policy:       a.probePolicy,
 		Credential:   credential,
 		Deadline:     deadline,

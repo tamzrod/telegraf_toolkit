@@ -113,6 +113,19 @@ var migrations = []migration{
 			`CREATE INDEX idx_secret_envelopes_key_id ON secret_envelopes (key_id)`,
 		},
 	},
+	{
+		version: 4,
+		name:    "profile-endpoint",
+		stmts: []string{
+			// endpoint is the connection target the profile identifies. Storing
+			// it makes the endpoint an immutable part of the profile, so a probe
+			// resolves its destination from the profile server-side instead of
+			// accepting a caller-supplied host (P2L-006, F-02). Existing rows
+			// default to an empty endpoint and are treated as unprobeable until
+			// re-saved.
+			`ALTER TABLE connection_profiles ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

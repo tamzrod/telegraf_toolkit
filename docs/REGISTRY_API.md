@@ -43,12 +43,12 @@ Roles follow [`DATABASE_REGISTRY.md`](DATABASE_REGISTRY.md). Permissions are
 additive and least-privilege: a principal holds only what its roles grant, and an
 unknown role grants nothing.
 
-| Role | profile.read | profile.write | credential.read | credential.write | audit.read | credential.resolve |
-| --- | --- | --- | --- | --- | --- | --- |
-| viewer | ✓ | | | | | |
-| operator | ✓ | | ✓ | | | |
-| configurator | ✓ | ✓ | ✓ | | | |
-| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | profile.read | profile.write | profile.probe | credential.read | credential.write | audit.read | credential.resolve |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| viewer | ✓ | | | | | | |
+| operator | ✓ | | ✓ | ✓ | | | |
+| configurator | ✓ | ✓ | ✓ | ✓ | | | |
+| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Denial is the default. An anonymous principal is unauthenticated (401); a
 principal lacking the required permission is forbidden (403).
@@ -64,6 +64,7 @@ principal lacking the required permission is forbidden (403).
 | GET | `/api/v1/registry/credentials` | credential.read | List credential references (no values) |
 | GET | `/api/v1/registry/audit` | audit.read | List sanitized audit events |
 | GET | `/api/v1/registry/status` | none (status only) | Store reachability, schema version, secret-store flag |
+| POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side) |
 
 Responses carry a `credential_ref_id`, never a value. The `credentials` route
 returns alias, role, fingerprint and timestamps only.

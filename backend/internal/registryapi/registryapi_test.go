@@ -11,10 +11,12 @@ import (
 	"testing"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/fixtures"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/secretstore"
 )
 
 // newTestAPI builds an API over a real SQLite store with three tokens: an
@@ -77,6 +79,7 @@ func sampleProfileBody() map[string]any {
 		"display_name":  "API InfluxDB 2.x",
 		"family":        "influxdb",
 		"major_version": 2,
+		"endpoint":      "http://127.0.0.1:18086",
 		"scope": map[string]any{
 			"kind":         "organization-bucket",
 			"organization": "acme",
@@ -292,20 +295,45 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 }
 
-// newProbeAPI builds an API with a prober using the explicit test policy.
-func newProbeAPI(t *testing.T) *API {
+// newProbeAPIWithPolicy builds an API with a prober using the given policy and a
+// real envelope-encrypted secret store, and returns the service so a test can
+// seed profiles.
+func newProbeAPIWithPolicy(t *testing.T, policy liveprobe.Policy) (*API, *registryservice.Service) {
 	t.Helper()
 	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "master.key")
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	if err := secretstore.WriteKeyFile(keyPath, "k1", map[string][]byte{"k1": key}); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+	keyring, err := secretstore.LoadKeyring(keyPath)
+	if err != nil {
+		t.Fatalf("load keyring: %v", err)
+	}
 	store, err := metadatastore.Open(context.Background(), metadatastore.Options{Path: filepath.Join(dir, "metadata.db")})
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+
+	secrets, err := secretstore.New(secretstore.Options{
+		Keyring:   keyring,
+		Envelopes: store.SecretEnvelopes(),
+		Audit:     store.Audit(),
+	})
+	if err != nil {
+		t.Fatalf("new secret store: %v", err)
+	}
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).WithSecretStore(secrets)
 
 	authenticator := authz.NewAuthenticator()
 	admin, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
 	_ = authenticator.RegisterToken("admin-token", admin)
+	operator, _ := authz.NewPrincipal("carol", authz.RoleOperator)
+	_ = authenticator.RegisterToken("operator-token", operator)
 	viewer, _ := authz.NewPrincipal("bob", authz.RoleViewer)
 	_ = authenticator.RegisterToken("viewer-token", viewer)
 
@@ -313,47 +341,88 @@ func newProbeAPI(t *testing.T) *API {
 		Service:       service,
 		Authenticator: authenticator,
 		Prober:        liveprobe.New(nil),
-		ProbePolicy:   liveprobe.TestPolicy(),
-	})
+		ProbePolicy:   policy,
+	}), service
+}
+
+func newProbeAPI(t *testing.T) *API {
+	t.Helper()
+	api, _ := newProbeAPIWithPolicy(t, liveprobe.TestPolicy())
+	return api
+}
+
+// seedProfile stores a probe-able profile with a stored credential so a probe
+// resolves a real secret server-side from the profile, never from the request.
+func seedProfile(t *testing.T, service *registryservice.Service, connectionID, endpoint string) {
+	t.Helper()
+	ref, err := service.StoreCredential(context.Background(), connectionID+"-cred", registrycontract.RoleRead, "seed-token-"+connectionID)
+	if err != nil {
+		t.Fatalf("store credential: %v", err)
+	}
+	profile := fixtures.Profile2x()
+	profile.ConnectionID = connectionID
+	profile.DisplayName = connectionID
+	profile.Endpoint = endpoint
+	profile.CredentialRefID = ref.CredentialRefID
+	if err := service.CreateProfile(context.Background(), profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
 }
 
 func TestProbeRouteRequiresPermission(t *testing.T) {
-	api := newProbeAPI(t)
+	api, _ := newProbeAPIWithPolicy(t, liveprobe.TestPolicy())
 	// Anonymous is rejected.
-	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "", map[string]any{"endpoint": "http://127.0.0.1:1"}); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "", map[string]any{"connection_id": "c"}); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous probe = %d, want 401", rec.Code)
 	}
 	// A viewer lacks profile.probe.
-	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "viewer-token", map[string]any{"endpoint": "http://127.0.0.1:1"}); rec.Code != http.StatusForbidden {
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "viewer-token", map[string]any{"connection_id": "c"}); rec.Code != http.StatusForbidden {
 		t.Fatalf("viewer probe = %d, want 403", rec.Code)
 	}
 }
 
-func TestProbeRouteRejectsPrivateTargetUnderDefaultPolicy(t *testing.T) {
-	// Build an API whose policy is the production default: a loopback target
-	// must be refused even for an authorized principal.
-	dir := t.TempDir()
-	store, err := metadatastore.Open(context.Background(), metadatastore.Options{Path: filepath.Join(dir, "metadata.db")})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
+// TestProbeRouteRejectsUnknownProfile proves a probe cannot name a profile that
+// does not exist: the endpoint is resolved from a stored profile only.
+func TestProbeRouteRejectsUnknownProfile(t *testing.T) {
+	api, _ := newProbeAPIWithPolicy(t, liveprobe.TestPolicy())
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{"connection_id": "does-not-exist"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown profile probe = %d, want 404", rec.Code)
 	}
-	defer func() { _ = store.Close() }()
-	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
-	authenticator := authz.NewAuthenticator()
-	admin, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
-	_ = authenticator.RegisterToken("admin-token", admin)
-	api := NewWithOptions(Options{
-		Service:       service,
-		Authenticator: authenticator,
-		Prober:        liveprobe.New(nil),
-		ProbePolicy:   liveprobe.DefaultPolicy(),
-	})
+}
 
+// TestProbeRouteIgnoresCallerSuppliedEndpoint proves the caller cannot override
+// the profile's endpoint: a smuggled `endpoint` field is rejected as an unknown
+// field, and the probe uses the stored profile endpoint.
+func TestProbeRouteIgnoresCallerSuppliedEndpoint(t *testing.T) {
+	api, _ := newProbeAPIWithPolicy(t, liveprobe.TestPolicy())
+	// A body carrying a caller-supplied endpoint (or credential ref) must be
+	// rejected outright, because the request shape no longer accepts them.
 	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
-		"endpoint": "http://127.0.0.1:8086",
+		"connection_id": "c",
+		"endpoint":      "https://attacker.example.com",
 	})
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("loopback probe under default policy = %d, want 400", rec.Code)
+		t.Fatalf("probe with caller endpoint = %d, want 400", rec.Code)
+	}
+	rec = do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
+		"connection_id":     "c",
+		"credential_ref_id": "some-other-ref",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("probe with caller credential ref = %d, want 400", rec.Code)
+	}
+}
+
+func TestProbeRouteRejectsPrivateTargetUnderDefaultPolicy(t *testing.T) {
+	api, service := newProbeAPIWithPolicy(t, liveprobe.DefaultPolicy())
+	seedProfile(t, service, "loopback-profile", "http://127.0.0.1:18086")
+
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
+		"connection_id": "loopback-profile",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("loopback probe under default policy = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -364,10 +433,11 @@ func TestProbeRouteSucceedsAgainstFixture(t *testing.T) {
 	}))
 	defer target.Close()
 
-	api := newProbeAPI(t)
+	api, service := newProbeAPIWithPolicy(t, liveprobe.TestPolicy())
+	seedProfile(t, service, "fixture-2x", target.URL)
+
 	rec := do(t, api, http.MethodPost, "/api/v1/registry/probe", "admin-token", map[string]any{
 		"connection_id": "fixture-2x",
-		"endpoint":      target.URL,
 		"deadline_ms":   2000,
 	})
 	if rec.Code != http.StatusOK {

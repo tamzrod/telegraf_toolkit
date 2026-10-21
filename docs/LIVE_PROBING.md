@@ -35,13 +35,28 @@ The zero-value `Policy` is deny-by-default:
 - cloud metadata hosts (`metadata.google.internal`, `169.254.169.254`, …) are
   denied by default.
 
-### DNS and peer checks
+### DNS and peer checks (hardened, P2L-006 F-01)
 
-Before any request, the hostname is **resolved** and **every** returned address
-is classified. A hostname that resolves to even one denied address is refused,
-which closes the DNS-rebinding gap where one lookup returns an allowed address
-and a later lookup a denied one. The resolver is injectable so this is unit
-tested without real DNS.
+Before any request, the hostname is **resolved once** and **every** returned
+address is classified. A hostname that resolves to even one denied address is
+refused.
+
+The probe then builds a per-probe HTTP client bound to the **exact validated
+addresses**:
+
+- the dialer connects only to a pinned IP and **never re-resolves** the
+  hostname, so a DNS answer that changes after validation cannot redirect the
+  connection (closes the rebinding gap);
+- a `net.Dialer.Control` hook re-validates the concrete peer address immediately
+  before the socket connects, so a mis-pinned dial still fails closed;
+- TLS uses the endpoint hostname for SNI and certificate verification, which is
+  **never disabled** (`InsecureSkipVerify` is never set);
+- the transport uses **no proxy**, so `HTTP_PROXY` cannot tunnel the request to
+  an unvalidated host;
+- redirects are refused.
+
+The resolver is injectable, so this is unit tested without real DNS, including a
+resolver that returns a different (denied) answer on a second call.
 
 ### Redirects
 
@@ -66,6 +81,12 @@ a production default. The backend enables it only when the operator passes
 - The probe route (`POST /api/v1/registry/probe`) requires the `profile.probe`
   permission. A viewer is refused; an operator, configurator or administrator is
   allowed. An anonymous request is refused with 401.
+- The request body carries **only a connection profile ID** (and an optional
+  deadline). The endpoint and the credential reference are resolved
+  **server-side from the stored profile**; the caller cannot supply either, so a
+  principal with `profile.probe` cannot forward a stored secret to an origin of
+  its choosing (P2L-006 F-02). An unknown field such as `endpoint` or
+  `credential_ref_id` is rejected.
 - The credential is resolved **server-side** through the ADR-0003 secret store
   and used only to authenticate the request. It is never returned, logged or
   embedded in an error or a probe result.
@@ -93,6 +114,33 @@ from a version string alone:
 Anything that does not identify as a supported deployment is reported as a
 sanitized `endpoint-rejected` error, not guessed.
 
+## Security hardening (P2L-006)
+
+Two HIGH-priority pre-PR findings were fixed and are regression-tested:
+
+- **F-01 — DNS rebinding / peer mismatch.** The prober previously validated one
+  DNS lookup but let the HTTP client resolve again at dial time. It now resolves
+  once, pins the validated addresses, dials only those addresses, re-validates
+  the concrete peer in a `Control` hook, pins TLS SNI/hostname verification, uses
+  no proxy and refuses redirects. Regression tests include a resolver that
+  changes its answer between validation and dial, multi-answer responses with a
+  denied address, an unpinned-peer dial, TLS hostname verification and
+  proxy/redirect paths.
+- **F-02 — credential forwarding.** The probe route previously accepted a
+  caller-supplied `endpoint` and `credential_ref_id` independently, so a
+  principal with `profile.probe` could send a stored secret to an arbitrary host.
+  The route now accepts only a connection profile ID and resolves both the
+  endpoint and the credential reference server-side from that stored profile. A
+  caller-supplied `endpoint` or `credential_ref_id` is rejected as an unknown
+  field. Regression tests cover an attacker-chosen endpoint, cross-profile
+  credential substitution, an unknown profile, role-based authorization
+  (anonymous/viewer/operator/administrator) and absence of any leaked token in
+  responses.
+
+Production-default SSRF denial (private, metadata, loopback) is unchanged; the
+loopback/insecure-TLS exception remains opt-in for the isolated test harness
+only.
+
 ## Coverage and unverified editions
 
 - **Verified live:** InfluxDB **2 OSS v2.9.1** and **3 Core v3.12.1** against the
@@ -111,18 +159,24 @@ Docker Engine 29.9.1 with Compose v5.6.0. Pinned images unchanged:
 **Commands and actual outcomes:**
 - `gofmt -l .` → clean; `go vet ./...` (and `-tags integration`) → pass;
   `go build ./...` → pass.
-- `go test ./... -count=1` → all packages `ok` (13 liveprobe unit tests plus the
-  rest).
+- `go test ./... -count=1` → all packages `ok` (liveprobe unit + security tests
+  plus the rest).
+- `go test -race ./... -count=1` → all packages `ok`.
 - `make check` → exit 0 (backend + frontend + policy).
 - `./scripts/run-all.sh --teardown` (harness) → exit 0; InfluxDB **16 passed /
   0 failed**, Toolkit smoke 2 passed / 1 not implemented.
-- `./scripts/live-probe.sh` (read-only probes) → exit 0:
+- `./scripts/live-probe.sh` (read-only probes, re-run after the P2L-006
+  hardening) → exit 0:
   - InfluxDB 2 → `edition=influxdb-2.x-oss`, `dialects=[flux influxql sql]`,
     `write=[line-protocol:supported]`, `schemaDiscovery=supported`, requests=1.
   - InfluxDB 3 → `edition=influxdb-3.x-core`, `dialects=[flux influxql sql]`,
     `write=[line-protocol:supported]`, `schemaDiscovery=unsupported`, requests=1.
-  - Default (production) policy on the loopback endpoint → refused
-    (`tls-validation-failed`), proving the exception is test-only.
+  - Default (production) policy on the loopback endpoint → refused, proving the
+    exception is test-only.
+- `./scripts/toolkit-live-registry.sh` (e2e) → exit 0 (8 checks): anonymous 401;
+  admin create 201; listing; viewer 403; live probe `edition=influxdb-2.x-oss`
+  with `mock=false`; caller-supplied endpoint rejected 400; profile survives
+  restart.
 
 **Acceptance mapping (P2L-004):**
 - Real read-only authenticated probes against pinned 2 OSS and 3 Core containers
@@ -135,6 +189,18 @@ Docker Engine 29.9.1 with Compose v5.6.0. Pinned images unchanged:
   `TestProbeDoesNotFollowRedirects`).
 - No silent remote/private host allowance → `TestProbeRejectsPrivateTargetUnderDefaultPolicy`
   and the live default-policy rejection test.
+
+**Acceptance mapping (P2L-006):**
+- F-01 rebinding/peer → `TestDialIsPinnedToValidatedPeer`,
+  `TestDialRejectsUnpinnedPeer`, `TestProbeRefusesMultiAnswerWithDeniedPeer`,
+  `TestProbeRefusesUnspecifiedAndLinkLocal`, `TestProbeRefusesRedirectToDeniedHost`,
+  `TestPinnedClientUsesEndpointSNI`, `TestPinnedClientTLSHostnameVerification`,
+  `TestPinnedClientHasNoProxy`.
+- F-02 credential forwarding → `TestProbeUsesProfileOwnEndpointAndCredential`,
+  `TestProbeCannotForwardCredentialToArbitraryHost`,
+  `TestProbeCannotSubstituteAnotherProfilesCredential`,
+  `TestProbeRouteIgnoresCallerSuppliedEndpoint`, `TestProbeAuthorizationByRole`,
+  `TestDeniedProbeLeaksNoCredential`, `TestProbeResultCarriesNoCredential`.
 
 ## Limitations
 

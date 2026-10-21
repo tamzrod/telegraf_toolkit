@@ -98,6 +98,7 @@ export type ApiProfile = {
   display_name: string;
   family: string;
   major_version: number;
+  endpoint: string;
   scope: ApiScope;
   capabilities: ApiCapabilities;
   credential_ref_id: string;
@@ -272,6 +273,7 @@ export function isApiProfile(value: unknown): value is ApiProfile {
     typeof value.display_name === "string" &&
     typeof value.family === "string" &&
     typeof value.major_version === "number" &&
+    typeof value.endpoint === "string" &&
     isApiScope(value.scope) &&
     isStringArray(capabilities.query_dialects) &&
     isStringArray(capabilities.write_protocols) &&

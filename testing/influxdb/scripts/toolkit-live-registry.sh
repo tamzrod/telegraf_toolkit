@@ -75,14 +75,22 @@ fi
 chmod 600 "${KEY_FILE}" "${TOKENS_FILE}"
 
 api_log="${LOGS_DIR}/e2e-registry-api.log"
+api_bin="${TMP_DIR}/e2e-api"
 mkdir -p "${LOGS_DIR}"
-( cd "${REPO_ROOT}/backend" && "${GO_BIN}" run ./cmd/api \
+# Build the binary once so the tracked PID is the actual server (not a `go run`
+# wrapper whose child would keep the port and database open after teardown).
+( cd "${REPO_ROOT}/backend" && "${GO_BIN}" build -o "${api_bin}" ./cmd/api )
+
+start_api() {
+  "${api_bin}" \
     -addr "${API_ADDR}" \
     -store "${DB_FILE}" \
     -key-file "${KEY_FILE}" \
     -token-file "${TOKENS_FILE}" \
-    -allow-test-probe-policy ) >"${api_log}" 2>&1 &
-api_pid=$!
+    -allow-test-probe-policy >"${api_log}" 2>&1 &
+  api_pid=$!
+}
+start_api
 trap 'kill "${api_pid}" 2>/dev/null || true; wait "${api_pid}" 2>/dev/null || true' EXIT
 
 ready=0
@@ -92,6 +100,12 @@ for _ in $(seq 1 40); do
 done
 if [ "${ready}" != "1" ]; then
   echo "BLOCKED: backend did not start (see ${api_log})" >&2
+  exit 2
+fi
+# Confirm the process we started is the one answering, so a stale listener on the
+# same port cannot produce misleading results.
+if ! kill -0 "${api_pid}" 2>/dev/null; then
+  echo "BLOCKED: a different process is already listening on ${API_ADDR}; stop it and rerun." >&2
   exit 2
 fi
 
@@ -105,8 +119,19 @@ else
   record FAIL "anonymous GET /profiles rejected" "HTTP ${code}"
 fi
 
-# 2. Admin creates a profile.
-create_body='{"connection_id":"e2e-influx-2x","display_name":"E2E InfluxDB 2.x","family":"influxdb","major_version":2,"scope":{"kind":"organization-bucket","organization":"acme","bucket":"historian"},"capabilities":{"query_dialects":["flux","influxql"],"write_protocols":["line-protocol"],"schema_discovery":true},"credential_ref_id":"e2e-ref-2x","mock":false,"note":"created by e2e check"}'
+# 2. Seed a TEST-only credential server-side, then create a profile that
+#    references it and carries the isolated endpoint. Credential writes are not
+#    exposed over HTTP, so the harness seeds one through a build-tagged helper.
+SEED_REF="e2e-ref-2x"
+SEED_VALUE="e2e-test-token-not-a-real-secret"
+( cd "${REPO_ROOT}/backend" && \
+  TOOLKIT_SEED_STORE="${DB_FILE}" \
+  TOOLKIT_SEED_KEY_FILE="${KEY_FILE}" \
+  TOOLKIT_SEED_REF="${SEED_REF}" \
+  TOOLKIT_SEED_VALUE="${SEED_VALUE}" \
+  "${GO_BIN}" test -tags integration ./internal/secretstore/ -run TestSeedCredentialForHarness -count=1 >/dev/null )
+
+create_body="{\"connection_id\":\"e2e-influx-2x\",\"display_name\":\"E2E InfluxDB 2.x\",\"family\":\"influxdb\",\"major_version\":2,\"endpoint\":\"${INFLUXDB2_URL}\",\"scope\":{\"kind\":\"organization-bucket\",\"organization\":\"acme\",\"bucket\":\"historian\"},\"capabilities\":{\"query_dialects\":[\"flux\",\"influxql\"],\"write_protocols\":[\"line-protocol\"],\"schema_discovery\":true},\"credential_ref_id\":\"${SEED_REF}\",\"mock\":false,\"note\":\"created by e2e check\"}"
 code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" -H 'Content-Type: application/json' \
   -d "${create_body}" "${API_URL}/api/v1/registry/profiles" || echo 000)"
@@ -134,8 +159,10 @@ else
   record FAIL "viewer POST /profiles denied" "HTTP ${code}"
 fi
 
-# 5. Admin probes the isolated InfluxDB 2 endpoint (read-only).
-probe_body="{\"connection_id\":\"e2e-influx-2x\",\"endpoint\":\"${INFLUXDB2_URL}\",\"deadline_ms\":5000}"
+# 5. Admin probes the isolated InfluxDB 2 endpoint (read-only). The endpoint and
+#    credential are resolved server-side from the stored profile, so the request
+#    carries only the connection profile ID.
+probe_body="{\"connection_id\":\"e2e-influx-2x\",\"deadline_ms\":5000}"
 probe_out="$(curl -sS -m 10 -X POST \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" -H 'Content-Type: application/json' \
   -d "${probe_body}" "${API_URL}/api/v1/registry/probe" || true)"
@@ -150,17 +177,23 @@ else
   record FAIL "probe result is labeled live, not mock" "unexpected result"
 fi
 
+# 5b. A caller-supplied endpoint must be rejected: the probe resolves the
+#     destination server-side from the stored profile only (F-02 regression).
+smuggle_body="{\"connection_id\":\"e2e-influx-2x\",\"endpoint\":\"https://attacker.example.com\",\"deadline_ms\":5000}"
+code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -X POST \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" -H 'Content-Type: application/json' \
+  -d "${smuggle_body}" "${API_URL}/api/v1/registry/probe" || echo 000)"
+if [ "${code}" = "400" ]; then
+  record PASS "probe rejects caller-supplied endpoint" "HTTP 400"
+else
+  record FAIL "probe rejects caller-supplied endpoint" "HTTP ${code}"
+fi
+
 # 6. Restart the backend against the same database and confirm the profile
 #    survives, proving real persistence rather than in-memory state.
 kill "${api_pid}" 2>/dev/null || true
 wait "${api_pid}" 2>/dev/null || true
-( cd "${REPO_ROOT}/backend" && "${GO_BIN}" run ./cmd/api \
-    -addr "${API_ADDR}" \
-    -store "${DB_FILE}" \
-    -key-file "${KEY_FILE}" \
-    -token-file "${TOKENS_FILE}" \
-    -allow-test-probe-policy ) >>"${api_log}" 2>&1 &
-api_pid=$!
+start_api
 ready=0
 for _ in $(seq 1 40); do
   if curl -sS -m 2 -o /dev/null "${API_URL}/api/v1/registry/status" 2>/dev/null; then ready=1; break; fi

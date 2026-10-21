@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/fixtures"
 )
 
 // openTemp opens a store on a fresh file under t.TempDir() so each test is
@@ -126,6 +128,31 @@ func TestUpgradePreservesExistingRows(t *testing.T) {
 		t.Fatalf("expected idx_audit_events_target after upgrade, found %d", indexCount)
 	}
 	_ = db.Close()
+}
+
+// TestProfileEndpointSurvivesMigration proves the version-4 endpoint column is
+// additive and round-trips through the repository.
+func TestProfileEndpointSurvivesMigration(t *testing.T) {
+	store := openTemp(t)
+	ctx := context.Background()
+
+	if SchemaVersion() < 4 {
+		t.Fatalf("expected at least four migrations, got %d", SchemaVersion())
+	}
+
+	profile := fixtures.Profile2x()
+	profile.Endpoint = "http://127.0.0.1:18086"
+	if err := store.Profiles().Put(profile); err != nil {
+		t.Fatalf("put profile with endpoint: %v", err)
+	}
+	got, ok, err := store.Profiles().Get(profile.ConnectionID)
+	if err != nil || !ok {
+		t.Fatalf("get profile: ok=%v err=%v", ok, err)
+	}
+	if got.Endpoint != profile.Endpoint {
+		t.Fatalf("endpoint = %q, want %q", got.Endpoint, profile.Endpoint)
+	}
+	_ = ctx
 }
 
 func TestMigrationRejectsDatabaseNewerThanTarget(t *testing.T) {

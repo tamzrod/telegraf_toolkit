@@ -13,6 +13,7 @@ const API_PROFILE: ApiProfile = {
   display_name: "Live InfluxDB 3.x",
   family: "influxdb",
   major_version: 3,
+  endpoint: "http://127.0.0.1:18181",
   scope: { kind: "database", database: "telemetry_v3" },
   capabilities: {
     query_dialects: ["sql", "influxql"],

@@ -38,6 +38,10 @@ mode does not issue an unauthorized request.
   is shown as **Supported** only when the probe confirmed it; otherwise it is
   **Unsupported**. `Unknown` is reserved for a probe that could not complete and
   is never rendered as support.
+- A probe is requested by **connection profile ID only**: the browser never
+  supplies an endpoint or a credential reference, so it cannot direct a stored
+  secret to an origin of its choosing. The server resolves both from the stored
+  profile.
 - The live API reports positively-supported capabilities as lists; a capability
   absent from the list is rendered `unsupported`, which is what the backend
   observed. The conversion lives in `toRegistryProfile`.

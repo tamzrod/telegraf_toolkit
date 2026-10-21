@@ -30,6 +30,7 @@ type profilePayload struct {
 	DisplayName     string              `json:"display_name"`
 	Family          string              `json:"family"`
 	MajorVersion    int                 `json:"major_version"`
+	Endpoint        string              `json:"endpoint"`
 	Scope           scopePayload        `json:"scope"`
 	Capabilities    capabilitiesPayload `json:"capabilities"`
 	CredentialRefID string              `json:"credential_ref_id"`
@@ -68,6 +69,7 @@ type profileInput struct {
 	DisplayName     string              `json:"display_name"`
 	Family          string              `json:"family"`
 	MajorVersion    int                 `json:"major_version"`
+	Endpoint        string              `json:"endpoint"`
 	Scope           scopePayload        `json:"scope"`
 	Capabilities    capabilitiesPayload `json:"capabilities"`
 	CredentialRefID string              `json:"credential_ref_id"`
@@ -84,6 +86,7 @@ func (in profileInput) toProfile() (fixtures.ConnectionProfile, error) {
 		DisplayName:  in.DisplayName,
 		Family:       fixtures.Family(in.Family),
 		MajorVersion: in.MajorVersion,
+		Endpoint:     in.Endpoint,
 		Scope: fixtures.Scope{
 			Kind:            fixtures.ScopeKind(in.Scope.Kind),
 			Database:        in.Scope.Database,
@@ -120,6 +123,7 @@ func profileToPayload(profile fixtures.ConnectionProfile) profilePayload {
 		DisplayName:  profile.DisplayName,
 		Family:       string(profile.Family),
 		MajorVersion: profile.MajorVersion,
+		Endpoint:     profile.Endpoint,
 		Scope: scopePayload{
 			Kind:            string(profile.Scope.Kind),
 			Database:        profile.Scope.Database,

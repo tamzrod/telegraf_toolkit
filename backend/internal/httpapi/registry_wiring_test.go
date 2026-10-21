@@ -52,6 +52,7 @@ func TestRegistryDataRoutesRequireAuthentication(t *testing.T) {
 		"display_name":      "Wired 1.x",
 		"family":            "influxdb",
 		"major_version":     1,
+		"endpoint":          "http://127.0.0.1:18086",
 		"scope":             map[string]any{"kind": "database-retention-policy", "database": "telemetry", "retention_policy": "autogen"},
 		"capabilities":      map[string]any{"query_dialects": []string{"influxql"}, "write_protocols": []string{"line-protocol"}, "schema_discovery": true},
 		"credential_ref_id": "ref-1x",
