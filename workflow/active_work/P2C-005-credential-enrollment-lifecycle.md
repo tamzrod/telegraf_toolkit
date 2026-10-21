@@ -26,6 +26,16 @@ Failure-safe rollback/retry, audit transitions, no raw secrets in responses/logs
 ## Verification evidence
 Negative authorization and leak tests, rotation/failure injection, isolated 2/3 integration, race and make check.
 
+## Refined execution and acceptance contract (P2C-005)
+
+- Implement **administrator-only write-only** credential enrollment with encrypted storage behind ADR-0003 and P2L-007 binding checks; do not expose a generic secret-resolve route. Treat submitted credential values as sensitive in transit and client memory, redacting response/log/error/audit; explain TLS termination requirement.
+- Enrollment must ensure authoritative association to a profile’s connection ID, endpoint and canonical scope. Do not grant configurator/operator an attach or rotate shortcut, including through helper/service methods.
+- Implement replacement as **stage → validate against the profile’s approved endpoint with pinned/TLS-protected probe → atomically swap active reference/binding → revoke old value only when no remaining references require it**. If validation is inconclusive, fail closed while keeping the old secret usable.
+- Define failure, crash/retry and concurrent operations: no partial active switch, orphaned material safely recoverable/cleaned, no orphaned reference in profile, no cross-profile revocation. Audit without plaintext.
+- Browser write-only UX clears input after submission and never persists token or historian secrets in browser storage/URL. Provide explicit permission/error/rotation status.
+- Adversarial tests: user roles, arbitrary reference/endpoint reuse, binding invalidation, failed validation, concurrent rotation, crash injection, revocation only when safe, leakage paths. Test isolated DB 2/3 only; no production probe/writes.
+- Make check, Go race, frontend tests, process e2e and security scans; report which stages were truly exercised.
+
 ## Stop conditions
 Stop and report `TASK_BLOCKED` for unsafe network/credential access, unresolved architecture, or required testing unavailable. No weakening tests or replacing working behavior with mocks.
 
