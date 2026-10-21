@@ -213,21 +213,38 @@ No new dependency: envelope encryption uses only the Go standard library.
 - Keys outside database and git → key file is separate and `.gitignore` excludes
   `*.key`; a test asserts the database file contains no plaintext.
 
-## Replacement and staged material (P2C-005)
+## Replacement and staged material (P2C-005, hardened by P2C-007)
 
-The store gained one operation for the credential replacement lifecycle:
+The store gained the operations the credential replacement lifecycle uses:
 
-- `StoreWithRef` stores a value under a caller-chosen reference. The
-  replacement lifecycle uses it to **stage** a candidate value under a
-  `staged-…` reference. The staged envelope is disposable: it is removed
-  whatever the outcome, and a leftover staged envelope from an interrupted
-  attempt is removed before the next stage, so a retry after a crash succeeds.
-- `Replace` swaps the value behind an **existing** reference. The procedure is
-  failure safe: the previous envelope is read first, the new value is sealed
-  under the active key, the new envelope is written, and the new envelope is
-  decrypted again and compared with the new value. If that verification fails,
-  the previous envelope is restored, so the credential stays usable and the
-  swap is never half-applied.
+- `StoreWithRef` stores a value under a caller-chosen reference, and `Store`
+  generates a collision-resistant random one. The replacement lifecycle
+  **stages** a candidate value by calling `Store`, so every attempt stages
+  under its own unique reference. The staged envelope is disposable: each
+  attempt removes its own staged material at every exit, and no attempt ever
+  reads or deletes another attempt's staged material - including a leftover
+  from an attempt interrupted by a crash or restart. Such a leftover is inert
+  ciphertext: it has no reference row, so it appears in no listing, and no
+  binding or profile can name it. (The old deterministic `staged-<reference>`
+  ID, which the next attempt deleted before staging, is exactly the
+  interference this removes; there is no automatic reclamation of crash
+  leftovers, because a reclaimer cannot distinguish an in-flight attempt from
+  a crashed one.)
+- `CurrentEnvelope` returns an opaque handle on the ciphertext currently
+  stored for a reference: exactly the stored envelope, never a plaintext
+  value. It is the compare-and-swap precondition for `ReplaceIfCurrent`.
+- `ReplaceIfCurrent` swaps the value behind an **existing** reference, but
+  only while the stored ciphertext is still the observed handle - the exact
+  compare-and-swap that makes racing replacements safe. Two attempts that
+  observed the same current envelope cannot both swap: the first applies, and
+  the second is a no-op that reports `applied=false`, so a racing attempt can
+  never overwrite another attempt's already-approved value. The procedure is
+  failure safe: the new value is sealed under the active key, the swap is
+  written with a conditional update keyed on the observed ciphertext, and the
+  new envelope is decrypted again and compared with the new value. If that
+  verification fails, the previous envelope is restored with a second
+  conditional update keyed on the envelope just written, so the restore cannot
+  clobber a concurrent writer either.
 
 Because the swap keeps the reference ID, the profile that names it and the
 approval that authorises it stay valid: a replacement never invalidates an
@@ -235,6 +252,41 @@ approval and never interrupts an unrelated profile.
 
 The staged material and the value itself are never returned, logged or
 audited; only the reference is.
+
+### Compare-and-swap evidence (P2C-007, recorded 2026-10-21)
+
+**Environment:** branch `phase-2/registry-completion`; Go 1.27.3
+(linux/amd64 for the race suite); the isolated containers ran under the WSL
+Docker daemon with the digest-pinned images the harness uses.
+
+**Commands and actual outcomes:**
+- `gofmt -l .` → clean; `go vet ./...` and `go vet -tags integration ./...` →
+  pass; `go build ./...` and `go build -tags integration ./...` → pass.
+- `go test ./... -count=1` (linux/amd64) → every package `ok`.
+- `go test -race ./... -count=1` (linux/amd64) → every package `ok`.
+- `bash scripts/policy-check.sh` → **PASS** (no committed secret material).
+
+**Acceptance mapping (P2C-007):**
+- The envelope handle is the stored ciphertext, never a plaintext value →
+  `secretstore.TestCurrentEnvelopeReturnsTheStoredCiphertext`.
+- The swap applies only while the observed ciphertext is current →
+  `TestReplaceIfCurrentAppliesWhileUnchanged`,
+  `TestReplaceIfCurrentConflictsOnAStaleObservation`,
+  `metadatastore.TestEnvelopeReplaceIfAppliesOnlyOnTheExactCiphertext`.
+- Racing attempts cannot both swap → `TestReplaceIfCurrentConcurrentAttemptsHaveOneWinner`
+  (8 attempts on one envelope, exactly 1 winner, the credential resolves to
+  one attempt's value) and `registryservice.TestReplacementStageReferencesAreUniqueAndCleanupIsIsolated`
+  (6 concurrent replacements, 6 distinct per-attempt staged references, each
+  attempt removing only its own material).
+- A failing write changes nothing → `TestReplaceIfCurrentFailureAppliesNothing`.
+- The audit records the reference, never the value →
+  `TestReplaceIfCurrentRecordsNoValueInAudit`.
+
+**Limitations:** a crash between staging and the swap leaves an inert staged
+envelope — it has no reference row, so it appears in no listing and no binding
+or profile can name it. There is no automatic reclamation of such leftovers,
+because a reclaimer cannot distinguish an in-flight attempt from a crashed one;
+the store's own `Rotate` can rewrap them onto the active key.
 
 ## Limitations
 

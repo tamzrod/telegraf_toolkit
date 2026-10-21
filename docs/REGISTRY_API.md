@@ -64,8 +64,8 @@ principal lacking the required permission is forbidden (403).
 | DELETE | `/api/v1/registry/profiles/{id}` | profile.write | Delete a profile |
 | GET | `/api/v1/registry/credentials` | credential.read | List credential references (no values) |
 | POST | `/api/v1/registry/credentials` | credential.write **and** credential.attach | Enroll a credential for a profile: the value is write-only, the response carries the reference |
-| POST | `/api/v1/registry/credentials/replace` | credential.write **and** credential.attach | Replace the credential a profile is bound to (stage → validate → swap → revoke) |
-| DELETE | `/api/v1/registry/credentials/{reference}` | credential.write | Revoke a credential; refused while an approval still requires it |
+| POST | `/api/v1/registry/credentials/replace` | credential.write **and** credential.attach | Replace the credential a profile is bound to (observe → stage → validate a protected authorization → CAS swap → revoke the staged material); a racing replacement reports `credential-replace-conflict` (409) |
+| DELETE | `/api/v1/registry/credentials/{reference}` | credential.write | Revoke a credential; refused with 409 while an approval or a profile still references it, never detaching the dependent |
 | GET | `/api/v1/registry/audit` | audit.read | List sanitized audit events |
 | GET | `/api/v1/registry/status` | none (status only) | Store reachability, schema version, secret-store flag |
 | POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side). The response carries the three-valued outcomes **and** the `observations` that back them (check, method, path, status, outcome, reason) |
@@ -104,27 +104,60 @@ and the profile's pointer to the reference are applied as one unit of work
 (P2C-002); if that unit of work fails, the envelope is removed again and the
 rollback is audited.
 
-**Replacement** follows a reviewed lifecycle:
+**Replacement** follows a reviewed lifecycle (hardened by P2C-007):
 
-1. **Stage.** The new value is stored under a staged reference. The staged
-   material is disposable and is removed whatever the outcome.
-2. **Validate.** The staged value is resolved server-side and validated against
-   the profile's approved endpoint with the read-only prober - the same pinned
-   peer, TLS and SSRF controls the probe route uses. An inconclusive or failed
-   validation **fails closed**: the staged material is removed and the
-   credential that was in place stays usable (422).
-3. **Swap.** The value behind the **original** reference is replaced. The
+1. **Observe.** The ciphertext currently stored for the credential is read as
+   a compare-and-swap precondition. The swap below applies only while that
+   exact ciphertext is still the one in place.
+2. **Stage.** The new value is stored under a collision-resistant,
+   per-attempt staged reference. No attempt ever reads or deletes another
+   attempt's staged material, so concurrent replacements cannot interfere with
+   each other's candidates.
+3. **Validate.** The staged value is resolved server-side and validated
+   against the profile's approved endpoint with the read-only prober - the same
+   pinned peer, TLS and SSRF controls the probe route uses. Validation proves
+   **protected authorization**, not endpoint reachability: the protected
+   read-only listing for the identified edition (InfluxDB 2 `/api/v2/buckets`,
+   InfluxDB 3 `/api/v3/configure/database`) must refuse an **anonymous**
+   request and accept the **candidate**. An endpoint that serves the listing to
+   anonymous callers authenticates nothing, so it cannot prove the candidate;
+   an edition-identifying `/health` answer is public on InfluxDB 2 and proves
+   nothing by itself. An anonymous, denied or inconclusive answer **fails
+   closed**: the staged material is removed and the credential that was in
+   place stays usable (422).
+4. **Swap.** The value behind the **original** reference is replaced by a
+   conditional update keyed on the observed ciphertext. If a concurrent
+   replacement changed the credential first, nothing is written and the
+   attempt reports a conflict (`credential-replace-conflict`, 409); the
+   credential that is in place is whatever the winning attempt left. The
    reference ID, the profile and the approval are untouched, so the approval
    stays valid and no unrelated profile is interrupted.
-4. **Revoke.** The staged material is removed.
+5. **Revoke.** This attempt's staged material - and only this attempt's - is
+   removed, whatever the outcome.
 
-**Revocation** is refused with 409 while an approved binding still requires the
-credential: the approval is revoked first, so a credential is never removed
-while a profile depends on it. When the revocation goes through, the profiles
-that named the reference are detached, so no profile is left pointing at a
-credential that no longer exists.
+A candidate can only ever prove **authenticated read access** by a read-only
+check. Whether it also holds write or admin privileges cannot be proven without
+mutating the historian, which no replacement ever does; the validation
+therefore never claims more than authenticated read access, and an operator
+must confirm write-scoped tokens out of band before relying on them for writes.
+
+**Revocation** is refused with 409 (`credential-in-use`) while **anything**
+still depends on the credential: an approved binding that approves it, or a
+profile that names it. A revocation never silently detaches a profile; the
+dependency is removed first (revoke the approval and point the profile at
+another credential, or delete the profile). The dependency checks, the reference
+removal and the audit event are one transaction, so a concurrent approval
+cannot interleave with a revocation: an approval either commits before the
+check (the revocation is refused) or finds the reference gone (it fails with
+404). The metadata transition commits **before** the secret material is
+erased, so an interruption between the two leaves an unreferenced, unreachable
+envelope - never a profile pointing at a deleted secret, and never a working
+secret erased while a dependent still exists. Revoking a reference whose
+metadata is already removed is an idempotent no-op that still removes any
+envelope a prior interrupted attempt left behind.
 
 Every transition is audited (`credential.enroll`, `credential.replace`,
+`credential.replace.rejected`, `credential.replace.conflict`,
 `credential.revoke`, and the rollbacks) with the reference, never with the
 value.
 
@@ -248,6 +281,71 @@ dependency (standard library plus the existing pinned SQLite driver).
   `TestViewerCanReadButNotWrite`, `TestViewerCannotReadCredentialsOrAudit`,
   `TestConfiguratorCanWriteProfilesButNotCredentials`.
 - No anonymously writable endpoints → `TestRegistryDataRoutesRequireAuthentication`.
+
+### Credential-lifecycle hardening evidence (P2C-007, recorded 2026-10-21)
+
+**Environment:** branch `phase-2/registry-completion`; Go 1.27.3 (linux/amd64
+for the race suite); Node.js 24.15.0 / npm 11.12.1; Windows development host
+with a WSL Ubuntu 22.04 runtime; the isolated containers ran under the WSL
+Docker daemon with the digest-pinned images the harness uses.
+
+**Commands and actual outcomes:**
+- `gofmt -l .` → clean; `go vet ./...` and `go vet -tags integration ./...` →
+  pass; `go build ./...` and `go build -tags integration ./...` → pass.
+- `go test ./... -count=1` (linux/amd64) → every package `ok`.
+- `go test -race ./... -count=1` (linux/amd64) → every package `ok`.
+- `npm ci && npm run lint && npm run build && npm test` → 0 vulnerabilities,
+  lint clean, build clean, 20 files / 188 tests passed.
+- `bash scripts/policy-check.sh` → **PASS**.
+
+**Acceptance mapping (P2C-007):**
+- Replacement validation proves **protected authorization** →
+  `liveprobe.TestVerifyAcceptsAnAuthorizedCandidate`,
+  `TestVerifyRefusesAWrongCandidate`,
+  `TestVerifyFailsClosedWhenTheProtectedListingServesAnonymous`,
+  `TestVerifyFailsClosedWhenTheProtectedListingIsInconclusive`,
+  and the API-level `registryapi.TestCredentialReplacementFailsClosedForAnUnauthorizedCandidate`
+  (a wrong token against a public `/health` never replaces the usable
+  credential).
+- Unique per-attempt staging and a compare-and-swap swap →
+  `secretstore.TestReplaceIfCurrentConflictsOnAStaleObservation`,
+  `TestReplaceIfCurrentConcurrentAttemptsHaveOneWinner`,
+  `metadatastore.TestEnvelopeReplaceIfAppliesOnlyOnTheExactCiphertext`,
+  `registryservice.TestReplacementStageReferencesAreUniqueAndCleanupIsIsolated`
+  and `registryapi.TestConcurrentReplacementsHaveOneWinner` (1 × 200, 1 × 409).
+- Failures, retries and restart →
+  `registryservice.TestReplacementFailsClosedAndPreservesTheOldCredential`,
+  `TestReplacementRetrySucceedsAfterAFailure`,
+  `TestReplacementAfterAnInterruptedAttemptSucceeds`,
+  `TestReplacementSurvivesRestart`.
+- Refuse-and-preserve revocation, idempotent completion, recovery →
+  `registryapi.TestCredentialRevocationIsRefusedWhileAnythingReferencesIt`,
+  `registryservice.TestRevocationRefusesAndPreservesWhileAnythingReferences`,
+  `TestRevocationOfAnUnreferencedCredentialRemovesEverything`,
+  `TestRevocationIsIdempotent`,
+  `TestRevocationRecoveryAfterAnEnvelopeDeletionFailure`,
+  `TestRevocationFailureInsideTheUnitOfWorkPreservesEverything`,
+  `TestConcurrentBindAndRevokeCannotBypass`.
+- P2L-006/P2L-007 preserved → `liveprobe.TestVerifyAppliesTheProductionEndpointPolicy`,
+  the unchanged peer-pinning and SSRF tests, the administrator-only role
+  denials, and the no-value-in-response/audit assertions.
+- Against the **real, isolated** containers: the protected listing refused an
+  anonymous request (401) on both editions, accepted the valid candidate
+  (200 → authorized) and refused the wrong candidate (401 → not authorized on
+  InfluxDB 2; the deployment authenticates every request, so InfluxDB 3 fails
+  closed at edition identification). The full lifecycle — enrol → refused
+  invalid replacement (422) → authorized replacement (200) → refused revocation
+  while referenced (409) → revocation once unreferenced (204) — was executed
+  end to end against both editions. **14 of 14 checks passed, 0 failed.**
+
+**Limitations recorded (not papered over):** the verification proves
+authenticated **read** access only; write-scoped privileges cannot be proven
+read-only and are not claimed. The gated tests ran from inside each
+container's network namespace because Docker 29's loopback port publishing is
+broken in this WSL runtime (the harness scripts and compose file are
+unchanged); the host-side baseline matrix (`scripts/run-tests.sh`) therefore
+was not executed here, and its recorded evidence stands from P2C-006. InfluxDB
+1.x remains unverified.
 
 ## Limitations
 

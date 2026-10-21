@@ -208,3 +208,64 @@ func TestAuditRejectsSecretMaterial(t *testing.T) {
 func containsFold(haystack, needle string) bool {
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
 }
+
+// TestEnvelopeReplaceIfAppliesOnlyOnTheExactCiphertext proves the conditional
+// replace is a compare-and-swap keyed on the full stored ciphertext: it
+// applies while the observed envelope is still the one in place, and it
+// applies nothing when any intervening change replaced the value, so a racing
+// credential replacement can never overwrite another attempt's value
+// (P2C-007).
+func TestEnvelopeReplaceIfAppliesOnlyOnTheExactCiphertext(t *testing.T) {
+	store := openTemp(t)
+	repo := store.SecretEnvelopes()
+	now := time.Now().UTC()
+
+	first := Envelope{CredentialRefID: "ref-1", KeyID: "k1", Envelope: "ciphertext-one", UpdatedAt: now}
+	if err := repo.Put(first); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	// Applies while the observed ciphertext is still the stored one.
+	applied, err := repo.ReplaceIf("ref-1", "ciphertext-one", Envelope{
+		CredentialRefID: "ref-1", KeyID: "k1", Envelope: "ciphertext-two", UpdatedAt: now.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatalf("replace-if: %v", err)
+	}
+	if !applied {
+		t.Fatal("applied = false while the observed ciphertext is current, want true")
+	}
+
+	// The stale observation applies nothing and overwrites nothing.
+	applied, err = repo.ReplaceIf("ref-1", "ciphertext-one", Envelope{
+		CredentialRefID: "ref-1", KeyID: "k1", Envelope: "ciphertext-three", UpdatedAt: now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("replace-if with a stale observation: %v", err)
+	}
+	if applied {
+		t.Fatal("applied = true on a stale observation, want false")
+	}
+	stored, err := repo.Get("ref-1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if stored.Envelope != "ciphertext-two" {
+		t.Fatalf("stored ciphertext = %q, want ciphertext-two (the racing attempt overwrote the winner)", stored.Envelope)
+	}
+
+	// An unknown reference applies nothing.
+	if applied, err = repo.ReplaceIf("ref-none", "ciphertext-one", Envelope{
+		CredentialRefID: "ref-none", KeyID: "k1", Envelope: "ciphertext-x", UpdatedAt: now,
+	}); err != nil || applied {
+		t.Fatalf("replace-if on an unknown reference = applied=%v err=%v, want applied=false err=nil", applied, err)
+	}
+
+	// A replacement without the required fields is refused.
+	if _, err := repo.ReplaceIf("ref-1", "ciphertext-two", Envelope{CredentialRefID: "ref-1", KeyID: "k1"}); err == nil {
+		t.Fatal("a replacement envelope without ciphertext must be refused")
+	}
+	if _, err := repo.ReplaceIf("ref-1", "", first); err == nil {
+		t.Fatal("a conditional replace without the expected ciphertext must be refused")
+	}
+}

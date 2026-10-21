@@ -34,6 +34,10 @@ type envelopeStore interface {
 	Get(credentialRefID string) (metadatastore.Envelope, error)
 	ListByKey(keyID string) ([]metadatastore.Envelope, error)
 	Rewrap(credentialRefID, expectKeyID string, replacement metadatastore.Envelope) (bool, error)
+	// ReplaceIf swaps an envelope's ciphertext only while the stored envelope
+	// is still exactly the expected one (a compare-and-swap keyed on the full
+	// ciphertext, so any intervening change of the value is detected).
+	ReplaceIf(credentialRefID, expectEnvelope string, replacement metadatastore.Envelope) (bool, error)
 	Delete(credentialRefID string) error
 }
 
@@ -149,85 +153,140 @@ func (s *Store) StoreWithRef(ctx context.Context, refID, alias string, role regi
 	return ref, nil
 }
 
-// Replace replaces the value stored for an existing reference.
+// CurrentEnvelope returns an opaque handle on the ciphertext envelope currently
+// stored for a reference. It is the compare-and-swap precondition for
+// ReplaceIfCurrent: the handle is exactly the stored envelope, so a swap
+// conditioned on it applies only while that exact ciphertext is still the one
+// in place.
 //
-// It is the swap step of a credential replacement. The procedure is failure
-// safe:
-//
-//  1. The previous envelope is read, so it can be restored.
-//  2. The new value is sealed under the active key and the envelope is written.
-//  3. The new envelope is decrypted again and compared with the new value; if
-//     that fails, the previous envelope is restored and the failure is
-//     reported.
-//
-// The reference ID, the profile that names it and the binding that approves it
-// are untouched, so a swap never invalidates an approval and never interrupts
-// an unrelated profile. The value is never logged or returned.
-func (s *Store) Replace(ctx context.Context, refID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error) {
-	if err := validateRole(role); err != nil {
-		return registrycontract.CredentialRef{}, err
-	}
-	if value == "" {
-		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
-			registrycontract.CodeInvalidProfile, "A credential value is required.")
-	}
-	if strings.TrimSpace(refID) == "" {
-		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+// The handle is authenticated ciphertext, never a plaintext value; returning it
+// to a caller cannot expose the credential.
+func (s *Store) CurrentEnvelope(ctx context.Context, credentialRefID string) (string, error) {
+	if strings.TrimSpace(credentialRefID) == "" {
+		return "", registrycontract.NewSanitizedError(
 			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
 	}
-	previous, err := s.envelopes.Get(refID)
+	stored, err := s.envelopes.Get(credentialRefID)
 	if errors.Is(err, metadatastore.ErrEnvelopeNotFound) {
-		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+		return "", registrycontract.NewSanitizedError(
 			registrycontract.CodeReferenceNotFound, "No credential is stored for this reference.")
 	}
 	if err != nil {
-		return registrycontract.CredentialRef{}, err
+		return "", err
+	}
+	return stored.Envelope, nil
+}
+
+// ReplaceIfCurrent swaps the value stored for an existing reference, but only
+// while the stored envelope is still exactly currentEnvelope - the handle a
+// caller previously observed through CurrentEnvelope.
+//
+// It is the swap step of a credential replacement, hardened against racing
+// replacements (P2C-007): two attempts that observed the same current envelope
+// cannot both swap. The first applies; the second is a no-op that reports
+// applied=false, so a racing attempt can never overwrite another attempt's
+// already-approved value. The caller fails closed on applied=false and the
+// credential that is in place is whatever the winning attempt left.
+//
+// The procedure is failure safe:
+//
+//  1. The previous envelope is read, so it can be restored.
+//  2. The new value is sealed under the active key.
+//  3. The swap is written with a conditional update keyed on the observed
+//     envelope. If it does not match, nothing is written and applied=false is
+//     returned.
+//  4. The new envelope is decrypted again and compared with the new value; if
+//     that fails, the previous envelope is restored with a second conditional
+//     update keyed on the envelope just written, so the restore cannot clobber
+//     a concurrent writer either.
+//
+// The reference ID, the profile that names it and the binding that approves it
+// are untouched, so a swap never invalidates an approval and never interrupts an
+// unrelated profile. The value is never logged or returned.
+func (s *Store) ReplaceIfCurrent(ctx context.Context, credentialRefID, currentEnvelope, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, bool, error) {
+	if err := validateRole(role); err != nil {
+		return registrycontract.CredentialRef{}, false, err
+	}
+	if value == "" {
+		return registrycontract.CredentialRef{}, false, registrycontract.NewSanitizedError(
+			registrycontract.CodeInvalidProfile, "A credential value is required.")
+	}
+	if strings.TrimSpace(credentialRefID) == "" {
+		return registrycontract.CredentialRef{}, false, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
+	}
+	if strings.TrimSpace(currentEnvelope) == "" {
+		return registrycontract.CredentialRef{}, false, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A replacement requires the observed current envelope.")
+	}
+	previous, err := s.envelopes.Get(credentialRefID)
+	if errors.Is(err, metadatastore.ErrEnvelopeNotFound) {
+		return registrycontract.CredentialRef{}, false, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "No credential is stored for this reference.")
+	}
+	if err != nil {
+		return registrycontract.CredentialRef{}, false, err
+	}
+	// The caller's precondition must match what is actually stored; a stale
+	// handle from a re-created envelope is a conflict, not a swap.
+	if previous.Envelope != currentEnvelope {
+		return registrycontract.CredentialRef{}, false, nil
 	}
 
-	enc, err := s.seal(refID, []byte(value))
+	enc, err := s.seal(credentialRefID, []byte(value))
 	if err != nil {
-		return registrycontract.CredentialRef{}, err
+		return registrycontract.CredentialRef{}, false, err
 	}
-	if err := s.envelopes.Put(metadatastore.Envelope{
-		CredentialRefID: refID,
+	replacement := metadatastore.Envelope{
+		CredentialRefID: credentialRefID,
 		KeyID:           enc.keyID,
 		Envelope:        enc.encoded,
 		UpdatedAt:       s.now(),
-	}); err != nil {
-		return registrycontract.CredentialRef{}, err
+	}
+	applied, err := s.envelopes.ReplaceIf(credentialRefID, currentEnvelope, replacement)
+	if err != nil {
+		return registrycontract.CredentialRef{}, false, err
+	}
+	if !applied {
+		// A concurrent writer replaced the value first. Nothing was written
+		// here and nothing was overwritten.
+		return registrycontract.CredentialRef{}, false, nil
 	}
 
 	// Verify the new envelope before reporting success. If it does not decrypt
-	// to the new value, the previous envelope is restored so the credential
-	// stays usable.
-	stored, err := s.envelopes.Get(refID)
+	// to the new value, the previous envelope is restored - conditionally on
+	// the envelope this swap just wrote, so a concurrent writer that already
+	// replaced the new envelope is not clobbered by the restore.
+	stored, err := s.envelopes.Get(credentialRefID)
 	if err != nil {
-		_ = s.envelopes.Put(previous)
-		return registrycontract.CredentialRef{}, err
+		// The swap applied but cannot be verified. Restore the previous
+		// envelope best-effort, keyed on the envelope this swap just wrote.
+		_, _ = s.envelopes.ReplaceIf(credentialRefID, enc.encoded, previous)
+		return registrycontract.CredentialRef{}, false, err
 	}
-	opened, err := s.open(stored.Envelope, refID)
+	opened, err := s.open(stored.Envelope, credentialRefID)
 	if err != nil || string(opened) != value {
-		if restoreErr := s.envelopes.Put(previous); restoreErr != nil {
-			return registrycontract.CredentialRef{}, fmt.Errorf("restore previous envelope: %w", restoreErr)
+		if _, restoreErr := s.envelopes.ReplaceIf(credentialRefID, stored.Envelope, previous); restoreErr != nil {
+			return registrycontract.CredentialRef{}, false, fmt.Errorf("restore previous envelope: %w", restoreErr)
 		}
-		if err != nil {
-			return registrycontract.CredentialRef{}, err
+		if err == nil {
+			err = ErrEnvelopeAuthFailed
 		}
-		return registrycontract.CredentialRef{}, ErrEnvelopeAuthFailed
+		return registrycontract.CredentialRef{}, false, err
 	}
 
 	ref := registrycontract.CredentialRef{
-		CredentialRefID: refID,
+		CredentialRefID: credentialRefID,
 		Alias:           alias,
 		Role:            role,
 		Fingerprint:     fingerprint([]byte(value)),
 		LastRotated:     s.now(),
 		Mock:            false,
 	}
-	if err := s.recordAudit(ctx, "credential.replace", refID); err != nil {
-		return registrycontract.CredentialRef{}, err
+	if err := s.recordAudit(ctx, "credential.replace", credentialRefID); err != nil {
+		return registrycontract.CredentialRef{}, false, err
 	}
-	return ref, nil
+	return ref, true, nil
 }
 
 // Resolve decrypts the envelope for a reference and returns the value. It is

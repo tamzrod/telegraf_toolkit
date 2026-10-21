@@ -141,6 +141,18 @@ multi-write operation:
 | Revoke a binding | binding removal + `credential.unbind` audit event |
 | Delete a profile | binding removals + profile row + `profile.delete` audit event |
 | Store a credential reference | reference row + `credential.reference.attach` audit event |
+| Revoke a credential (P2C-007) | dependency checks (bindings, profiles) + reference-row removal + `credential.revoke` audit event |
+
+The credential revocation deserves its note: the dependency checks - is any
+binding still approved for the credential, does any profile still name it? -
+run **inside** the same transaction as the reference-row removal, so a
+concurrent approval cannot interleave with a revocation. The ciphertext
+envelope itself is erased by the secret store only **after** the transaction
+commits (see [`SECRET_STORE.md`](SECRET_STORE.md)): an interruption between
+the two leaves an unreferenced, unreachable envelope, never a profile pointing
+at a deleted secret. Revoking a reference whose row is already gone is an
+idempotent completion that still removes any envelope a prior interrupted
+attempt left behind.
 
 Consequences, each covered by a test:
 
@@ -185,6 +197,7 @@ transaction, and schema version 6 cascades the removal at the database level.
 | Create a profile | `connection_profiles.connection_id` is the primary key: one profile per identity | **Not** idempotent by design. A repeated create of an existing identity is refused with `duplicate-profile` (HTTP 409); it never overwrites the stored profile |
 | Approve a binding | `credential_bindings` is keyed by (credential reference, connection ID): at most one approval per pair | Idempotent: re-approving keeps one row and re-records the approval. The endpoint and scope are taken from the stored profile, so an approval cannot drift |
 | Revoke a binding | — | Idempotent: revoking an approval that is not present removes nothing and still records the `credential.unbind` audit event |
+| Revoke a credential (P2C-007) | — | Idempotent: revoking a reference whose row is already gone completes without an error and still removes any envelope a prior interrupted attempt left behind; each completion records the store-level `credential.revoke` event |
 | Delete a profile | — | Not idempotent-success: deleting an unknown identity is refused with `profile-not-found` (HTTP 404). The removal of the profile, of its bindings and of the audit event is atomic |
 | Retry after a failure | — | Safe: a failed operation leaves the store exactly as it was, so the same request can be retried without cleaning up first |
 

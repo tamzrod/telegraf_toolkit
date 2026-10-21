@@ -348,7 +348,7 @@ export function describeApiFailure(error: unknown): string {
     case 404:
       return "The profile is no longer present in the Registry.";
     case 409:
-      return "A profile with that connection ID already exists.";
+      return "The Registry reported a conflict: that entry already exists or is still in use.";
     case 422:
       return "The Registry refused the profile as it was sent.";
     case 400:

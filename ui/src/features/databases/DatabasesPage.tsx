@@ -228,7 +228,7 @@ export function DatabasesPage() {
         value: draft.value,
       });
       setCredentialNotice(
-        `Replaced the credential ${ref.credential_ref_id}. The previous value was revoked.`,
+        `Replaced the credential ${ref.credential_ref_id}. The previous value is no longer stored.`,
       );
     } catch (error) {
       setCredentialNotice(describeApiFailure(error));

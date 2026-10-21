@@ -42,12 +42,18 @@ const (
 	CodeSecretMaterial        ErrorCode = "secret-material-rejected"
 	CodeCredentialNotBound    ErrorCode = "credential-not-bound"
 	// CodeCredentialInUse reports that a credential is still required by an
-	// approved binding, so it may not be revoked yet.
+	// approved binding or still referenced by a profile, so it may not be
+	// revoked yet.
 	CodeCredentialInUse ErrorCode = "credential-in-use"
 	// CodeCredentialValidationFailed reports that a replacement credential
 	// could not be validated against the profile's approved endpoint, so the
 	// credential that was in place stays in use.
 	CodeCredentialValidationFailed ErrorCode = "credential-validation-failed"
+	// CodeCredentialReplaceConflict reports that a credential replacement
+	// lost a race: the credential changed while the replacement was being
+	// validated, so nothing was replaced and the credential that is in place
+	// is whatever the winning attempt left.
+	CodeCredentialReplaceConflict ErrorCode = "credential-replace-conflict"
 )
 
 // secretMarkers are substrings that must never appear in a sanitized error.

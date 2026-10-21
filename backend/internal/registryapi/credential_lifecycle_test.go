@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
@@ -204,13 +205,15 @@ func TestCredentialEnrollmentBindsToTheStoredProfile(t *testing.T) {
 	}
 }
 
-// TestCredentialRevocationIsRefusedWhileABindingRequiresIt proves a
-// credential that a profile still depends on cannot be revoked.
-func TestCredentialRevocationIsRefusedWhileABindingRequiresIt(t *testing.T) {
+// TestCredentialRevocationIsRefusedWhileAnythingReferencesIt proves a
+// credential that an approved binding or a profile still names cannot be
+// revoked, that the refusal detaches nothing, and that the credential becomes
+// revocable only once nothing references it.
+func TestCredentialRevocationIsRefusedWhileAnythingReferencesIt(t *testing.T) {
 	api, service := credentialAPI(t)
 	seedUnboundProfile(t, service, "profile-a", "http://127.0.0.1:18086")
 
-	rec := do(t, api, http.MethodPost, "/api/v1/registry/credentials", "admin-token", enrollBody("profile-a", "secret"))
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/credentials", "admin-token", enrollBody("profile-a", "old-secret"))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("enroll = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -222,7 +225,26 @@ func TestCredentialRevocationIsRefusedWhileABindingRequiresIt(t *testing.T) {
 	// The binding still requires the credential.
 	rec = do(t, api, http.MethodDelete, "/api/v1/registry/credentials/"+payload.CredentialRefID, "admin-token", nil)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("revoke while in use = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("revoke while approved = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// With the approval revoked, the profile still names the credential, so
+	// the revocation is still refused - and it must not detach the profile.
+	rec = do(t, api, http.MethodDelete, "/api/v1/registry/credential-bindings/"+payload.CredentialRefID+"/profile-a", "admin-token", nil)
+	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
+		t.Fatalf("revoke binding = %d, want 204 or 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	rec = do(t, api, http.MethodDelete, "/api/v1/registry/credentials/"+payload.CredentialRefID, "admin-token", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("revoke while a profile still names it = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+	profile, found, err := service.GetProfile(context.Background(), "profile-a")
+	if err != nil || !found {
+		t.Fatalf("profile: found=%v err=%v", found, err)
+	}
+	if profile.CredentialRefID != payload.CredentialRefID {
+		t.Fatalf("profile reference = %q, want %q (a refused revocation must not detach the profile)",
+			profile.CredentialRefID, payload.CredentialRefID)
 	}
 	refs, err := service.ListCredentialRefs(context.Background())
 	if err != nil {
@@ -232,21 +254,29 @@ func TestCredentialRevocationIsRefusedWhileABindingRequiresIt(t *testing.T) {
 		t.Fatalf("references = %d, want 1 (a refused revocation removes nothing)", len(refs))
 	}
 
-	// After the approval is revoked, the credential can be revoked.
-	rec = do(t, api, http.MethodDelete, "/api/v1/registry/credential-bindings/"+payload.CredentialRefID+"/profile-a", "admin-token", nil)
-	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
-		t.Fatalf("revoke binding = %d, want 204 or 200 (body: %s)", rec.Code, rec.Body.String())
+	// Enrolling a replacement credential points the profile at the new
+	// reference; only then can the old credential be revoked.
+	rec = do(t, api, http.MethodPost, "/api/v1/registry/credentials", "admin-token", enrollBody("profile-a", "replacement-secret"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("enroll replacement = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
+	var replacement credentialRefPayload
+	_ = json.Unmarshal(rec.Body.Bytes(), &replacement)
+
 	rec = do(t, api, http.MethodDelete, "/api/v1/registry/credentials/"+payload.CredentialRefID, "admin-token", nil)
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("revoke = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("revoke after nothing references it = %d, want 204 (body: %s)", rec.Code, rec.Body.String())
 	}
 	refs, err = service.ListCredentialRefs(context.Background())
 	if err != nil {
 		t.Fatalf("list references: %v", err)
 	}
-	if len(refs) != 0 {
-		t.Fatalf("references after revoke = %d, want 0", len(refs))
+	if len(refs) != 1 || refs[0].CredentialRefID != replacement.CredentialRefID {
+		t.Fatalf("references after revoke = %+v, want only the replacement", refs)
+	}
+	// A revoked credential can no longer be resolved.
+	if _, err := service.ResolveCredential(context.Background(), payload.CredentialRefID); err == nil {
+		t.Fatal("a revoked credential must no longer resolve")
 	}
 }
 
@@ -319,21 +349,108 @@ func TestCredentialReplacementFailsClosedWhenValidationFails(t *testing.T) {
 	}
 }
 
-// TestCredentialReplacementSucceedsAgainstAValidatedEndpoint proves the
-// stage → validate → swap → revoke lifecycle works end to end.
-func TestCredentialReplacementSucceedsAgainstAValidatedEndpoint(t *testing.T) {
-	// A server that identifies as InfluxDB 2 OSS, so the validation probe
-	// succeeds.
+// protectedReplacementFixture serves the exact shape a real, authenticated
+// InfluxDB 2 OSS deployment serves: a PUBLIC /health that identifies the
+// edition without proving anything about a credential, and a PROTECTED buckets
+// listing that refuses everyone except the currently valid token.
+//
+// oldToken is the credential the profile is enrolled with; a replacement
+// candidate proves itself only by being accepted where oldToken is accepted.
+func protectedReplacementFixture(t *testing.T, validToken string) *httptest.Server {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
+		if r.Method != http.MethodGet {
+			t.Errorf("validation issued a non-GET request: %s %s", r.Method, r.URL.Path)
+		}
+		switch r.URL.Path {
+		case "/health":
+			// Public: identifies the edition, authorizes nothing.
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"name":"influxdb","status":"pass","version":"v2.9.1"}`))
-			return
+		case "/api/v2/buckets":
+			if r.Header.Get("Authorization") != "Token "+validToken {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"code":"unauthorized","message":"unauthorized access"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"links":{"self":"/api/v2/buckets"},"buckets":[]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+	return server
+}
 
+// TestCredentialReplacementFailsClosedForAnUnauthorizedCandidate proves the
+// audit finding's exact negative: a candidate value the endpoint's public
+// edition check would accept but whose authorization cannot be proven must
+// NEVER replace an existing usable credential. The old value stays in place.
+func TestCredentialReplacementFailsClosedForAnUnauthorizedCandidate(t *testing.T) {
+	// The endpoint identifies as InfluxDB 2 OSS through a public /health and
+	// serves its buckets listing only to the currently valid token; the
+	// replacement candidate is a wrong token.
+	server := protectedReplacementFixture(t, "old-secret")
+	api, service := credentialAPI(t)
+	seedUnboundProfile(t, service, "profile-a", server.URL)
+
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/credentials", "admin-token", enrollBody("profile-a", "old-secret"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("enroll = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var payload credentialRefPayload
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+
+	// A wrong candidate identifies the edition through the public health
+	// endpoint but cannot pass the protected authorization check.
+	rec = do(t, api, http.MethodPost, "/api/v1/registry/credentials/replace", "admin-token", map[string]any{
+		"connection_id": "profile-a",
+		"value":         "wrong-candidate",
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("replace with an unauthorized candidate = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "wrong-candidate") || strings.Contains(rec.Body.String(), "old-secret") {
+		t.Fatal("the error echoed a credential value")
+	}
+
+	// The credential that was in place is still the usable one.
+	value, err := service.ResolveCredential(context.Background(), payload.CredentialRefID)
+	if err != nil || value != "old-secret" {
+		t.Fatalf("resolve after a refused replacement = %q err=%v, want the old value", value, err)
+	}
+	profile, found, err := service.GetProfile(context.Background(), "profile-a")
+	if err != nil || !found {
+		t.Fatalf("profile: found=%v err=%v", found, err)
+	}
+	if profile.CredentialRefID != payload.CredentialRefID {
+		t.Fatalf("profile reference = %q, want the original", profile.CredentialRefID)
+	}
+	bindings, err := service.ListCredentialBindings(context.Background())
+	if err != nil {
+		t.Fatalf("list bindings: %v", err)
+	}
+	if len(bindings) != 1 {
+		t.Fatalf("bindings = %d, want 1", len(bindings))
+	}
+	// No staged reference row survived the refused replacement.
+	refs, err := service.ListCredentialRefs(context.Background())
+	if err != nil {
+		t.Fatalf("list references: %v", err)
+	}
+	if len(refs) != 1 || refs[0].CredentialRefID != payload.CredentialRefID {
+		t.Fatalf("references after a refused replacement = %+v, want only the original", refs)
+	}
+}
+
+// TestCredentialReplacementSucceedsForAnAuthorizedCandidate proves the
+// stage → validate → swap → revoke lifecycle works end to end when the
+// candidate proves actual protected authorization: the endpoint refuses an
+// anonymous request and accepts the candidate.
+func TestCredentialReplacementSucceedsForAnAuthorizedCandidate(t *testing.T) {
+	// The candidate must be exactly the value the protected listing accepts.
+	server := protectedReplacementFixture(t, "new-secret")
 	api, service := credentialAPI(t)
 	seedUnboundProfile(t, service, "profile-a", server.URL)
 
@@ -363,15 +480,111 @@ func TestCredentialReplacementSucceedsAgainstAValidatedEndpoint(t *testing.T) {
 		t.Fatal("the replacement did not change the stored value")
 	}
 
-	// The staged material is gone: no reference and no envelope for it.
+	// The swapped value is the one the profile now resolves, and the staged
+	// material left nothing behind: exactly one reference row exists.
+	value, err := service.ResolveCredential(context.Background(), payload.CredentialRefID)
+	if err != nil || value != "new-secret" {
+		t.Fatalf("resolve after replace = %q err=%v, want the new value", value, err)
+	}
 	refs, err := service.ListCredentialRefs(context.Background())
 	if err != nil {
 		t.Fatalf("list references: %v", err)
 	}
-	for _, ref := range refs {
-		if strings.HasPrefix(ref.CredentialRefID, "staged-") {
-			t.Fatalf("the staged reference %q survived the replacement", ref.CredentialRefID)
+	if len(refs) != 1 || refs[0].CredentialRefID != payload.CredentialRefID {
+		t.Fatalf("references after replace = %+v, want only the original reference", refs)
+	}
+}
+
+// TestConcurrentReplacementsHaveOneWinner proves racing replacements of the
+// same credential cannot both swap: one candidate wins, the loser is refused
+// with a conflict and overwrites nothing, and the profile ends up resolving
+// exactly the winner's value.
+func TestConcurrentReplacementsHaveOneWinner(t *testing.T) {
+	// Both candidate values are genuinely valid tokens on the protected
+	// listing, so both racing attempts pass validation and only the swap can
+	// decide: this is the racing-swaps scenario the CAS must survive.
+	validTokens := map[string]bool{"old-secret": true, "candidate-one": true, "candidate-two": true}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"name":"influxdb","status":"pass","version":"v2.9.1"}`))
+		case "/api/v2/buckets":
+			auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Token ")
+			if !validTokens[auth] {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"buckets":[]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
+	}))
+	t.Cleanup(server.Close)
+
+	api, service := credentialAPI(t)
+	seedUnboundProfile(t, service, "profile-a", server.URL)
+
+	rec := do(t, api, http.MethodPost, "/api/v1/registry/credentials", "admin-token", enrollBody("profile-a", "old-secret"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("enroll = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var payload credentialRefPayload
+	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+
+	// Both racing attempts pass validation; the swap alone decides the winner.
+	values := []string{"candidate-one", "candidate-two"}
+	results := make(chan int, len(values))
+	var start sync.WaitGroup
+	start.Add(1)
+	var wg sync.WaitGroup
+	for _, value := range values {
+		wg.Add(1)
+		go func(candidate string) {
+			defer wg.Done()
+			start.Wait()
+			rec := do(t, api, http.MethodPost, "/api/v1/registry/credentials/replace", "admin-token", map[string]any{
+				"connection_id": "profile-a",
+				"value":         candidate,
+			})
+			results <- rec.Code
+		}(value)
+	}
+	start.Done()
+	wg.Wait()
+	close(results)
+
+	wins, conflicts := 0, 0
+	for code := range results {
+		switch code {
+		case http.StatusOK:
+			wins++
+		case http.StatusConflict:
+			conflicts++
+		default:
+			t.Fatalf("racing replacement returned %d, want 200 or 409", code)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("racing replacements = %d wins / %d conflicts, want 1/1", wins, conflicts)
+	}
+
+	// The profile resolves exactly the winner's value; the loser overwrote
+	// nothing and staged nothing that survived.
+	value, err := service.ResolveCredential(context.Background(), payload.CredentialRefID)
+	if err != nil {
+		t.Fatalf("resolve after the race: %v", err)
+	}
+	if value != "candidate-one" && value != "candidate-two" {
+		t.Fatalf("resolve after the race = %q, want one candidate", value)
+	}
+	refs, err := service.ListCredentialRefs(context.Background())
+	if err != nil {
+		t.Fatalf("list references: %v", err)
+	}
+	if len(refs) != 1 || refs[0].CredentialRefID != payload.CredentialRefID {
+		t.Fatalf("references after the race = %+v, want only the original reference", refs)
 	}
 }
 

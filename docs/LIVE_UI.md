@@ -68,7 +68,7 @@ States the browser shows, and what they mean:
 | --- | --- |
 | A missing token | "The live API rejected the session token." (401) |
 | A role without the permission | "Your role is not permitted to perform this action in the Registry." (403) |
-| A duplicate identity | "A profile with that connection ID already exists." (409) |
+| A conflict — a duplicate identity, or a credential still in use, or a replacement that lost a race | "The Registry reported a conflict: that entry already exists or is still in use." (409) |
 | An invalid body | "The Registry rejected the profile as invalid." (400) or the field-level reason from the local draft validation |
 | A transport failure | "The live Registry API could not be reached." |
 
@@ -94,8 +94,10 @@ The live view manages credentials for a profile. The value is **write-only**:
   over a TLS-terminated transport.
 - Enrolling, replacing and revoking require the administrator role; a refusal
   is shown as a refusal ("Your role is not permitted to perform this action in
-  the Registry."), and a credential that is still approved for a profile is
-  reported as such rather than as a silent success.
+  the Registry."), a credential that is still approved for or referenced by a
+  profile is reported as such rather than as a silent success, and a
+  replacement whose authorization could not be proven is refused with the
+  credential in place unchanged (422, P2C-007).
 
 ## What remains gated
 

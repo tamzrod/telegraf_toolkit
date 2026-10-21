@@ -96,6 +96,10 @@ func (r *faultReferences) Put(ref registrycontract.CredentialRef) error {
 	return r.fault.write(func() error { return r.CredentialRefStore.Put(ref) })
 }
 
+func (r *faultReferences) Delete(credentialRefID string) error {
+	return r.fault.write(func() error { return r.CredentialRefStore.Delete(credentialRefID) })
+}
+
 type faultBindings struct {
 	registrycontract.CredentialBindingStore
 	fault *faultStore

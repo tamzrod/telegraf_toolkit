@@ -109,6 +109,46 @@ a production default. The backend enables it only when the operator passes
 - A successful probe is recorded as an audited `profile.probe` action attributed
   to the acting principal.
 
+## Protected authorization verification (P2C-007)
+
+`Prober.VerifyCredential` proves a candidate credential is **authorized** by a
+deployment, using a protected, read-only listing - the same listings the
+capability catalogue uses for schema discovery - as the authorization check:
+
+| Edition | Protected check | Request |
+| --- | --- | --- |
+| `influxdb-2.x-oss` | `schema-v2-buckets` | `GET /api/v2/buckets` |
+| `influxdb-3.x-core` | `schema-v3-databases` | `GET /api/v3/configure/database?format=json` |
+
+The procedure, all read-only GETs:
+
+1. The endpoint policy, DNS resolution and pinned-peer controls are applied
+   exactly as a capability probe applies them, so a verification cannot be
+   redirected to a host the policy denies.
+2. The running edition is identified first (the table above); the protected
+   check is chosen from what the deployment actually is. A deployment that does
+   not identify as a supported edition cannot be verified at all.
+3. An **anonymous** request to the protected listing must be refused (401/403).
+   A listing served to anonymous callers authenticates nothing, so no answer it
+   gives can prove a candidate is authorized - an anonymous answer is a
+   fail-closed verdict, not a pass.
+4. The **candidate** request must be accepted (200 with the expected body
+   shape). A denied or inconclusive answer is a fail-closed verdict.
+
+The verification is what the credential replacement lifecycle uses to validate
+a staged candidate before any swap (see [`REGISTRY_API.md`](REGISTRY_API.md)).
+An error is returned only when the check could not be attempted at all; a
+completed check reports a verdict, and only `Authorized == true` means the
+candidate proved itself. A public `/health` edition identification is
+deliberately **not** among the positive evidence: on InfluxDB 2 it succeeds
+without a credential and previously let an unauthorized replacement pass
+validation.
+
+What the verification proves is **authenticated read access**. Whether a
+candidate also holds write or admin privileges cannot be proven read-only
+(that needs a write, which no verification ever performs), so a replacement
+never claims more than authenticated read access.
+
 ## Edition identification and capability checks (P2C-003)
 
 Identification uses read-only responses, not a version guess:
@@ -327,6 +367,55 @@ Both integration tests passed. The matrix is the honest result of a GET-only
 probe: only the listing capability could be **observed**; every query dialect
 stayed **unknown** because the verified editions serve a query endpoint only for
 POST, and the write protocol stayed **unknown** because the probe never writes.
+
+### Protected authorization verification against the real containers (P2C-007, recorded 2026-10-21)
+
+`Prober.VerifyCredential` was exercised against the same digest-pinned,
+isolated containers. It issues plain read-only GETs on the deployment's own
+loopback address; no historian was written.
+
+| Check | InfluxDB 2 OSS v2.9.1 | InfluxDB 3 Core v3.12.1 |
+| --- | --- | --- |
+| edition identification | `influxdb-2.x-oss` | `influxdb-3.x-core` |
+| protected check | `schema-v2-buckets` | `schema-v3-databases` |
+| anonymous request to the protected listing | **401** | **401** |
+| request with the provisioned admin token | **200 → authorized** | **200 → authorized** |
+| request with an invalid token | **401 → not authorized** ("the protected endpoint denied the candidate credential") | **fails closed** at edition identification — the deployment authenticates every request |
+| production default policy against the harness endpoint | refused (`tls-validation-failed`) | refused (`tls-validation-failed`) |
+
+The anonymous refusal is the load-bearing observation: it proves the listing
+actually authenticates its callers, so the candidate's acceptance is evidence
+of authorization rather than of reachability. On InfluxDB 2 the public
+`/health` endpoint identifies the edition without any credential, which is
+exactly why an edition label alone is not authorization.
+
+**Commands and actual outcomes:** `gofmt -l .` → clean; `go vet ./...` and
+`go vet -tags integration ./...` → pass; `go build ./...` and
+`go build -tags integration ./...` → pass; `go test ./... -count=1`
+(linux/amd64) → every package `ok`; `go test -race ./... -count=1`
+(linux/amd64) → every package `ok`; `npm ci && npm run lint && npm run build
+&& npm test` → 0 vulnerabilities, lint and build clean, 20 files / 188 tests
+passed; `bash scripts/policy-check.sh` → **PASS**.
+
+**Acceptance mapping (P2C-007):** `TestVerifyAcceptsAnAuthorizedCandidate`,
+`TestVerifyRefusesAWrongCandidate`,
+`TestVerifyFailsClosedWhenTheProtectedListingServesAnonymous`,
+`TestVerifyFailsClosedWhenTheProtectedListingIsInconclusive`,
+`TestVerifyAgainstAuthenticatedInfluxDB3`,
+`TestVerifyRejectsUnsupportedAndInvalidEndpoints`,
+`TestVerifyAppliesTheProductionEndpointPolicy`,
+`TestVerifyFailsClosedWhenTheBudgetIsExhausted`,
+`TestVerificationCarriesNoSecretValue`, plus the gated
+`TestIntegrationVerifyCredentialAgainstInfluxDB2` and
+`TestIntegrationVerifyCredentialAgainstInfluxDB3`.
+
+**Environment limitation:** Docker 29's loopback port publishing is broken in
+this WSL runtime (host traffic to a published loopback port is routed into the
+special `loopback0` interface and dropped), so the gated tests ran from inside
+each container's own network namespace, where `127.0.0.1:<service-port>` is the
+service itself. The harness scripts and compose file are unchanged, the
+test-only loopback policy is unchanged, and every request is still a plain
+loopback GET.
 
 ## Limitations
 

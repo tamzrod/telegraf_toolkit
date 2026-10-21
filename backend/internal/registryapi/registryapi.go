@@ -304,25 +304,29 @@ func (a *API) replaceCredential(w http.ResponseWriter, r *http.Request, principa
 	}
 	alias := strings.TrimSpace(input.Alias)
 
-	// The validation runs the read-only prober against the profile's own
-	// endpoint with the candidate credential. The endpoint is resolved
-	// server-side from the stored profile, so the caller cannot point the
-	// validation at a host of its choosing.
+	// The validation proves the candidate credential is **authorized**, not
+	// merely that the endpoint is reachable: an edition-identifying health
+	// response is public on InfluxDB 2 and proves nothing about the candidate.
+	// The verifier runs the read-only prober against the profile's own
+	// endpoint - resolved server-side from the stored profile, so the caller
+	// cannot point the validation at a host of its choosing - and requires a
+	// protected listing to refuse an anonymous request and accept the
+	// candidate. An anonymous, denied or inconclusive answer fails closed and
+	// the credential that was in place stays in use (P2C-007).
 	validate := func(ctx context.Context, endpoint string, value string) error {
-		result, err := a.prober.Probe(ctx, liveprobe.Request{
+		verification, err := a.prober.VerifyCredential(ctx, liveprobe.VerifyRequest{
 			ConnectionID: input.ConnectionID,
 			Endpoint:     endpoint,
 			Policy:       a.probePolicy,
 			Credential:   credentialFor(value),
 			Deadline:     10 * time.Second,
-			MaxRequests:  10,
+			MaxRequests:  8,
 		})
 		if err != nil {
 			return err
 		}
-		// A probe that could not identify the deployment proves nothing.
-		if strings.TrimSpace(result.Edition) == "" {
-			return errors.New("the endpoint did not identify as a supported deployment")
+		if !verification.Authorized {
+			return errors.New(verification.Reason)
 		}
 		return nil
 	}
@@ -335,8 +339,9 @@ func (a *API) replaceCredential(w http.ResponseWriter, r *http.Request, principa
 	writeJSON(w, http.StatusOK, credentialRefResponse(ref))
 }
 
-// revokeCredential removes a stored credential. It is refused while an
-// approved binding still requires the credential.
+// revokeCredential removes a stored credential. It is refused (409) while any
+// approved binding or any profile still references the credential; a revocation
+// never detaches a dependent profile.
 func (a *API) revokeCredential(w http.ResponseWriter, r *http.Request, principal authz.Principal, credentialRefID string) {
 	if !a.authorize(w, principal, authz.PermCredentialWrite) {
 		return
@@ -694,7 +699,7 @@ func statusForCode(code registrycontract.ErrorCode) int {
 		return http.StatusNotFound
 	case registrycontract.CodeDuplicateProfile:
 		return http.StatusConflict
-	case registrycontract.CodeCredentialInUse:
+	case registrycontract.CodeCredentialInUse, registrycontract.CodeCredentialReplaceConflict:
 		return http.StatusConflict
 	case registrycontract.CodeCredentialValidationFailed:
 		return http.StatusUnprocessableEntity

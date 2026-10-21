@@ -75,6 +75,9 @@ GO_BIN=/path/to/go ./scripts/live-probe.sh
 # 6. run the end-to-end live Registry API check (task P2L-005)
 GO_BIN=/path/to/go ./scripts/toolkit-live-registry.sh
 
+# 7. run the live credential lifecycle check (task P2C-007)
+GO_BIN=/path/to/go ./scripts/credential-lifecycle.sh
+
 # ...or do everything in one go and write sanitized evidence
 GO_BIN=/path/to/go ./scripts/run-all.sh --teardown
 
@@ -134,6 +137,14 @@ InfluxDB 3 Core
 (`backend/internal/liveprobe`, task P2L-004) against the running containers. It
 performs GET requests only, never writes, and requires the isolated stack to be
 up. See [`docs/LIVE_PROBING.md`](../../docs/LIVE_PROBING.md).
+
+`scripts/credential-lifecycle.sh` (task P2C-007) runs the gated integration
+tests that exercise the full credential replacement and revocation lifecycle
+through the authorized Registry HTTP surface against both running containers.
+A replacement candidate is only accepted after a protected, read-only listing
+refuses an anonymous request and accepts the candidate; an invalid candidate is
+refused with the working credential preserved. Every request it makes against a
+deployment is a read-only GET; no historian is ever written.
 
 `scripts/toolkit-live-registry.sh` (task P2L-005) starts the Toolkit backend
 with a throwaway master key and authentication token file under `tmp/`, then

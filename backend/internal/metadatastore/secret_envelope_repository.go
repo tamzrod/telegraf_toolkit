@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -137,6 +138,44 @@ func (r *SecretEnvelopeRepository) Rewrap(credentialRefID, expectKeyID string, r
 	affected, err := res.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("rewrap result: %w", err)
+	}
+	return affected == 1, nil
+}
+
+// ReplaceIf atomically replaces the ciphertext of an envelope only if the
+// stored envelope is still exactly the expected one.
+//
+// The conditional update makes a credential replacement safe under concurrency
+// (P2C-007): two attempts that both observed the same current envelope cannot
+// both swap - the first wins, the second is a no-op that reports applied=false
+// instead of overwriting the first attempt's approved value. Unlike Rewrap,
+// which conditions on the key ID alone, this conditions on the full envelope
+// ciphertext, so it detects ANY intervening change of the stored value, not
+// only a key rotation.
+func (r *SecretEnvelopeRepository) ReplaceIf(credentialRefID, expectEnvelope string, replacement Envelope) (bool, error) {
+	if replacement.CredentialRefID == "" || replacement.KeyID == "" || replacement.Envelope == "" {
+		return false, errors.New("replacement envelope requires a reference ID, key ID and ciphertext")
+	}
+	if strings.TrimSpace(credentialRefID) == "" || strings.TrimSpace(expectEnvelope) == "" {
+		return false, errors.New("conditional replace requires a reference ID and the expected current envelope")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE secret_envelopes
+		SET key_id = ?, envelope = ?, updated_at = ?
+		WHERE credential_ref_id = ? AND envelope = ?`,
+		replacement.KeyID, replacement.Envelope,
+		replacement.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		credentialRefID, expectEnvelope,
+	)
+	if err != nil {
+		return false, fmt.Errorf("conditional replace envelope: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("conditional replace result: %w", err)
 	}
 	return affected == 1, nil
 }
