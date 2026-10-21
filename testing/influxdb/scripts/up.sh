@@ -8,10 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 load_env
 require_docker
 
-if [ ! -d "${SECRETS_DIR}" ] || [ ! -f "${SECRETS_DIR}/influxdb3-admin-token.json" ]; then
-  echo "No credentials found; running scripts/init-secrets.sh first."
-  "${SCRIPT_DIR}/init-secrets.sh"
-fi
+ensure_test_credentials
 
 # The containers run as HOST_UID; make the bind-mounted data dirs writable by it.
 mkdir -p "${ROOT_DIR}/data/influxdb2" "${ROOT_DIR}/data/influxdb2-config" \
