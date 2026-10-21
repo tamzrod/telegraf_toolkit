@@ -15,6 +15,11 @@ backend/data/
 *.db-wal
 *.db-shm
 
+# Provisioned master key files (ADR-0003). Keys are provisioned outside the
+# application and outside Git; a committed key is a security incident.
+*.key
+backend/keys/
+
 # Editors / OS
 .DS_Store
 .idea/

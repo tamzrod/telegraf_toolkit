@@ -21,6 +21,7 @@ import (
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/httpapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/secretstore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/version"
 )
 
@@ -32,9 +33,10 @@ const defaultStorePath = "data/registry-metadata.db"
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	storePath := flag.String("store", defaultStorePath, "SQLite metadata store path (ADR-0002)")
+	keyPath := flag.String("key-file", "", "path to the externally provisioned master key file (ADR-0003)")
 	flag.Parse()
 
-	registry := openRegistry(*storePath)
+	registry := openRegistry(*storePath, *keyPath)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -63,7 +65,13 @@ func main() {
 // openRegistry opens the metadata store and builds the Registry service. A
 // store that cannot be opened fails closed: the process logs the failure and
 // serves without a registry rather than serving against an unverified schema.
-func openRegistry(storePath string) *registryservice.Service {
+//
+// The secret store is attached only when a master key file is configured and
+// loads successfully. Without a key the service still serves metadata but cannot
+// store or resolve a credential value. The key is never read from an
+// environment variable, a request or a command-line value (only its path is a
+// flag), matching ADR-0003.
+func openRegistry(storePath, keyPath string) *registryservice.Service {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -73,5 +81,34 @@ func openRegistry(storePath string) *registryservice.Service {
 		return nil
 	}
 	log.Printf("metadata store ready at %s (schema version %d)", storePath, metadatastore.SchemaVersion())
-	return registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+	attachSecretStore(service, store, keyPath)
+	return service
+}
+
+// attachSecretStore loads the master key and attaches the envelope-encrypted
+// secret store. A missing or invalid key is logged and leaves the secret store
+// unattached; it never falls back to a generated or default key.
+func attachSecretStore(service *registryservice.Service, store *metadatastore.Store, keyPath string) {
+	if keyPath == "" {
+		log.Printf("no master key file configured; credential storage is unavailable")
+		return
+	}
+	keyring, err := secretstore.LoadKeyring(keyPath)
+	if err != nil {
+		log.Printf("master key unavailable (%s): %v", keyPath, err)
+		return
+	}
+	secrets, err := secretstore.New(secretstore.Options{
+		Keyring:   keyring,
+		Envelopes: store.SecretEnvelopes(),
+		Audit:     store.Audit(),
+	})
+	if err != nil {
+		log.Printf("secret store unavailable: %v", err)
+		return
+	}
+	service.WithSecretStore(secrets)
+	log.Printf("secret store ready (active key %s)", keyring.ActiveKeyID())
 }

@@ -126,9 +126,9 @@ CredentialRef
 
 **Rules**
 
-- A `CredentialRef` never contains a value field. Any adapter that would return a value is out of contract. ADR-0003 is now accepted; value handling is implemented only by the separately authorized credential-store task (P2L-002), not by this refinement.
+- A `CredentialRef` never contains a value field. Any adapter that would return a value is out of contract. ADR-0003 is accepted and implemented by the envelope-encrypted secret store (`backend/internal/secretstore`, see [`docs/SECRET_STORE.md`](../SECRET_STORE.md)); the store resolves values server-side only and never returns one across the API boundary.
 - Mock references are clearly labeled and point to no real store.
-- The server-side resolution and write boundaries (`SecretResolver`, `SecretWriter`) remain permanently-blocked stubs (`BlockedSecretResolver`, `BlockedSecretWriter`) that return a sanitized `ErrSecretResolutionBlocked` until the ADR-0003 implementation task replaces them; no implementation may store or resolve a value before then.
+- `SecretResolver`/`SecretWriter` are implemented by the real store. `BlockedSecretResolver`/`BlockedSecretWriter` remain the fail-closed default when no master key is provisioned, so a backend without a key cannot store or resolve a value.
 - A `Redactor` removes credential-bearing URLs and known literals from text bound for logs, exports or API responses. It is a defensive layer, not a licence to handle a value.
 - Credential rotation follows add → validate → reassign → revoke. The old reference must never be revoked before the new one is validated, and unrelated dependents must not be reassigned.
 

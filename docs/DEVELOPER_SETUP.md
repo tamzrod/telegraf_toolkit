@@ -190,9 +190,10 @@ are a guardrail, not proof of accessibility conformance.
 
 The API and UI remain scaffolds in their user-facing behavior. The health
 payload reports `scaffold: true` and `connected: false` so no consumer mistakes
-them for live connections. The **control-plane metadata store** is now real
-(persistent SQLite per [ADR-0002](adr/0002-metadata-store-selection.md)); see
-[`METADATA_STORE.md`](METADATA_STORE.md). The secret store, host-agent interface
-and packaging remain **Proposed** ADRs (`docs/adr/0003`–`0005`), not
-implemented. No capability probe, historian read/write or live Registry data
-route exists yet.
+them for live connections. The **control-plane metadata store** (persistent
+SQLite per [ADR-0002](adr/0002-metadata-store-selection.md)) and the
+**envelope-encrypted secret store** (per [ADR-0003](adr/0003-secret-store-integration.md))
+are now real; see [`METADATA_STORE.md`](METADATA_STORE.md) and
+[`SECRET_STORE.md`](SECRET_STORE.md). The host-agent interface and packaging
+remain **Proposed** ADRs (`docs/adr/0004`–`0005`), not implemented. No capability
+probe, historian read/write or live Registry data route exists yet.

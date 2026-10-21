@@ -23,8 +23,21 @@ import (
 
 // StoreStatus describes the metadata store's reachability and schema version.
 type StoreStatus struct {
-	Connected     bool `json:"connected"`
-	SchemaVersion int  `json:"schema_version"`
+	Connected     bool   `json:"connected"`
+	SchemaVersion int    `json:"schema_version"`
+	SecretStore   bool   `json:"secret_store"`
+	ActiveKeyID   string `json:"active_key_id,omitempty"`
+}
+
+// SecretStore is the server-side boundary that stores, resolves and rotates
+// credential values. It is satisfied by the envelope-encrypted store. The
+// service never returns a resolved value to a caller that would expose it.
+type SecretStore interface {
+	ActiveKeyID() string
+	Store(ctx context.Context, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error)
+	Resolve(ctx context.Context, credentialRefID string) (string, error)
+	Rotate(ctx context.Context, fromKeyID string) (int, error)
+	Delete(ctx context.Context, credentialRefID string) error
 }
 
 // Service is the Registry backend service. Every dependency is an interface, so
@@ -35,12 +48,63 @@ type Service struct {
 	references registrycontract.CredentialRefStore
 	audit      registrycontract.AuditSink
 	store      *metadatastore.Store
+	secrets    SecretStore
 }
 
 // New builds a service over the given repositories. The store may be nil when
 // the service is exercised against in-memory adapters.
 func New(profiles registrycontract.ProfileStore, references registrycontract.CredentialRefStore, audit registrycontract.AuditSink, store *metadatastore.Store) *Service {
 	return &Service{profiles: profiles, references: references, audit: audit, store: store}
+}
+
+// WithSecretStore attaches the server-side secret store. It is a separate
+// builder step so a service can run without a secret store (for example when no
+// master key is provisioned) and still serve metadata.
+func (s *Service) WithSecretStore(secrets SecretStore) *Service {
+	s.secrets = secrets
+	return s
+}
+
+// HasSecretStore reports whether a secret store is attached.
+func (s *Service) HasSecretStore() bool { return s.secrets != nil }
+
+// StoreCredential stores a credential value through the secret store and
+// persists the returned non-secret reference. The value is write-only: it is
+// never returned, logged or echoed.
+func (s *Service) StoreCredential(ctx context.Context, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error) {
+	if s.secrets == nil {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	ref, err := s.secrets.Store(ctx, alias, role, value)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if err := s.references.Put(ref); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	return ref, nil
+}
+
+// ResolveCredential resolves a credential value server-side. Callers must use
+// the value only for an authorized server-side operation and must never return
+// it to the browser or write it to a log.
+func (s *Service) ResolveCredential(ctx context.Context, credentialRefID string) (string, error) {
+	if s.secrets == nil {
+		return "", registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	return s.secrets.Resolve(ctx, credentialRefID)
+}
+
+// RotateSecrets rewraps every envelope from the previous key onto the active
+// key. It is a server-side administrative action.
+func (s *Service) RotateSecrets(ctx context.Context, fromKeyID string) (int, error) {
+	if s.secrets == nil {
+		return 0, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	return s.secrets.Rotate(ctx, fromKeyID)
 }
 
 // Status reports whether the metadata store is reachable and at which schema
@@ -56,7 +120,11 @@ func (s *Service) Status(ctx context.Context) (StoreStatus, error) {
 	if err != nil {
 		return StoreStatus{Connected: false}, err
 	}
-	return StoreStatus{Connected: true, SchemaVersion: version}, nil
+	status := StoreStatus{Connected: true, SchemaVersion: version, SecretStore: s.secrets != nil}
+	if s.secrets != nil {
+		status.ActiveKeyID = s.secrets.ActiveKeyID()
+	}
+	return status, nil
 }
 
 // CreateProfile stores a new profile and records an audit event. The audit

@@ -138,6 +138,12 @@ func (s *Store) CredentialRefs() *CredentialRefRepository {
 // Audit returns the audit repository.
 func (s *Store) Audit() *AuditRepository { return &AuditRepository{db: s.db} }
 
+// SecretEnvelopes returns the ciphertext-envelope repository. It stores and
+// returns opaque ciphertext only; the keys live in a separate key file.
+func (s *Store) SecretEnvelopes() *SecretEnvelopeRepository {
+	return &SecretEnvelopeRepository{db: s.db}
+}
+
 // Backup writes a transactionally consistent copy of the database to dest using
 // SQLite's VACUUM INTO, which reads a stable snapshot rather than copying files
 // under a live writer. dest must not already exist.

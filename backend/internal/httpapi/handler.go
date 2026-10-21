@@ -33,6 +33,8 @@ type RegistryStatus struct {
 	Store         string `json:"store"`
 	Connected     bool   `json:"connected"`
 	SchemaVersion int    `json:"schema_version"`
+	SecretStore   bool   `json:"secret_store"`
+	ActiveKeyID   string `json:"active_key_id,omitempty"`
 	Description   string `json:"description"`
 }
 
@@ -91,7 +93,9 @@ func HandlerWithRegistry(registry *registryservice.Service) http.Handler {
 				Store:         "sqlite",
 				Connected:     status.Connected,
 				SchemaVersion: status.SchemaVersion,
-				Description:   "Persistent control-plane metadata store (ADR-0002). Holds credential references only.",
+				SecretStore:   status.SecretStore,
+				ActiveKeyID:   status.ActiveKeyID,
+				Description:   "Persistent control-plane metadata store (ADR-0002). Holds credential references and encrypted envelopes; keys are external.",
 			})
 		})
 	}

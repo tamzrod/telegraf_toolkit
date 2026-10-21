@@ -95,6 +95,24 @@ var migrations = []migration{
 			`CREATE INDEX idx_connection_profiles_family ON connection_profiles (family)`,
 		},
 	},
+	{
+		version: 3,
+		name:    "encrypted-secret-envelopes",
+		stmts: []string{
+			// secret_envelopes holds authenticated ciphertext envelopes only.
+			// The encryption keys live in a separately provisioned key file
+			// outside this database (ADR-0003), so a metadata backup can never
+			// decrypt anything. The `key_id` column records which key wrapped
+			// the envelope so rotation can find envelopes still on an old key.
+			`CREATE TABLE secret_envelopes (
+				credential_ref_id TEXT PRIMARY KEY,
+				key_id            TEXT NOT NULL,
+				envelope          TEXT NOT NULL,
+				updated_at        TEXT NOT NULL
+			)`,
+			`CREATE INDEX idx_secret_envelopes_key_id ON secret_envelopes (key_id)`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

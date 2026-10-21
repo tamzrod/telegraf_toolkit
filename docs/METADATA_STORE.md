@@ -26,9 +26,10 @@ Implemented and verified:
 
 Not in scope for this task (deliberately deferred):
 
-- Secret values, envelope encryption, key custody and rotation. Those are
-  [ADR-0003](adr/0003-secret-store-integration.md) and are a later authorized
-  task (P2L-002). The store here holds credential **references** only.
+- Secret values are stored by the ADR-0003 secret store (P2L-002) as ciphertext
+  envelopes in `secret_envelopes`; the keys live in a separate file. See
+  [`SECRET_STORE.md`](SECRET_STORE.md). This store still holds credential
+  **references** as metadata; it never holds a plaintext value or a key.
 - Server-authorized profile API routes (P2L-003), live capability probing
   (P2L-004) and UI integration (P2L-005).
 - Multi-host control-plane management (out of scope per ADR-0002).
@@ -62,6 +63,7 @@ Current set:
 | --- | --- | --- |
 | 1 | `initial-control-plane-metadata` | `connection_profiles`, `credential_refs`, `audit_events` |
 | 2 | `audit-and-profile-lookup-indexes` | lookup indexes on audit target, audit time, profile family |
+| 3 | `encrypted-secret-envelopes` | `secret_envelopes` (ciphertext envelopes only) |
 
 A test builds a database at version 1, writes a row, upgrades to the current
 version, and asserts the row survives — proving later migrations are additive.
@@ -75,6 +77,9 @@ version, and asserts the row survives — proving later migrations are additive.
 - `audit_events` — append-oriented actor/action/target/outcome/timestamp. No
   update or delete method; each event is validated to reject secret-like
   material before it is written.
+- `secret_envelopes` — authenticated ciphertext envelopes plus the key ID that
+  wrapped each one (ADR-0003). The envelope contains no plaintext and no key; the
+  key lives in a separate file. See [`SECRET_STORE.md`](SECRET_STORE.md).
 
 A test enumerates every column of every table and fails if any is named like a
 secret value (`value`, `secret`, `password`, `token`, …).
