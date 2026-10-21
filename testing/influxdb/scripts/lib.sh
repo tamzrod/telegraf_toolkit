@@ -130,3 +130,36 @@ sanitize_stream() {
 log_note() {
   printf '%s\n' "$*" | tee -a "${LOGS_DIR}/runner.log" >&2
 }
+
+# Ensure test credentials match retained database state. Shared by the full
+# runner and direct startup; never overwrite a partial/existing credential set.
+ensure_test_credentials() {
+  local secret_file found=0
+  local secret_files=(
+    "${SECRETS_DIR}/influxdb2-admin-username"
+    "${SECRETS_DIR}/influxdb2-admin-password"
+    "${SECRETS_DIR}/influxdb2-admin-token"
+    "${SECRETS_DIR}/influxdb3-admin-token.json"
+  )
+  for secret_file in "${secret_files[@]}"; do
+    if [ -f "${secret_file}" ]; then found=$((found + 1)); fi
+  done
+  if [ "${found}" -eq 0 ]; then
+    if [ -d "${ROOT_DIR}/data" ] && find "${ROOT_DIR}/data" -type f -print -quit 2>/dev/null | grep -q .; then
+      echo "BLOCKED: test data exists but credentials are missing. Restore credentials or explicitly purge test data." >&2
+      return 2
+    fi
+    "${SCRIPT_DIR}/init-secrets.sh"
+  elif [ "${found}" -eq "${#secret_files[@]}" ]; then
+    for secret_file in "${secret_files[@]}"; do
+      if [ ! -r "${secret_file}" ]; then
+        echo "BLOCKED: existing test credential unreadable." >&2
+        return 2
+      fi
+    done
+    echo "Reusing existing test credentials (values not displayed)."
+  else
+    echo "BLOCKED: incomplete test credential set. Restore all four files or explicitly purge the test stack." >&2
+    return 2
+  fi
+}
