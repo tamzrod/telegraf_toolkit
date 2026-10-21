@@ -342,13 +342,15 @@ type probeRequest struct {
 }
 
 // probeResponse is the sanitized probe result. It carries the three-valued
-// capability vocabulary and never a credential value or a resolved secret.
+// capability vocabulary and the observations that back it, and never a
+// credential value or a resolved secret.
 type probeResponse struct {
 	ConnectionID    string                                   `json:"connection_id"`
 	Edition         string                                   `json:"edition"`
 	QueryDialects   map[string]registrycontract.ProbeOutcome `json:"query_dialects"`
 	WriteProtocols  map[string]registrycontract.ProbeOutcome `json:"write_protocols"`
 	SchemaDiscovery registrycontract.ProbeOutcome            `json:"schema_discovery"`
+	Observations    []liveprobe.Observation                  `json:"observations"`
 	ProbedAt        string                                   `json:"probed_at"`
 	Mock            bool                                     `json:"mock"`
 }
@@ -435,7 +437,10 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 		Policy:       a.probePolicy,
 		Credential:   credential,
 		Deadline:     deadline,
-		MaxRequests:  6,
+		// The budget covers the identification request plus the capability
+		// check catalogue (P2C-003). It is bounded, and an exhausted budget is
+		// reported as unknown rather than guessed.
+		MaxRequests: 10,
 	})
 	if err != nil {
 		writeSanitizedError(w, err)
@@ -454,6 +459,7 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 		QueryDialects:   result.QueryDialects,
 		WriteProtocols:  result.WriteProtocols,
 		SchemaDiscovery: result.SchemaDiscovery,
+		Observations:    result.Observations,
 		ProbedAt:        result.ProbedAt.Format("2006-01-02T15:04:05Z07:00"),
 		Mock:            result.Mock,
 	})

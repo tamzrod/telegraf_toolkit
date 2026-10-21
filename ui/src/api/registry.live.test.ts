@@ -69,14 +69,31 @@ describe("live API registry contract", () => {
     const result = {
       connection_id: "live-influx-2x",
       edition: "influxdb-2.x-oss",
-      query_dialects: { influxql: "supported", flux: "supported", sql: "unsupported" },
-      write_protocols: { "line-protocol": "supported" },
+      query_dialects: { influxql: "unknown", flux: "unknown", sql: "unknown" },
+      write_protocols: { "line-protocol": "unknown" },
       schema_discovery: "supported",
+      observations: [
+        {
+          capability: "schema_discovery",
+          check: "schema-v2-buckets",
+          method: "GET",
+          path: "/api/v2/buckets",
+          status: 200,
+          outcome: "supported",
+          detail: "the endpoint returned the expected response",
+        },
+      ],
       probed_at: "2026-10-21T03:00:00Z",
       mock: false,
     };
     expect(isApiProbeResult(result)).toBe(true);
     expect(isApiProbeResult({ ...result, token: "leaked" })).toBe(false);
     expect(isApiProbeResult({ ...result, schema_discovery: "maybe" })).toBe(false);
+    expect(
+      isApiProbeResult({
+        ...result,
+        observations: [{ ...result.observations[0], outcome: "maybe" }],
+      }),
+    ).toBe(false);
   });
 });

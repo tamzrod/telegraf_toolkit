@@ -1,13 +1,13 @@
 # Live Capability Probing
 
-Status: **Implemented (read-only, consented, SSRF-protected).**
-Tasks: P2L-004 (live prober), P2L-006 (DNS/peer pinning hardening), P2L-007 (administrator-only credential binding).
-Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`).
+Status: **Implemented (read-only, consented, SSRF-protected, observation-based).**
+Tasks: P2L-004 (live prober), P2L-006 (DNS/peer pinning hardening), P2L-007 (administrator-only credential binding), P2C-003 (observation-based capabilities).
+Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`); the observation-based capability model is added by P2C-003.
 
 This document describes the live capability prober that replaces version-based
 guessing with real, read-only observation. It covers the endpoint policy, DNS and
-peer checks, TLS defaults, request budget and the exact coverage that has been
-verified against real InfluxDB containers.
+peer checks, TLS defaults, request budget, the capability check catalogue and
+the exact coverage that has been verified against real InfluxDB containers.
 
 ## Principle
 
@@ -17,15 +17,19 @@ connection, never from a caller-supplied version label
 three values — `supported`, `unsupported` or `unknown` — and `unknown` is never
 treated as support.
 
-**Current limitation — projected, not observed per capability.** Once the
-edition is identified, the capability vocabulary is **projected from that
-edition** using the table in [Edition identification and capability
-mapping](#edition-identification-and-capability-mapping). It is **not** derived
-from an observation of each query dialect or of schema discovery, and the write
-protocol is **asserted** by that projection rather than proven by a write (the
-prober is GET-only and never writes). Evidence-based, per-capability probing is
-not implemented; treat the projected values as a curated expectation for the
-detected edition, not as a measured capability set.
+**No capability is asserted from the edition label.** Every outcome is backed by
+an **observation**: the check that was attempted, the HTTP status the endpoint
+answered and the reason for the outcome. The observations are returned with the
+probe result (`observations`), so every claim can be audited.
+
+**What the read-only probe can and cannot prove (P2C-003).** A GET-only probe
+can prove a capability when a *listing* endpoint answers with the expected
+response shape. It cannot prove a **query** dialect: the verified editions serve
+a query endpoint only for POST, so a GET answer (405, 404, an HTML page) shows
+that the read-only check could not be completed — never that the dialect is
+absent. A **write protocol** is never proven, because a read-only probe does not
+write. Both cases are reported as `unknown` with the observation attached, never
+as `supported` or `unsupported`.
 
 ## Read-only guarantee
 
@@ -105,7 +109,7 @@ a production default. The backend enables it only when the operator passes
 - A successful probe is recorded as an audited `profile.probe` action attributed
   to the acting principal.
 
-## Edition identification and capability mapping
+## Edition identification and capability checks (P2C-003)
 
 Identification uses read-only responses, not a version guess:
 
@@ -115,14 +119,42 @@ Identification uses read-only responses, not a version guess:
 | authenticated `/health` returns plain text `OK`, or JSON with `"version":"v3…"` | `influxdb-3.x-core` |
 | anonymous `/health` 401 with a credential supplied, confirmed via `/api/v3/configure/database` | `influxdb-3.x-core` |
 
-The capability vocabulary is then projected from the identified edition, never
-from a version string alone. These rows are a **projection**, not per-capability
-observations; see the Principle section.
+The edition label identifies the product. It grants **no** capability.
 
-| Edition | influxql | flux | sql | line-protocol | schema discovery |
-| --- | --- | --- | --- | --- | --- |
-| 2.x OSS | supported | supported | unsupported | supported | supported |
-| 3.x Core | supported | unsupported | supported | supported | unsupported |
+### The check catalogue
+
+Capabilities are decided by a catalogue of **bounded, read-only GET checks**.
+The catalogue decides *where* to look; the observed response decides the
+outcome. A check that answers conclusively ends that capability's checks, which
+keeps the request budget small.
+
+| Capability | Check | Request | Positive evidence |
+| --- | --- | --- | --- |
+| `influxql` | `influxql-v2-query` | `GET /api/v2/query?q=SELECT%201` | 200 with `"results"` |
+| `influxql` | `influxql-v3-query` | `GET /api/v3/query/influxql?query=SELECT%201` | 200 with `"results"` |
+| `sql` | `sql-v3-query` | `GET /api/v3/query/sql?query=SELECT%201` | 200 with `"results"` |
+| `sql` | `sql-v2-query` | `GET /api/v2/query/sql?query=SELECT%201` | 200 with `"results"` |
+| `schema_discovery` | `schema-v2-buckets` | `GET /api/v2/buckets` | 200 with `"buckets"` |
+| `schema_discovery` | `schema-v3-databases` | `GET /api/v3/configure/database?format=json` | 200 with `iox::database` |
+| `flux` | `flux-query` | not attempted | the check needs a request body |
+| `line-protocol` | `line-protocol-write` | not attempted | a read-only probe never writes |
+
+### How an answer is classified
+
+| Observed answer | Outcome | Why |
+| --- | --- | --- |
+| 200 with the expected shape | `supported` | the capability was observed |
+| 200 with another shape (for example an HTML page) | `unknown` | the answer is not evidence of the capability |
+| 404 on a **listing** check, and every listing candidate answered the same way | `unsupported` | the deployment exposes no such listing |
+| 404 on a **query** check | `unknown` | the verified editions serve a query endpoint only for POST, so a GET 404 does not prove the dialect is absent |
+| 405 | `unknown` | the endpoint does not serve this method |
+| 401 / 403 | `unknown` | the probe credential was denied |
+| 400, 5xx, timeout, malformed body | `unknown` | the check could not be completed |
+| the request budget was exhausted | `unknown` | the check was not attempted |
+
+Every check is recorded as an **observation** (`capability`, `check`, `method`,
+`path`, `status`, `outcome`, `detail`) and returned with the probe result, so a
+claim can always be traced to the answer that produced it.
 
 Anything that does not identify as a supported deployment is reported as a
 sanitized `endpoint-rejected` error, not guessed.
@@ -247,13 +279,70 @@ Docker Engine 29.9.1 with Compose v5.6.0. Pinned images unchanged:
   `TestProbeRouteIgnoresCallerSuppliedEndpoint`, `TestProbeAuthorizationByRole`,
   `TestDeniedProbeLeaksNoCredential`, `TestProbeResultCarriesNoCredential`.
 
+**Acceptance mapping (P2C-003):**
+- Observations replace the edition projection → `liveprobe/observation_test.go`
+  (`TestObservationsRecordWhatWasAttempted`,
+  `TestEditionLabelNeverGrantsACapability`, `TestAuthDeniedIsUnknown`,
+  `TestMalformedBodyIsUnknown`, `TestServerErrorIsUnknown`, `TestTimeoutIsUnknown`,
+  `TestWriteProtocolIsNeverProven`, `TestBudgetExhaustionIsRecorded`,
+  `TestObservationCarriesNoCredential`).
+- The API, the UI and the docs agree on the three states → the probe response
+  carries `observations`; `ui/src/api/registry.ts` validates them and
+  `ui/src/features/databases/registryWorkflow.ts` maps them without collapsing
+  `unknown` (`ui/src/features/databases/probePresentation.test.ts`).
+
+### Measured evidence matrix (P2C-003, real containers)
+
+The integration test was executed against the **real, isolated** InfluxDB 2 OSS
+v2.9.1 and InfluxDB 3 Core v3.12.1 containers (the same digest-pinned images
+the harness uses). The test binary ran inside a container that shares the
+target's network namespace, so it reached the server on its own loopback
+interface; the synthetic token was read from a file, never from an argument or
+an environment value.
+
+**InfluxDB 2 OSS v2.9.1** — 4 requests, `edition=influxdb-2.x-oss`:
+
+| Capability | Check | Path | Status | Outcome |
+| --- | --- | --- | --- | --- |
+| influxql | `influxql-v2-query` | `/api/v2/query?q=SELECT%201` | 405 | unknown — the endpoint does not serve GET |
+| sql | `sql-v3-query` | `/api/v3/query/sql?query=SELECT%201` | 200 (HTML page) | unknown — unexpected response shape |
+| schema_discovery | `schema-v2-buckets` | `/api/v2/buckets` | 200 | **supported** — the buckets listing was observed |
+| flux | `flux-query` | not attempted | — | unknown — the check needs a request body |
+| line-protocol | `line-protocol-write` | not attempted | — | unknown — a read-only probe never writes |
+
+**InfluxDB 3 Core v3.12.1** — 7 requests, `edition=influxdb-3.x-core`:
+
+| Capability | Check | Path | Status | Outcome |
+| --- | --- | --- | --- | --- |
+| influxql | `influxql-v2-query` | `/api/v2/query?q=SELECT%201` | 404 | unknown — not served for GET |
+| influxql | `influxql-v3-query` | `/api/v3/query/influxql?query=SELECT%201` | 404 | unknown — not served for GET |
+| sql | `sql-v3-query` | `/api/v3/query/sql?query=SELECT%201` | 404 | unknown — not served for GET |
+| sql | `sql-v2-query` | `/api/v2/query/sql?query=SELECT%201` | 404 | unknown — not served for GET |
+| schema_discovery | `schema-v2-buckets` | `/api/v2/buckets` | 404 | unsupported — the path is not served |
+| schema_discovery | `schema-v3-databases` | `/api/v3/configure/database?format=json` | 200 | **supported** — the databases listing was observed |
+| flux | `flux-query` | not attempted | — | unknown — the check needs a request body |
+| line-protocol | `line-protocol-write` | not attempted | — | unknown — a read-only probe never writes |
+
+Both integration tests passed. The matrix is the honest result of a GET-only
+probe: only the listing capability could be **observed**; every query dialect
+stayed **unknown** because the verified editions serve a query endpoint only for
+POST, and the write protocol stayed **unknown** because the probe never writes.
+
 ## Limitations
 
 - The probe budget counts HTTP requests, not wall-clock operations.
 - Edition identification relies on the `/health` shape; an edition that changes
   its health payload would be reported as unidentified rather than misidentified.
 - InfluxDB 1.x is unverified (no isolated instance).
-- Capability mapping is a small, explicit table, not a full compatibility matrix
-  (ADR-E is not yet proposed). The table is applied from the **detected**
-  edition; it is not validated capability-by-capability against each container.
+- The capability checks are a small, explicit catalogue, not a full
+  compatibility matrix (ADR-E is not yet proposed).
+- **A GET-only probe cannot prove a query dialect.** The verified editions serve
+  a query endpoint only for POST, so the dialects stay `unknown`. A read-only
+  *query* check (a POST carrying a read query) would be able to prove them, but
+  the probe route is GET-only by contract and a method change needs explicit
+  authorization.
+- **A write protocol is never proven by this route.** `line-protocol` stays
+  `unknown` until an independently authorized synthetic write check exists.
+- The schema-discovery evidence is a **namespace-level listing** (buckets on 2.x,
+  databases on 3.x), not a measurement-level schema listing.
 - Only Linux amd64 is verified.

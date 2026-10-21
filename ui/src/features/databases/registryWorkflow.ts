@@ -1,4 +1,6 @@
 import type {
+  ApiProbeObservation,
+  ApiProbeResult,
   CapabilityOutcome,
   RegistryProfile,
   RegistryScope,
@@ -87,6 +89,52 @@ export function capabilityRows(profile: RegistryProfile): CapabilityRow[] {
     confirmed: isConfirmed(profile.capabilities.schemaDiscovery),
   });
   return rows;
+}
+
+/**
+ * Flattens a live probe result into labelled, ordered rows.
+ *
+ * The three states are carried through unchanged: `unknown` stays `unknown`
+ * and is never collapsed into `supported` or `unsupported`. A capability is
+ * only confirmed when the probe observed it (P2C-003).
+ */
+export function probeCapabilityRows(result: ApiProbeResult): CapabilityRow[] {
+  const rows: CapabilityRow[] = [];
+  for (const dialect of ["influxql", "flux", "sql"]) {
+    const outcome = outcomeOf(result.query_dialects, dialect);
+    rows.push({
+      label: `Query: ${dialect}`,
+      outcome,
+      confirmed: isConfirmed(outcome),
+    });
+  }
+  for (const protocol of ["line-protocol"]) {
+    const outcome = outcomeOf(result.write_protocols, protocol);
+    rows.push({
+      label: `Write: ${protocol}`,
+      outcome,
+      confirmed: isConfirmed(outcome),
+    });
+  }
+  rows.push({
+    label: "Schema discovery",
+    outcome: result.schema_discovery,
+    confirmed: isConfirmed(result.schema_discovery),
+  });
+  return rows;
+}
+
+/**
+ * The observations that back one capability of a live probe result, in the
+ * order the probe recorded them.
+ */
+export function observationsFor(
+  result: ApiProbeResult,
+  capability: string,
+): ApiProbeObservation[] {
+  return result.observations.filter(
+    (observation) => observation.capability === capability,
+  );
 }
 
 export type CredentialState =

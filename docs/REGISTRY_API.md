@@ -65,7 +65,7 @@ principal lacking the required permission is forbidden (403).
 | GET | `/api/v1/registry/credentials` | credential.read | List credential references (no values) |
 | GET | `/api/v1/registry/audit` | audit.read | List sanitized audit events |
 | GET | `/api/v1/registry/status` | none (status only) | Store reachability, schema version, secret-store flag |
-| POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side) |
+| POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side). The response carries the three-valued outcomes **and** the `observations` that back them (check, method, path, status, outcome, reason) |
 
 Responses carry a `credential_ref_id`, never a value. The `credentials` route
 returns alias, role, fingerprint and timestamps only.

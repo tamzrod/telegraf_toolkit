@@ -94,20 +94,39 @@ func TestIntegrationProbeInfluxDB2(t *testing.T) {
 	if result.Edition != "influxdb-2.x-oss" {
 		t.Fatalf("edition = %q, want influxdb-2.x-oss", result.Edition)
 	}
-	if result.QueryDialects["flux"] != registrycontract.OutcomeSupported {
-		t.Fatalf("flux should be supported on live 2.x: %v", result.QueryDialects["flux"])
+	// The live deployment serves its query endpoint only for POST, so a
+	// read-only GET probe cannot prove a dialect: the outcome stays unknown
+	// instead of being copied from the edition label.
+	for dialect, outcome := range result.QueryDialects {
+		if outcome != registrycontract.OutcomeUnknown {
+			t.Fatalf("dialect %q = %q, want unknown (no read-only observation proves it)", dialect, outcome)
+		}
 	}
-	if result.QueryDialects["sql"] != registrycontract.OutcomeUnsupported {
-		t.Fatalf("sql should be unsupported on live 2.x: %v", result.QueryDialects["sql"])
+	// A write protocol is never proven by a read-only probe.
+	if result.WriteProtocols["line-protocol"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("line-protocol = %q, want unknown (a read-only probe never writes)", result.WriteProtocols["line-protocol"])
 	}
-	if result.WriteProtocols["line-protocol"] != registrycontract.OutcomeSupported {
-		t.Fatalf("line-protocol should be supported on live 2.x: %v", result.WriteProtocols["line-protocol"])
+	// The buckets listing is served, so schema discovery is supported.
+	if result.SchemaDiscovery != registrycontract.OutcomeSupported {
+		t.Fatalf("schema discovery = %q, want supported (the buckets listing was observed)", result.SchemaDiscovery)
 	}
 	if result.Mock {
 		t.Fatal("a live probe result must not be labeled mock")
 	}
-	t.Logf("live InfluxDB 2 probe: edition=%s dialects=%v write=%v schemaDiscovery=%v requests=%d",
-		result.Edition, result.SortedDialects(), result.WriteProtocols, result.SchemaDiscovery, result.Requests)
+	logObservations(t, "live InfluxDB 2 probe", result)
+}
+
+// logObservations prints the evidence matrix of a live probe: every check that
+// was attempted, the answer the deployment gave and the outcome.
+func logObservations(t *testing.T, label string, result Result) {
+	t.Helper()
+	t.Logf("%s: edition=%s dialects=%v write=%v schemaDiscovery=%v requests=%d",
+		label, result.Edition, result.SortedDialects(), result.WriteProtocols, result.SchemaDiscovery, result.Requests)
+	for _, observation := range result.Observations {
+		t.Logf("  observation capability=%s check=%s method=%s path=%s status=%d outcome=%s detail=%s",
+			observation.Capability, observation.Check, observation.Method, observation.Path,
+			observation.Status, observation.Outcome, observation.Detail)
+	}
 }
 
 func TestIntegrationProbeInfluxDB3(t *testing.T) {
@@ -130,17 +149,24 @@ func TestIntegrationProbeInfluxDB3(t *testing.T) {
 	if result.Edition != "influxdb-3.x-core" {
 		t.Fatalf("edition = %q, want influxdb-3.x-core", result.Edition)
 	}
-	if result.QueryDialects["sql"] != registrycontract.OutcomeSupported {
-		t.Fatalf("sql should be supported on live 3.x: %v", result.QueryDialects["sql"])
+	// The live deployment serves its query paths only for POST, so a read-only
+	// GET probe cannot prove a dialect: the outcome stays unknown.
+	for dialect, outcome := range result.QueryDialects {
+		if outcome != registrycontract.OutcomeUnknown {
+			t.Fatalf("dialect %q = %q, want unknown (no read-only observation proves it)", dialect, outcome)
+		}
 	}
-	if result.QueryDialects["flux"] != registrycontract.OutcomeUnsupported {
-		t.Fatalf("flux should be unsupported on live 3.x: %v", result.QueryDialects["flux"])
+	// The databases listing is served, so schema discovery is supported.
+	if result.SchemaDiscovery != registrycontract.OutcomeSupported {
+		t.Fatalf("schema discovery = %q, want supported (the databases listing was observed)", result.SchemaDiscovery)
+	}
+	if result.WriteProtocols["line-protocol"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("line-protocol = %q, want unknown (a read-only probe never writes)", result.WriteProtocols["line-protocol"])
 	}
 	if result.Mock {
 		t.Fatal("a live probe result must not be labeled mock")
 	}
-	t.Logf("live InfluxDB 3 probe: edition=%s dialects=%v write=%v schemaDiscovery=%v requests=%d",
-		result.Edition, result.SortedDialects(), result.WriteProtocols, result.SchemaDiscovery, result.Requests)
+	logObservations(t, "live InfluxDB 3 probe", result)
 }
 
 // TestIntegrationProbeRejectsDefaultPolicyOnLoopback proves the production

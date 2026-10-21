@@ -113,15 +113,166 @@ func New(resolver Resolver) *Prober {
 
 // Result is the outcome of a probe. It carries the three-valued capability
 // vocabulary and never a credential value.
+//
+// Every capability outcome is backed by an Observation: the check that was
+// attempted, the answer the endpoint gave and the reason for the outcome. No
+// capability is asserted from the edition label alone (P2C-003).
 type Result struct {
 	ConnectionID    string
 	Edition         string
 	QueryDialects   map[string]registrycontract.ProbeOutcome
 	WriteProtocols  map[string]registrycontract.ProbeOutcome
 	SchemaDiscovery registrycontract.ProbeOutcome
+	Observations    []Observation
 	ProbedAt        time.Time
 	Requests        int
 	Mock            bool
+}
+
+// Observation records one bounded, read-only capability check: what was
+// attempted, what the endpoint answered, and the outcome that follows.
+//
+// An observation never carries a credential value or a credential-bearing URL:
+// only the request path, the HTTP status and a short sanitized reason.
+type Observation struct {
+	// Capability is the capability the check speaks for: "influxql", "flux",
+	// "sql", "schema_discovery" or "line-protocol".
+	Capability string `json:"capability"`
+	// Check names the check, for example "schema-v2-buckets".
+	Check string `json:"check"`
+	// Method is the HTTP method used. The prober only ever uses GET.
+	Method string `json:"method"`
+	// Path is the request path. It never contains a credential.
+	Path string `json:"path"`
+	// Status is the observed HTTP status, or 0 when the request did not
+	// complete.
+	Status int `json:"status"`
+	// Outcome is the capability outcome this observation supports.
+	Outcome registrycontract.ProbeOutcome `json:"outcome"`
+	// Detail is a short, sanitized explanation of the outcome.
+	Detail string `json:"detail"`
+}
+
+// checkKind selects how an answer to a check is interpreted.
+type checkKind int
+
+const (
+	// checkQuery is a query endpoint. The verified editions serve a query
+	// endpoint only for POST, so a GET answer can confirm that a path exists
+	// but never proves that the dialect works, and a "not served" answer for a
+	// GET does not prove that the dialect is absent. Only a positive
+	// observation supports the dialect; everything else stays unknown.
+	checkQuery checkKind = iota
+	// checkMetadata is a GET-only listing endpoint. A "not served" answer is
+	// evidence that the deployment does not expose that listing.
+	checkMetadata
+)
+
+// capabilityCheck is one bounded, read-only check for a capability.
+type capabilityCheck struct {
+	// capability is the capability key.
+	capability string
+	// id names the check.
+	id string
+	// path is the request path. It never contains a credential.
+	path string
+	// expect is a substring a successful response body must contain.
+	expect string
+	// kind selects how the answer is interpreted.
+	kind checkKind
+	// attemptable is false for a capability the read-only probe cannot
+	// exercise at all. Such a check records a "not attempted" observation and
+	// leaves the capability unknown.
+	attemptable bool
+	// note explains why a check was not attempted.
+	note string
+}
+
+// capabilityChecks is the catalogue of bounded, read-only capability checks.
+//
+// The catalogue decides WHERE to look; the observed response decides the
+// outcome. Nothing here is skipped because of the edition label: the label
+// identifies the running product, it does not grant a capability (P2C-003).
+//
+// The candidates are ordered so the first answer that settles a capability ends
+// that capability's checks, which keeps the request budget small: a check that
+// is answered inconclusively (auth denied, method refused, malformed body,
+// timeout, server error) stops the remaining candidates for that capability,
+// while a "not served" answer moves on to the next candidate.
+var capabilityChecks = []capabilityCheck{
+	{
+		capability:  "influxql",
+		id:          "influxql-v2-query",
+		path:        "/api/v2/query?q=SELECT%201",
+		expect:      "\"results\"",
+		kind:        checkQuery,
+		attemptable: true,
+	},
+	{
+		capability:  "influxql",
+		id:          "influxql-v3-query",
+		path:        "/api/v3/query/influxql?query=SELECT%201",
+		expect:      "\"results\"",
+		kind:        checkQuery,
+		attemptable: true,
+	},
+	{
+		capability:  "sql",
+		id:          "sql-v3-query",
+		path:        "/api/v3/query/sql?query=SELECT%201",
+		expect:      "\"results\"",
+		kind:        checkQuery,
+		attemptable: true,
+	},
+	{
+		capability:  "sql",
+		id:          "sql-v2-query",
+		path:        "/api/v2/query/sql?query=SELECT%201",
+		expect:      "\"results\"",
+		kind:        checkQuery,
+		attemptable: true,
+	},
+	{
+		capability:  "schema_discovery",
+		id:          "schema-v2-buckets",
+		path:        "/api/v2/buckets",
+		expect:      "\"buckets\"",
+		kind:        checkMetadata,
+		attemptable: true,
+	},
+	{
+		capability:  "schema_discovery",
+		id:          "schema-v3-databases",
+		path:        "/api/v3/configure/database?format=json",
+		expect:      "iox::database",
+		kind:        checkMetadata,
+		attemptable: true,
+	},
+	{
+		capability:  "flux",
+		id:          "flux-query",
+		attemptable: false,
+		note:        "not attempted: this check needs a request body, which the read-only GET probe does not send",
+	},
+	{
+		capability:  "line-protocol",
+		id:          "line-protocol-write",
+		attemptable: false,
+		note:        "not attempted: a read-only probe never writes to the target, so the write protocol stays unverified",
+	},
+}
+
+// capabilityOrder is the stable order in which capabilities are reported.
+var capabilityOrder = []string{"influxql", "flux", "sql", "schema_discovery"}
+
+// capabilityKind maps a capability to the kind of check that evidences it.
+func capabilityKind(capability string) checkKind {
+	switch capability {
+	case "schema_discovery":
+		return checkMetadata
+	default:
+		return checkQuery
+	}
 }
 
 // Probe performs a read-only capability probe. It validates the endpoint,
@@ -191,31 +342,153 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Result, error) {
 		return p.get(ctx, client, root+path, req.Credential)
 	}
 
+	// Identify the running product from its read-only health response. The
+	// label identifies the product only: no capability is derived from it
+	// (P2C-003).
 	edition, err := p.probeEdition(root, get, req.Credential)
 	if err != nil {
 		return Result{}, err
 	}
 	result.Edition = edition
 
-	switch {
-	case strings.HasPrefix(edition, "influxdb-2"):
-		result.QueryDialects["influxql"] = registrycontract.OutcomeSupported
-		result.QueryDialects["flux"] = registrycontract.OutcomeSupported
-		result.QueryDialects["sql"] = registrycontract.OutcomeUnsupported
-		result.WriteProtocols["line-protocol"] = registrycontract.OutcomeSupported
-		result.SchemaDiscovery = registrycontract.OutcomeSupported
-	case strings.HasPrefix(edition, "influxdb-3"):
-		result.QueryDialects["sql"] = registrycontract.OutcomeSupported
-		result.QueryDialects["influxql"] = registrycontract.OutcomeSupported
-		result.QueryDialects["flux"] = registrycontract.OutcomeUnsupported
-		result.WriteProtocols["line-protocol"] = registrycontract.OutcomeSupported
-		result.SchemaDiscovery = registrycontract.OutcomeUnsupported
-	default:
-		return Result{}, registrycontract.NewSanitizedError(
-			registrycontract.CodeUnsupportedCapability,
-			"The endpoint did not identify as a supported InfluxDB deployment.")
+	// Walk the capability checks. Every check is a bounded, read-only GET and
+	// the observed response decides the outcome.
+	supported := map[string]bool{}
+	inconclusive := map[string]bool{}
+	notServed := map[string]int{}
+	tried := map[string]int{}
+	settled := map[string]bool{}
+
+	for _, check := range capabilityChecks {
+		if settled[check.capability] {
+			continue
+		}
+		if !check.attemptable {
+			// The read-only probe cannot exercise this capability at all. The
+			// observation records why, and the capability stays unknown.
+			result.Observations = append(result.Observations, Observation{
+				Capability: check.capability,
+				Check:      check.id,
+				Method:     "GET",
+				Outcome:    registrycontract.OutcomeUnknown,
+				Detail:     check.note,
+			})
+			inconclusive[check.capability] = true
+			settled[check.capability] = true
+			continue
+		}
+		if budget <= 0 {
+			result.Observations = append(result.Observations, Observation{
+				Capability: check.capability,
+				Check:      check.id,
+				Method:     "GET",
+				Path:       check.path,
+				Outcome:    registrycontract.OutcomeUnknown,
+				Detail:     "not attempted: the request budget was exhausted",
+			})
+			inconclusive[check.capability] = true
+			settled[check.capability] = true
+			continue
+		}
+
+		tried[check.capability]++
+		status, body, err := get(check.path)
+		if err != nil {
+			result.Observations = append(result.Observations, Observation{
+				Capability: check.capability,
+				Check:      check.id,
+				Method:     "GET",
+				Path:       check.path,
+				Outcome:    registrycontract.OutcomeUnknown,
+				Detail:     "the check request did not complete",
+			})
+			inconclusive[check.capability] = true
+			settled[check.capability] = true
+			continue
+		}
+
+		outcome, detail, notServedAnswer := classifyCheck(check, status, body)
+		result.Observations = append(result.Observations, Observation{
+			Capability: check.capability,
+			Check:      check.id,
+			Method:     "GET",
+			Path:       check.path,
+			Status:     status,
+			Outcome:    outcome,
+			Detail:     detail,
+		})
+		switch {
+		case outcome == registrycontract.OutcomeSupported:
+			supported[check.capability] = true
+			settled[check.capability] = true
+		case notServedAnswer:
+			// The path is not served. Try the next candidate for this
+			// capability before concluding anything.
+			notServed[check.capability]++
+		default:
+			inconclusive[check.capability] = true
+			settled[check.capability] = true
+		}
 	}
+
+	// Project the observations onto the three-valued vocabulary.
+	for _, capability := range capabilityOrder {
+		outcome := registrycontract.OutcomeUnknown
+		switch {
+		case supported[capability]:
+			outcome = registrycontract.OutcomeSupported
+		case inconclusive[capability]:
+			outcome = registrycontract.OutcomeUnknown
+		case tried[capability] > 0 && notServed[capability] == tried[capability] && capabilityKind(capability) == checkMetadata:
+			// Every listing candidate answered that the path is not served:
+			// the deployment exposes no such listing.
+			outcome = registrycontract.OutcomeUnsupported
+		}
+		switch capability {
+		case "schema_discovery":
+			result.SchemaDiscovery = outcome
+		default:
+			result.QueryDialects[capability] = outcome
+		}
+	}
+	// A write protocol is only ever proven by an authorized write check, which
+	// the read-only probe route does not perform.
+	result.WriteProtocols["line-protocol"] = registrycontract.OutcomeUnknown
 	return result, nil
+}
+
+// classifyCheck turns one observed response into an outcome, a sanitized
+// detail and whether the answer means "this path is not served".
+//
+// The rules are deliberately conservative: a 200 is only support when the body
+// has the expected shape, an auth failure, a refused method, a timeout, a
+// server error, a malformed body and an exhausted budget are all unknown, and
+// only a listing endpoint may be reported as unsupported.
+func classifyCheck(check capabilityCheck, status int, body string) (registrycontract.ProbeOutcome, string, bool) {
+	switch {
+	case status == http.StatusOK:
+		if check.expect != "" && strings.Contains(body, check.expect) {
+			return registrycontract.OutcomeSupported, "the endpoint returned the expected response", false
+		}
+		return registrycontract.OutcomeUnknown, "the endpoint answered 200 with an unexpected response shape", false
+	case status == http.StatusNotFound:
+		if check.kind == checkMetadata {
+			return registrycontract.OutcomeUnsupported, "the endpoint reported that the path is not served", true
+		}
+		return registrycontract.OutcomeUnknown, "the endpoint reported that the path is not served for a GET request, which does not prove the capability is absent", true
+	case status == http.StatusUnauthorized, status == http.StatusForbidden:
+		return registrycontract.OutcomeUnknown, "the endpoint denied the probe credential", false
+	case status == http.StatusMethodNotAllowed:
+		return registrycontract.OutcomeUnknown, "the endpoint does not serve this method", false
+	case status == http.StatusRequestTimeout, status == http.StatusGatewayTimeout:
+		return registrycontract.OutcomeUnknown, "the endpoint did not answer in time", false
+	case status >= 500:
+		return registrycontract.OutcomeUnknown, "the endpoint reported a server error", false
+	case status == 0:
+		return registrycontract.OutcomeUnknown, "the check request did not complete", false
+	default:
+		return registrycontract.OutcomeUnknown, "the endpoint rejected the check request", false
+	}
 }
 
 // probeEdition identifies the running edition from read-only responses. It uses

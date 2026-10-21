@@ -133,7 +133,11 @@ func TestProbeRejectsInvalidRequest(t *testing.T) {
 	}
 }
 
-func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
+// influxDB2Fixture serves the read-only answers the real InfluxDB 2 OSS
+// deployment gives: a health payload, a query endpoint that refuses GET, a
+// buckets listing and an HTML fallback for paths outside its API prefix.
+func influxDB2Fixture(t *testing.T) *httptest.Server {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("probe issued a non-GET request: %s %s", r.Method, r.URL.Path)
@@ -142,11 +146,62 @@ func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"name":"influxdb","message":"ready for queries and writes","status":"pass","version":"v2.9.1"}`))
-		default:
+		case "/api/v2/query":
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"code":"method not allowed","message":"allow: OPTIONS, POST"}`))
+		case "/api/v2/buckets":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"links":{"self":"/api/v2/buckets"},"buckets":[{"id":"088031ebd0f0c98c","name":"ttk-test-bucket"}]}`))
+		case "/api/v2/query/sql":
 			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"not found","message":"path not found"}`))
+		default:
+			// The real deployment serves its UI for paths outside its API
+			// prefix, so a 200 may carry an HTML page instead of JSON.
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<!doctype html><html lang="en"><head><title>InfluxDB</title></head></html>`))
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+	return server
+}
+
+// influxDB3Fixture serves the read-only answers the real InfluxDB 3 Core
+// deployment gives: a plain-text health body, a databases listing and "not
+// found" for the query paths a GET cannot reach.
+func influxDB3Fixture(t *testing.T, token string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("probe issued a non-GET request: %s %s", r.Method, r.URL.Path)
+		}
+		switch r.URL.Path {
+		case "/health":
+			if r.Header.Get("Authorization") != "Bearer "+token {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("OK"))
+		case "/api/v3/configure/database":
+			if r.URL.Query().Get("format") != "json" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("serde error: missing field `format`"))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"iox::database":"_internal"}]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("Not found"))
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
+	server := influxDB2Fixture(t)
 
 	// httptest binds to 127.0.0.1, so the test-only policy is required.
 	prober := New(fakeResolver{addrs: []net.IPAddr{ipAddr("127.0.0.1")}})
@@ -155,7 +210,7 @@ func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
 		Endpoint:     server.URL,
 		Policy:       TestPolicy(),
 		Deadline:     2 * time.Second,
-		MaxRequests:  4,
+		MaxRequests:  8,
 	})
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -163,11 +218,24 @@ func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
 	if result.Edition != "influxdb-2.x-oss" {
 		t.Fatalf("edition = %q, want influxdb-2.x-oss", result.Edition)
 	}
-	if result.QueryDialects["flux"] != registrycontract.OutcomeSupported {
-		t.Fatalf("flux should be supported on 2.x, got %v", result.QueryDialects["flux"])
+	// The query endpoint refuses GET, so the dialect stays unproven: unknown,
+	// never "supported" from the edition label.
+	if result.QueryDialects["influxql"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("influxql = %v, want unknown (the endpoint refused the method)", result.QueryDialects["influxql"])
 	}
-	if result.QueryDialects["sql"] != registrycontract.OutcomeUnsupported {
-		t.Fatalf("sql should be unsupported on 2.x, got %v", result.QueryDialects["sql"])
+	if result.QueryDialects["flux"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("flux = %v, want unknown (the check was not attempted)", result.QueryDialects["flux"])
+	}
+	if result.QueryDialects["sql"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("sql = %v, want unknown (a GET that is not served does not prove absence)", result.QueryDialects["sql"])
+	}
+	// The buckets listing was observed, so schema discovery is supported.
+	if result.SchemaDiscovery != registrycontract.OutcomeSupported {
+		t.Fatalf("schema discovery = %v, want supported (the buckets listing was observed)", result.SchemaDiscovery)
+	}
+	// A write protocol is never proven by a read-only probe.
+	if result.WriteProtocols["line-protocol"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("line-protocol = %v, want unknown (a read-only probe never writes)", result.WriteProtocols["line-protocol"])
 	}
 	if result.Mock {
 		t.Fatal("a live probe result must not be labeled mock")
@@ -175,19 +243,7 @@ func TestProbeAgainstInfluxDB2Fixture(t *testing.T) {
 }
 
 func TestProbeAgainstInfluxDB3FixtureWithAuth(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
-			if r.Header.Get("Authorization") != "Bearer token-3x" {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"name":"influxdb","version":"v3.12.1","status":"ok"}`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
+	server := influxDB3Fixture(t, "token-3x")
 
 	prober := New(fakeResolver{addrs: []net.IPAddr{ipAddr("127.0.0.1")}})
 	result, err := prober.Probe(context.Background(), Request{
@@ -196,7 +252,7 @@ func TestProbeAgainstInfluxDB3FixtureWithAuth(t *testing.T) {
 		Policy:       TestPolicy(),
 		Credential:   Credential{Scheme: "Bearer", Value: "token-3x"},
 		Deadline:     2 * time.Second,
-		MaxRequests:  4,
+		MaxRequests:  8,
 	})
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -204,8 +260,17 @@ func TestProbeAgainstInfluxDB3FixtureWithAuth(t *testing.T) {
 	if result.Edition != "influxdb-3.x-core" {
 		t.Fatalf("edition = %q, want influxdb-3.x-core", result.Edition)
 	}
-	if result.QueryDialects["sql"] != registrycontract.OutcomeSupported {
-		t.Fatalf("sql should be supported on 3.x, got %v", result.QueryDialects["sql"])
+	// The query paths are not served for GET, which does not prove that the
+	// dialect is absent: the capability stays unknown.
+	if result.QueryDialects["sql"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("sql = %v, want unknown (the path is not served for GET)", result.QueryDialects["sql"])
+	}
+	if result.QueryDialects["influxql"] != registrycontract.OutcomeUnknown {
+		t.Fatalf("influxql = %v, want unknown (the path is not served for GET)", result.QueryDialects["influxql"])
+	}
+	// The databases listing was observed, so schema discovery is supported.
+	if result.SchemaDiscovery != registrycontract.OutcomeSupported {
+		t.Fatalf("schema discovery = %v, want supported (the databases listing was observed)", result.SchemaDiscovery)
 	}
 }
 

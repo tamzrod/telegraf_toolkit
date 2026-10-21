@@ -108,12 +108,30 @@ export type ApiProfile = {
 
 export type ApiCapabilityOutcomeMap = Record<string, CapabilityOutcome>;
 
+/**
+ * One bounded, read-only capability check that was actually performed.
+ *
+ * The observation is the evidence behind a capability outcome: the check that
+ * was attempted, the answer the endpoint gave and the reason for the outcome.
+ * It never carries a credential value.
+ */
+export type ApiProbeObservation = {
+  capability: string;
+  check: string;
+  method: string;
+  path: string;
+  status: number;
+  outcome: CapabilityOutcome;
+  detail: string;
+};
+
 export type ApiProbeResult = {
   connection_id: string;
   edition: string;
   query_dialects: ApiCapabilityOutcomeMap;
   write_protocols: ApiCapabilityOutcomeMap;
   schema_discovery: CapabilityOutcome;
+  observations: ApiProbeObservation[];
   probed_at: string;
   mock: boolean;
 };
@@ -288,6 +306,21 @@ export function isApiProfileList(value: unknown): value is ApiProfile[] {
   return Array.isArray(value) && value.every(isApiProfile);
 }
 
+function isApiObservation(value: unknown): value is ApiProbeObservation {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.capability === "string" &&
+    typeof value.check === "string" &&
+    typeof value.method === "string" &&
+    typeof value.path === "string" &&
+    typeof value.status === "number" &&
+    isOutcome(value.outcome) &&
+    typeof value.detail === "string"
+  );
+}
+
 export function isApiProbeResult(value: unknown): value is ApiProbeResult {
   if (!isRecord(value) || hasSecretLikeKey(value)) {
     return false;
@@ -298,6 +331,8 @@ export function isApiProbeResult(value: unknown): value is ApiProbeResult {
     isOutcomeMap(value.query_dialects) &&
     isOutcomeMap(value.write_protocols) &&
     isOutcome(value.schema_discovery) &&
+    Array.isArray(value.observations) &&
+    value.observations.every(isApiObservation) &&
     typeof value.probed_at === "string" &&
     typeof value.mock === "boolean"
   );
