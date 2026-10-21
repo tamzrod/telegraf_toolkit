@@ -1,22 +1,9 @@
 # Active Work — Telegraf Toolkit
 
-**Designated branch:** `phase-2/live-registry-implementation`
-**Current task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
-**Human-authorized queue:** empty.
+**Designated branch:** `phase-2/registry-completion`
+**Current task:** `P2C-001-roadmap-contract-reconciliation.md`
+**Human-authorized sequential queue:** P2C-001 → P2C-002 → P2C-003 → P2C-004 → P2C-005 → P2C-006.
 
-P2L-007 (credential-to-profile authorization) is complete, verified and archived.
-No task remains authorized.
+All six tasks are human-authorized. Execute **only** CURRENT, then validate, archive by `git mv`, commit/push and confirm remote checkpoint before updating `handoff.md` and this README to the next task. Do not pause for intermediate approval if criteria pass. Do not promote planning tasks or reorder. Stop with `TASK_BLOCKED` if security architecture, mandatory verification, or safe environment is unavailable.
 
-Remediation delivered: attaching a credential reference to a profile now requires
-the administrator-only `credential.attach` permission and a server-authoritative
-approved binding (credential reference + connection ID + endpoint + canonical
-scope). The binding is enforced at profile creation and re-verified at probe
-time, so a principal with `profile.write`/`profile.probe` cannot attach another
-principal's stored secret to an endpoint it controls. P2L-006 DNS-pinning and
-probe-parameter protections are preserved. Validated with adversarial tests
-(attacker host receives zero Authorization headers), the isolated InfluxDB 2/3
-harness, `make check`, `go test -race ./...` and `scripts/policy-check.sh`.
-
-Operation CWAL: the sole task is fixed, verified, archived by `git mv`, both
-pointers set to an empty queue, committed/pushed and remote-confirmed. Report
-`WORK_PACKAGE_READY`. No self-promotion, production access or PR actions.
+Preserve backend RBAC, secret isolation, credential bindings, DNS peer pinning and TLS/SSRF denial. Isolated synthetic-data InfluxDB 2/3 tests only; no production writes, unapproved ADR decisions or agent-created PR. Upon the final task, leave an empty queue and report `WORK_PACKAGE_READY`.
