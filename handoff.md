@@ -3,15 +3,17 @@
 ## CURRENT OPERATION
 **Workflow:** operational Phase 2 Database Registry integration.
 **Designated branch:** `phase-2/live-registry-implementation` (based on `main` after merged PR #5).
-**Current human-authorized task:** `workflow/active_work/P2L-001-persistence-migrations.md`.
+**Current human-authorized task:** `workflow/active_work/P2L-002-encrypted-secret-store.md`.
 **Authorized batch:** P2L-001 through P2L-005, strictly sequential; human-approved 2026-10-21.
 
 ## Current Active Task
-**P2L-001** — Implement actual persistent single-host SQLite Registry metadata, migrations, restart durability and concurrency/restore tests.
+**P2L-002** — Implement the backend-only envelope-encrypted secret store per ADR-0003 (separately provisioned key file, key recovery and stage/rewrap/verify/retire rotation; no plaintext credentials in the metadata DB, backups, logs or API responses).
+
+**Completed and checkpointed:** P2L-001 (persistent SQLite Registry metadata, versioned migrations, restart durability, concurrency/backup-restore tests) — archived to `archive/active-work/P2L-001-persistence-migrations.md`.
 
 ## Authorized queue
-1. `P2L-001-persistence-migrations.md` — CURRENT
-2. `P2L-002-encrypted-secret-store.md` — PENDING
+1. `P2L-001-persistence-migrations.md` — DONE (archived, checkpointed)
+2. `P2L-002-encrypted-secret-store.md` — CURRENT
 3. `P2L-003-server-authorized-registry-api.md` — PENDING
 4. `P2L-004-live-capability-probing.md` — PENDING
 5. `P2L-005-live-ui-integration-and-verification.md` — PENDING

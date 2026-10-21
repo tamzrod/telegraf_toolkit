@@ -8,6 +8,13 @@ ui/coverage/
 # Go
 backend/bin/
 
+# Local control-plane metadata store (ADR-0002). Never commit a database file;
+# it is runtime state and must not carry secrets or be shared between hosts.
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
 # Editors / OS
 .DS_Store
 .idea/

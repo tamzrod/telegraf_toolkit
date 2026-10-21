@@ -1,10 +1,9 @@
 # Registry contract refinement (Phase 2)
 
-Status: **Interface-only contract refinement — not implemented.**
-Task: P2-001 (Architecture decision gate and Registry contract inventory).
-Parent inventory: [`docs/contracts/README.md`](README.md) (`contract_inventory_version: 1`).
+Status: **Interface contracts declared and mocked; ADR-0002 metadata persistence now implemented.**
+Task: P2-001 (Architecture decision gate and Registry contract inventory); persistence added by P2L-001.
 
-This document narrows the Database Registry slice of the parent inventory into interface-level contracts that can be implemented as declarations and in-memory mocks **without** accepting any ADR. It does not define a wire format, storage schema, migration, REST route or authentication mechanism, and it does not accept [`ADR-0002`](../adr/0002-metadata-store-selection.md) or [`ADR-0003`](../adr/0003-secret-store-integration.md). See [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md) for what remains blocked.
+This document narrows the Database Registry slice of the parent inventory into interface-level contracts. It does not define a wire format, REST route or authentication mechanism. [ADR-0002](../adr/0002-metadata-store-selection.md) (metadata store) and [ADR-0003](../adr/0003-secret-store-integration.md) (secret store) were **accepted by the human on 2026-10-21**; ADR-0002 persistence is implemented in `backend/internal/metadatastore` (see [`docs/METADATA_STORE.md`](../METADATA_STORE.md)). ADR-0003 secret handling remains unimplemented pending its authorized task.
 
 Coverage in this refinement: **profile identity and scope**, **probed capabilities**, **credential references**, **sanitized errors** and **audit semantics**. Each section states what is fixed now (an invariant) versus what stays open until a decision is accepted.
 
@@ -127,9 +126,9 @@ CredentialRef
 
 **Rules**
 
-- A `CredentialRef` never contains a value field. Any adapter that would return a value is out of contract and must not be implemented before ADR-0003 is accepted.
+- A `CredentialRef` never contains a value field. Any adapter that would return a value is out of contract. ADR-0003 is now accepted; value handling is implemented only by the separately authorized credential-store task (P2L-002), not by this refinement.
 - Mock references are clearly labeled and point to no real store.
-- The server-side resolution and write boundaries (`SecretResolver`, `SecretWriter`) are implemented only as permanently-blocked stubs (`BlockedSecretResolver`, `BlockedSecretWriter`) that return a sanitized `ErrSecretResolutionBlocked`; no implementation may store or resolve a value before ADR-0003 is accepted.
+- The server-side resolution and write boundaries (`SecretResolver`, `SecretWriter`) remain permanently-blocked stubs (`BlockedSecretResolver`, `BlockedSecretWriter`) that return a sanitized `ErrSecretResolutionBlocked` until the ADR-0003 implementation task replaces them; no implementation may store or resolve a value before then.
 - A `Redactor` removes credential-bearing URLs and known literals from text bound for logs, exports or API responses. It is a defensive layer, not a licence to handle a value.
 - Credential rotation follows add → validate → reassign → revoke. The old reference must never be revoked before the new one is validated, and unrelated dependents must not be reassigned.
 
@@ -220,6 +219,6 @@ AuditEvent
 ## Verification evidence
 
 - Coverage: profile identity/scope, probed capabilities, credential references, sanitized errors and audit semantics are each fixed/interface/open separated.
-- ADR-0002 and ADR-0003 remain **Proposed**; no storage, key custody or live-secret behavior is specified.
+- ADR-0002 (SQLite metadata store) is **Accepted and implemented** for profile, credential-reference and audit persistence; see [`docs/METADATA_STORE.md`](../METADATA_STORE.md) and the P2L-001 evidence. ADR-0003 (secret store) is **Accepted** but its value-handling implementation is a later authorized task; no secret value is stored or resolved by this refinement.
 - No credentials, tokens or secret values appear in this document.
-- Runtime tests: interface-level tests accompany the backend declarations; see the archived task evidence.
+- Runtime tests: interface-level tests accompany the backend declarations; persistence tests accompany `backend/internal/metadatastore`; see the archived task evidence.

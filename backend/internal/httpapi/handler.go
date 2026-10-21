@@ -1,14 +1,19 @@
 // Package httpapi wires the Toolkit HTTP surface.
 //
-// This is a Phase 0 scaffold. It exposes only a liveness/health endpoint and a
-// build-identity endpoint. It does not connect to databases, Docker, Telegraf
-// runtimes or any real system.
+// The health endpoint remains a Phase 0 scaffold. When a Registry service is
+// supplied, an additional read-only status endpoint reports whether the
+// persistent metadata store is reachable and at which schema version. No
+// endpoint here returns registry data, a credential value or a live probe
+// result, and none exposes the metadata store directly.
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/version"
 )
 
@@ -20,6 +25,15 @@ type Health struct {
 	Scaffold    bool   `json:"scaffold"`
 	Connected   bool   `json:"connected"`
 	Description string `json:"description"`
+}
+
+// RegistryStatus is the read-only metadata-store status payload.
+type RegistryStatus struct {
+	Status        string `json:"status"`
+	Store         string `json:"store"`
+	Connected     bool   `json:"connected"`
+	SchemaVersion int    `json:"schema_version"`
+	Description   string `json:"description"`
 }
 
 // NewHealth returns the fixed scaffold health payload.
@@ -36,6 +50,12 @@ func NewHealth() Health {
 
 // Handler returns the HTTP handler for the scaffold API.
 func Handler() http.Handler {
+	return HandlerWithRegistry(nil)
+}
+
+// HandlerWithRegistry returns the HTTP handler with an optional Registry
+// service. Passing nil keeps the scaffold-only surface.
+func HandlerWithRegistry(registry *registryservice.Service) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +66,35 @@ func Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, NewHealth())
 	})
+
+	if registry != nil {
+		mux.HandleFunc("/api/v1/registry/status", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+			status, err := registry.Status(ctx)
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, RegistryStatus{
+					Status:      "unavailable",
+					Store:       "sqlite",
+					Connected:   false,
+					Description: "Metadata store is not reachable.",
+				})
+				return
+			}
+			writeJSON(w, http.StatusOK, RegistryStatus{
+				Status:        "ok",
+				Store:         "sqlite",
+				Connected:     status.Connected,
+				SchemaVersion: status.SchemaVersion,
+				Description:   "Persistent control-plane metadata store (ADR-0002). Holds credential references only.",
+			})
+		})
+	}
 
 	return mux
 }
