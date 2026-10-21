@@ -130,10 +130,16 @@ func (s *Service) Status(ctx context.Context) (StoreStatus, error) {
 // CreateProfile stores a new profile and records an audit event. The audit
 // event references the profile by ID and carries no secret material.
 func (s *Service) CreateProfile(ctx context.Context, profile fixtures.ConnectionProfile) error {
+	return s.CreateProfileAs(ctx, "system", profile)
+}
+
+// CreateProfileAs stores a new profile and records an audit event attributed to
+// the given actor. The actor is an identity reference, never a credential.
+func (s *Service) CreateProfileAs(ctx context.Context, actor string, profile fixtures.ConnectionProfile) error {
 	if err := s.profiles.Put(profile); err != nil {
 		return err
 	}
-	return s.recordAudit(ctx, "profile.create", registrycontract.TargetProfile, profile.ConnectionID, registrycontract.OutcomeSucceeded)
+	return s.recordAuditAs(ctx, actor, "profile.create", registrycontract.TargetProfile, profile.ConnectionID, registrycontract.OutcomeSucceeded)
 }
 
 // GetProfile returns a profile by connection_id.
@@ -148,10 +154,16 @@ func (s *Service) ListProfiles(ctx context.Context) ([]fixtures.ConnectionProfil
 
 // DeleteProfile removes a profile and records an audit event.
 func (s *Service) DeleteProfile(ctx context.Context, connectionID string) error {
+	return s.DeleteProfileAs(ctx, "system", connectionID)
+}
+
+// DeleteProfileAs removes a profile and records an audit event attributed to the
+// given actor.
+func (s *Service) DeleteProfileAs(ctx context.Context, actor, connectionID string) error {
 	if err := s.profiles.Delete(connectionID); err != nil {
 		return err
 	}
-	return s.recordAudit(ctx, "profile.delete", registrycontract.TargetProfile, connectionID, registrycontract.OutcomeSucceeded)
+	return s.recordAuditAs(ctx, actor, "profile.delete", registrycontract.TargetProfile, connectionID, registrycontract.OutcomeSucceeded)
 }
 
 // PutCredentialRef stores a credential reference (never a value).
@@ -173,8 +185,15 @@ func (s *Service) ListAudit(ctx context.Context) ([]registrycontract.AuditEvent,
 }
 
 func (s *Service) recordAudit(ctx context.Context, action string, kind registrycontract.TargetKind, targetID string, outcome registrycontract.Outcome) error {
+	return s.recordAuditAs(ctx, "system", action, kind, targetID, outcome)
+}
+
+func (s *Service) recordAuditAs(ctx context.Context, actor, action string, kind registrycontract.TargetKind, targetID string, outcome registrycontract.Outcome) error {
+	if actor == "" {
+		actor = "system"
+	}
 	event := registrycontract.AuditEvent{
-		Actor:      "system",
+		Actor:      actor,
 		Action:     action,
 		TargetKind: kind,
 		TargetID:   targetID,

@@ -18,8 +18,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/httpapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/secretstore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/version"
@@ -34,13 +36,15 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	storePath := flag.String("store", defaultStorePath, "SQLite metadata store path (ADR-0002)")
 	keyPath := flag.String("key-file", "", "path to the externally provisioned master key file (ADR-0003)")
+	tokenPath := flag.String("token-file", "", "path to the externally provisioned authentication token file")
 	flag.Parse()
 
 	registry := openRegistry(*storePath, *keyPath)
+	api := openRegistryAPI(registry, *tokenPath)
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           httpapi.HandlerWithRegistry(registry),
+		Handler:           httpapi.HandlerWithRegistry(registry, api),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -111,4 +115,25 @@ func attachSecretStore(service *registryservice.Service, store *metadatastore.St
 	}
 	service.WithSecretStore(secrets)
 	log.Printf("secret store ready (active key %s)", keyring.ActiveKeyID())
+}
+
+// openRegistryAPI builds the authorized Registry API. It requires both a
+// Registry service and a valid authentication token file; without either it
+// returns nil so no data route is registered and there is no anonymously
+// reachable registry surface.
+func openRegistryAPI(registry *registryservice.Service, tokenPath string) *registryapi.API {
+	if registry == nil {
+		return nil
+	}
+	if tokenPath == "" {
+		log.Printf("no authentication token file configured; registry data routes are disabled")
+		return nil
+	}
+	authenticator, err := authz.LoadTokenFile(tokenPath)
+	if err != nil {
+		log.Printf("authentication token file unavailable (%s): %v", tokenPath, err)
+		return nil
+	}
+	log.Printf("registry API ready (roles: %v)", authz.KnownRoles())
+	return registryapi.New(registry, authenticator)
 }

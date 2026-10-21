@@ -24,7 +24,7 @@ func newRegistryService(t *testing.T) *registryservice.Service {
 }
 
 func TestRegistryStatusEndpointReportsSchemaVersion(t *testing.T) {
-	srv := httptest.NewServer(HandlerWithRegistry(newRegistryService(t)))
+	srv := httptest.NewServer(HandlerWithRegistry(newRegistryService(t), nil))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/api/v1/registry/status")
@@ -70,7 +70,7 @@ func TestRegistryStatusMethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/registry/status", nil)
 	rec := httptest.NewRecorder()
 
-	HandlerWithRegistry(newRegistryService(t)).ServeHTTP(rec, req)
+	HandlerWithRegistry(newRegistryService(t), nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)

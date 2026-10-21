@@ -7,6 +7,7 @@ ICC is a lightweight context cache. Start with `ICC/context/project.md`; follow 
 - Database registry/security — `docs/DATABASE_REGISTRY.md`
 - Persistent control-plane metadata store (ADR-0002) — `docs/METADATA_STORE.md`, `backend/internal/metadatastore/`
 - Envelope-encrypted credential secret store (ADR-0003) — `docs/SECRET_STORE.md`, `backend/internal/secretstore/`
+- Authorized Registry HTTP API — `docs/REGISTRY_API.md`, `backend/internal/registryapi/`, `backend/internal/authz/`
 - Phase 2 registry interface contracts and decision gate — `docs/contracts/registry.md`, `docs/decisions/phase-2-architecture-gate.md`, `docs/decisions/phase-2-integration-handoff.md`
 - Dual-database canonical mapping — `docs/CANONICAL_MAPPING.md`
 - Telegraf runtimes and configuration — `docs/FRONTEND_ARCHITECTURE.md`, `docs/adr/0001-official-telegraf-and-version-pinning.md`

@@ -20,6 +20,10 @@ backend/data/
 *.key
 backend/keys/
 
+# Authentication token files. Tokens are secrets; never commit them.
+tokens.json
+backend/tokens/
+
 # Editors / OS
 .DS_Store
 .idea/
