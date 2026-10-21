@@ -12,6 +12,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, pinned in go.mod
+
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 )
 
 // driverName is the database/sql driver registered by modernc.org/sqlite.
@@ -147,6 +149,43 @@ func (s *Store) SecretEnvelopes() *SecretEnvelopeRepository {
 // CredentialBindings returns the approved credential-binding repository.
 func (s *Store) CredentialBindings() *CredentialBindingRepository {
 	return &CredentialBindingRepository{db: s.db}
+}
+
+// WithinTransaction runs fn inside a single SQLite transaction.
+//
+// The repositories handed to fn are bound to that transaction, so every write
+// fn performs through them is committed together or rolled back together. A
+// multi-write registry operation - a profile, its approved binding and the
+// audit events - therefore leaves no partial state behind when any write
+// fails (P2C-002).
+//
+// The transaction is immediate: the DSN sets _txlock=immediate, so the write
+// lock is taken when the transaction starts rather than upgraded mid-flight,
+// which is what keeps two concurrent writers from deadlocking.
+func (s *Store) WithinTransaction(ctx context.Context, fn func(registrycontract.Repositories) error) error {
+	if fn == nil {
+		return errors.New("transaction body is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin registry transaction: %w", err)
+	}
+	// Rollback is a no-op once the transaction has been committed.
+	defer func() { _ = tx.Rollback() }()
+
+	repositories := registrycontract.Repositories{
+		Profiles:   &ProfileRepository{db: tx},
+		References: &CredentialRefRepository{db: tx},
+		Bindings:   &CredentialBindingRepository{db: tx},
+		Audit:      &AuditRepository{db: tx},
+	}
+	if err := fn(repositories); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit registry transaction: %w", err)
+	}
+	return nil
 }
 
 // Backup writes a transactionally consistent copy of the database to dest using

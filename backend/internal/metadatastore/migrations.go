@@ -149,6 +149,48 @@ var migrations = []migration{
 			`CREATE INDEX idx_credential_bindings_connection ON credential_bindings (connection_id)`,
 		},
 	},
+	{
+		version: 6,
+		name:    "credential-binding-referential-integrity",
+		stmts: []string{
+			// A binding is only meaningful while the profile it approves and the
+			// credential reference it names both exist. SQLite cannot add a
+			// foreign key to an existing table, so the table is rebuilt with the
+			// constraints in place (P2C-002):
+			//
+			//   - deleting a profile can no longer leave an orphaned binding
+			//     behind (ON DELETE CASCADE);
+			//   - a binding can no longer name a profile that does not exist.
+			//
+			// Rows that already violate the rule - exactly the orphan state this
+			// migration removes - are not copied into the rebuilt table.
+			//
+			// The index is dropped before the rename because index names are
+			// global in a schema, and recreated on the new table afterwards.
+			`DROP INDEX IF EXISTS idx_credential_bindings_connection`,
+			`ALTER TABLE credential_bindings RENAME TO credential_bindings_legacy`,
+			`CREATE TABLE credential_bindings (
+				credential_ref_id TEXT NOT NULL,
+				connection_id     TEXT NOT NULL,
+				endpoint          TEXT NOT NULL,
+				scope             TEXT NOT NULL,
+				approved_by       TEXT NOT NULL DEFAULT '',
+				approved_at       TEXT NOT NULL,
+				PRIMARY KEY (credential_ref_id, connection_id),
+				FOREIGN KEY (connection_id) REFERENCES connection_profiles (connection_id) ON DELETE CASCADE,
+				FOREIGN KEY (credential_ref_id) REFERENCES credential_refs (credential_ref_id) ON DELETE CASCADE
+			)`,
+			`INSERT INTO credential_bindings (
+				credential_ref_id, connection_id, endpoint, scope, approved_by, approved_at
+			)
+			SELECT credential_ref_id, connection_id, endpoint, scope, approved_by, approved_at
+			FROM credential_bindings_legacy
+			WHERE connection_id IN (SELECT connection_id FROM connection_profiles)
+			  AND credential_ref_id IN (SELECT credential_ref_id FROM credential_refs)`,
+			`DROP TABLE credential_bindings_legacy`,
+			`CREATE INDEX idx_credential_bindings_connection ON credential_bindings (connection_id)`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

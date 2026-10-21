@@ -14,7 +14,7 @@ import (
 // It satisfies registrycontract.CredentialBindingStore. It stores no secret
 // value: only the reference and the profile identity it is approved for.
 type CredentialBindingRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Put inserts or replaces an approved binding.

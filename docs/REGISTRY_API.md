@@ -1,8 +1,8 @@
 # Authorized Registry API
 
-Status: **Implemented (server-authorized, metadata and references only).**
-Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API), P2L-006 (probe hardening), P2L-007 (credential binding).
-Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`).
+Status: **Implemented (server-authorized, metadata and references only; multi-row writes are transactional).**
+Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API), P2L-006 (probe hardening), P2L-007 (credential binding), P2C-002 (transactional enrollment).
+Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`); the transactional guarantees above are added by P2C-002.
 
 This document describes the authorized Registry HTTP surface. Authorization is
 enforced **server-side**; the browser is never a security boundary. No route
@@ -103,6 +103,36 @@ endpoint it controls, and probe it to cause credential forwarding.
 | --- | --- | --- | --- |
 | GET | `/api/v1/registry/credential-bindings` | credential.attach | List approved bindings (no values) |
 | POST | `/api/v1/registry/credential-bindings` | credential.attach | Approve a binding for a profile identity |
+
+## Atomic enrollment and deletion (P2C-002)
+
+A registry write that touches more than one row is applied as **one unit of
+work**: the profile, its approved binding and the audit events are committed
+together or rolled back together.
+
+- `POST /api/v1/registry/profiles` (with or without a credential reference)
+  writes the profile and its audit event together. A failure at either write
+  leaves nothing behind, so a `4xx`/`5xx` response never corresponds to a
+  half-created profile.
+- `POST /api/v1/registry/profiles` with a credential reference (administrator
+  only) writes the profile, the binding and both audit events together. A
+  failure at any write leaves **no profile, no binding and no audit event** —
+  a profile never exists without the approval that authorises it.
+- `POST /api/v1/registry/credential-bindings` writes the binding and its audit
+  event together; a failure keeps the previous approval in place.
+- `DELETE /api/v1/registry/profiles/{id}` removes the profile's bindings, the
+  profile and the audit event together, so a deleted profile cannot leave an
+  orphaned binding behind. The store enforces the same rule with a foreign key
+  (`ON DELETE CASCADE`).
+- A **refused** request (401/403) is rejected before the service is called, so
+  a denied attachment leaves no profile, no binding and no audit event at all.
+
+The authorization rules are unchanged: `credential.attach` is still
+administrator-only, and a binding still has to match the reference, connection
+ID, endpoint and canonical scope exactly. See
+[`docs/METADATA_STORE.md`](METADATA_STORE.md) for the store-level guarantees,
+including the deletion policy, the idempotency and uniqueness rules, and the
+SQLite busy/constraint treatment.
 
 ## Input validation
 

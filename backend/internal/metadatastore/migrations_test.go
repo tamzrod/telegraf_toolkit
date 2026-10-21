@@ -158,6 +158,9 @@ func TestProfileEndpointSurvivesMigration(t *testing.T) {
 
 // TestCredentialBindingSurvivesMigration proves the version-5 binding table is
 // created and round-trips through the repository.
+//
+// Since version 6 a binding may only name an existing profile and an existing
+// credential reference, so the test creates both first.
 func TestCredentialBindingSurvivesMigration(t *testing.T) {
 	store := openTemp(t)
 	ctx := context.Background()
@@ -166,9 +169,22 @@ func TestCredentialBindingSurvivesMigration(t *testing.T) {
 		t.Fatalf("expected at least five migrations, got %d", SchemaVersion())
 	}
 
+	profile := fixtures.Profile2x()
+	if err := store.Profiles().Put(profile); err != nil {
+		t.Fatalf("put profile: %v", err)
+	}
+	ref := registrycontract.CredentialRef{
+		CredentialRefID: "ref-1",
+		Alias:           "historian write",
+		Role:            registrycontract.RoleWrite,
+	}
+	if err := store.CredentialRefs().Put(ref); err != nil {
+		t.Fatalf("put credential reference: %v", err)
+	}
+
 	binding := registrycontract.CredentialBinding{
 		CredentialRefID: "ref-1",
-		ConnectionID:    "profile-1",
+		ConnectionID:    profile.ConnectionID,
 		Endpoint:        "https://influx.example.com:8086",
 		Scope:           "acme/historian",
 		ApprovedBy:      "alice",
@@ -176,7 +192,7 @@ func TestCredentialBindingSurvivesMigration(t *testing.T) {
 	if err := store.CredentialBindings().Put(binding); err != nil {
 		t.Fatalf("put binding: %v", err)
 	}
-	got, ok, err := store.CredentialBindings().Get("ref-1", "profile-1")
+	got, ok, err := store.CredentialBindings().Get("ref-1", profile.ConnectionID)
 	if err != nil || !ok {
 		t.Fatalf("get binding: ok=%v err=%v", ok, err)
 	}
@@ -190,13 +206,139 @@ func TestCredentialBindingSurvivesMigration(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("bindings = %d, want 1", len(list))
 	}
-	if err := store.CredentialBindings().Delete("ref-1", "profile-1"); err != nil {
+	if err := store.CredentialBindings().Delete("ref-1", profile.ConnectionID); err != nil {
 		t.Fatalf("delete binding: %v", err)
 	}
-	if _, ok, _ := store.CredentialBindings().Get("ref-1", "profile-1"); ok {
+	if _, ok, _ := store.CredentialBindings().Get("ref-1", profile.ConnectionID); ok {
 		t.Fatal("binding should be gone after delete")
 	}
 	_ = ctx
+}
+
+// TestCredentialBindingReferentialIntegrity proves the version-6 constraints:
+// a binding cannot name a profile that does not exist, and deleting a profile
+// removes the bindings that approved it instead of leaving them orphaned.
+func TestCredentialBindingReferentialIntegrity(t *testing.T) {
+	store := openTemp(t)
+
+	if SchemaVersion() < 6 {
+		t.Fatalf("expected at least six migrations, got %d", SchemaVersion())
+	}
+
+	profile := fixtures.Profile2x()
+	if err := store.Profiles().Put(profile); err != nil {
+		t.Fatalf("put profile: %v", err)
+	}
+	ref := registrycontract.CredentialRef{
+		CredentialRefID: "ref-1",
+		Alias:           "historian write",
+		Role:            registrycontract.RoleWrite,
+	}
+	if err := store.CredentialRefs().Put(ref); err != nil {
+		t.Fatalf("put credential reference: %v", err)
+	}
+
+	// A binding for a profile that does not exist is refused by the store.
+	orphan := registrycontract.CredentialBinding{
+		CredentialRefID: "ref-1",
+		ConnectionID:    "profile-that-does-not-exist",
+		Endpoint:        "https://influx.example.com:8086",
+		Scope:           "acme/historian",
+		ApprovedBy:      "alice",
+	}
+	if err := store.CredentialBindings().Put(orphan); err == nil {
+		t.Fatal("binding for a missing profile should be refused")
+	}
+
+	binding := registrycontract.CredentialBinding{
+		CredentialRefID: "ref-1",
+		ConnectionID:    profile.ConnectionID,
+		Endpoint:        profile.Endpoint,
+		Scope:           registrycontract.CanonicalScope(profile.Scope),
+		ApprovedBy:      "alice",
+	}
+	if err := store.CredentialBindings().Put(binding); err != nil {
+		t.Fatalf("put binding: %v", err)
+	}
+
+	// Deleting the profile removes its binding: no orphan is left behind.
+	if err := store.Profiles().Delete(profile.ConnectionID); err != nil {
+		t.Fatalf("delete profile: %v", err)
+	}
+	list, err := store.CredentialBindings().List()
+	if err != nil {
+		t.Fatalf("list bindings: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("bindings after profile delete = %d, want 0 (orphaned bindings must not survive)", len(list))
+	}
+}
+
+// TestBindingMigrationPreservesValidRowsAndDropsOrphans proves the version-6
+// upgrade keeps the bindings that still have a profile and a credential
+// reference, and removes the orphaned ones - the exact orphan state the
+// migration exists to eliminate.
+func TestBindingMigrationPreservesValidRowsAndDropsOrphans(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.db")
+	ctx := context.Background()
+
+	db, err := sql.Open(driverName, dsn(Options{Path: path}))
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := applyMigrations(ctx, db, 5); err != nil {
+		t.Fatalf("migrate to v5: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO connection_profiles (
+			connection_id, display_name, family, major_version, endpoint,
+			scope_kind, scope_organization, scope_bucket,
+			query_dialects, write_protocols, schema_discovery,
+			credential_ref_id, mock, note
+		) VALUES ('kept-profile', 'Kept', 'influxdb', 2, 'https://influx.example.com:8086',
+			'organization-bucket', 'acme', 'historian',
+			'["flux"]', '["line-protocol"]', 1,
+			'ref-1', 0, '')`); err != nil {
+		t.Fatalf("insert profile: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO credential_refs (credential_ref_id, alias, role, mock)
+		VALUES ('ref-1', 'historian write', 'write', 0)`); err != nil {
+		t.Fatalf("insert credential reference: %v", err)
+	}
+	// A valid binding: its profile and its reference both exist.
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO credential_bindings (credential_ref_id, connection_id, endpoint, scope, approved_by, approved_at)
+		VALUES ('ref-1', 'kept-profile', 'https://influx.example.com:8086', 'acme/historian', 'alice', '2026-10-21T00:00:00Z')`); err != nil {
+		t.Fatalf("insert valid binding: %v", err)
+	}
+	// An orphaned binding: its profile does not exist.
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO credential_bindings (credential_ref_id, connection_id, endpoint, scope, approved_by, approved_at)
+		VALUES ('ref-1', 'deleted-profile', 'https://influx.example.com:8086', 'acme/historian', 'alice', '2026-10-21T00:00:00Z')`); err != nil {
+		t.Fatalf("insert orphaned binding: %v", err)
+	}
+
+	if _, err := applyMigrations(ctx, db, SchemaVersion()); err != nil {
+		t.Fatalf("upgrade to current: %v", err)
+	}
+
+	var remaining int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM credential_bindings`).Scan(&remaining); err != nil {
+		t.Fatalf("count bindings: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("bindings after upgrade = %d, want 1 (the valid binding)", remaining)
+	}
+	var connectionID string
+	if err := db.QueryRowContext(ctx, `SELECT connection_id FROM credential_bindings`).Scan(&connectionID); err != nil {
+		t.Fatalf("read remaining binding: %v", err)
+	}
+	if connectionID != "kept-profile" {
+		t.Fatalf("remaining binding = %q, want %q", connectionID, "kept-profile")
+	}
 }
 
 func TestMigrationRejectsDatabaseNewerThanTarget(t *testing.T) {

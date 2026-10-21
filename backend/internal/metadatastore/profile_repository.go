@@ -16,7 +16,7 @@ import (
 // registrycontract.ProfileStore, so it can replace the in-memory adapter in the
 // Registry service without the caller changing.
 type ProfileRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Put inserts a profile. A duplicate connection_id is rejected with the

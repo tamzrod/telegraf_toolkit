@@ -24,7 +24,7 @@ var ErrEnvelopeNotFound = errors.New("secret envelope not found")
 // SecretEnvelopeRepository persists ciphertext envelopes. It never sees a
 // plaintext value or a key; it stores and returns opaque strings only.
 type SecretEnvelopeRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Put upserts an envelope for a reference.

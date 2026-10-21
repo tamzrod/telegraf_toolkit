@@ -15,7 +15,7 @@ import (
 // a credential value: the schema has no value column, so a value cannot be
 // persisted even by mistake (ADR-0002/ADR-0003).
 type CredentialRefRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Put inserts or replaces a credential reference.

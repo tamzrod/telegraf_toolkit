@@ -96,6 +96,7 @@ Treat an API key as sensitive **even if read-only**. Never display its full valu
 | Connection profile persistence (SQLite, versioned migrations) | Implemented (P2L-001) | [`docs/METADATA_STORE.md`](METADATA_STORE.md) |
 | Envelope-encrypted credential store, server-side resolve and rotation | Implemented (P2L-002) | [`docs/SECRET_STORE.md`](SECRET_STORE.md) |
 | Server-authorized API, RBAC, sanitized errors, audit | Implemented (P2L-003, P2L-007) | [`docs/REGISTRY_API.md`](REGISTRY_API.md) |
+| Transactional enrollment: profile, binding and audit applied all-or-nothing; no orphaned binding | Implemented (P2C-002) | [`docs/METADATA_STORE.md`](METADATA_STORE.md) |
 | Read-only live capability probing with pinned-peer/SSRF controls | Implemented (P2L-004, P2L-006) | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
 | Browser live listing and read-only probing | Implemented (P2L-005); writes gated | [`docs/LIVE_UI.md`](LIVE_UI.md) |
 | Capability evidence per capability (not per edition) | Not implemented — capabilities are projected from the detected edition | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
