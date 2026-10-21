@@ -1,33 +1,16 @@
 # Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Workflow:** Phase 2 Registry completion.
+**Workflow:** Phase 2 Registry completion — pre-PR credential lifecycle security correction.
 **Designated branch:** `phase-2/registry-completion`.
-**Current human-authorized task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
-**Authorized sequence:** P2C-001 → P2C-002 → P2C-003 → P2C-004 → P2C-005 → P2C-006 (all complete).
+**Current human-authorized task:** `workflow/active_work/P2C-007-pre-pr-credential-lifecycle-hardening.md`.
+**Authorized queue:** P2C-007 only.
 
-## Human authorization
-The entire P2C-001 through P2C-006 workstream was explicitly authorized for sequential Operation CWAL execution. All six tasks are complete, verified, archived and confirmed on the remote branch. No further task is authorized; planning, ICC, handoff and archives never authorize new work.
+## Prior checkpoints
+P2C-001–P2C-006 completed and archived at remote checkpoint `f7d17abe72652190bbddee20b09d38f43722e003`. Their reported tests do not constitute pre-PR clearance. The independent audit identified credential replacement and revocation vulnerabilities requiring P2C-007.
 
-## Current task
-None. P2C-006 (Phase 2 integration acceptance and the Phase 3 handoff) is complete, verified and archived. The queue is empty; the agent reports `WORK_PACKAGE_READY` and stops.
+## Execution
+Execute **only** P2C-007 per its security acceptance criteria, including protected authorization verification for replacement, independent concurrent staging/CAS, and revocation dependency integrity. Preserve P2L-006/007 protections. Test solely against synthetic isolated InfluxDB 2/3 endpoints. On verified completion, archive via `git mv`, set both pointers to queue empty, commit/push/verify remote SHA and report WORK_PACKAGE_READY. Otherwise report TASK_BLOCKED with evidence. No agent PR create/review/merge.
 
-## Completed tasks
-- P2C-001 (roadmap, contract and architecture reconciliation with merged PR #6
-  and P2L-001–007) — verified and archived.
-- P2C-002 (transactional Registry enrollment, bindings and audit; migration
-  version 6 adds binding referential integrity) — verified and archived.
-- P2C-003 (observation-based capability probes with a measured evidence matrix
-  from the real isolated InfluxDB 2/3 containers) — verified and archived.
-- P2C-004 (browser create/delete of unbound profiles with confirmation,
-  validation and visible permission states) — verified and archived.
-- P2C-005 (administrator-only write-only credential enrolment, stage → validate
-  → swap → revoke replacement, safe revocation) — verified and archived.
-- P2C-006 (integrated acceptance against the real isolated containers, Phase 2
-  checklist reconciliation, Phase 3 entry contract) — verified and archived.
-
-## Restrictions and stop conditions
-ADR-0002 and ADR-0003 are Accepted. ADR-0004/0005 remain Proposed. No production historians/credentials, uncontrolled probes, historian writes, Telegraf/Docker runtime management, or PR create/review/merge. Preserve P2L-006 pinned-peer TLS/SSRF controls and P2L-007 administrator-only credential attachment/binding at every step. If implementation requires unresolved architecture, privileged access, unsafe operation, or mandatory live tests unavailable, report `TASK_BLOCKED` with evidence and stop without skipping the task.
-
-## Verification and final checkpoint
-Follow each task's verification criteria, `make check`, applicable Go race tests and isolated InfluxDB 2/3 integration tests. Record actual executed outcomes, not assumptions. Use only synthetic test credentials and loopback test policy in isolated harness. After P2C-006, archive it, leave `workflow/active_work/` with README only, synchronize both pointers to empty, push and independently verify remote HEAD. Report `WORK_PACKAGE_READY` and stop. Human owns all PR actions.
+## Architecture and boundaries
+ADR-0002/0003 Accepted; ADR-0004/0005 Proposed. No production endpoints/credentials, historian writes, Telegraf runtime control or unapproved architecture changes.
