@@ -1,15 +1,27 @@
 import type { Health } from "../types/health";
 import { isHealth } from "../types/health";
-import type { RegistryProfile } from "./registry";
-import { isRegistryProfileList } from "./registry";
+import type {
+  ApiProbeResult,
+  ApiProfile,
+  RegistryProfile,
+} from "./registry";
+import {
+  isApiProfileList,
+  isApiProbeResult,
+  isRegistryProfileList,
+  toRegistryProfile,
+} from "./registry";
+import { getSessionToken } from "./session";
 
 /**
  * Single typed boundary between the SPA and the Toolkit backend.
  *
- * Only `/api/v1/health` exists in Phase 1. Every request goes through
- * `requestJson`, which enforces the shared conventions: a versioned base path,
- * JSON parsing, cancellation via `AbortSignal`, and a typed error that carries
- * no response body. Credentials are never sent from or stored in the browser.
+ * The health endpoint is a scaffold. The Registry endpoints are real and
+ * authorized: when a session token is present it is attached as a bearer
+ * header. Every request goes through `requestJson`, which enforces the shared
+ * conventions: a versioned base path, JSON parsing, cancellation via
+ * `AbortSignal`, and a typed error that carries no response body. Credentials
+ * are never sent from or stored in the browser.
  */
 
 export const API_BASE = "/api/v1";
@@ -33,12 +45,17 @@ export class ApiError extends Error {
 
 export type RequestOptions = {
   signal?: AbortSignal;
+  method?: "GET" | "POST" | "DELETE";
+  body?: unknown;
 };
 
 /**
- * Performs a GET request against the versioned API and validates the payload
- * with a caller-supplied guard. A guard failure is reported as an `ApiError`
- * rather than letting an unexpected shape reach feature code.
+ * Performs a request against the versioned API and validates the payload with a
+ * caller-supplied guard. A guard failure is reported as an `ApiError` rather
+ * than letting an unexpected shape reach feature code.
+ *
+ * When a session token is held it is attached as `Authorization: Bearer …`.
+ * The token is read from the in-memory holder and is never logged.
  */
 export async function requestJson<T>(
   path: string,
@@ -46,11 +63,20 @@ export async function requestJson<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getSessionToken();
+  if (token !== "") {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
 
   const response = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json" },
+    method: options.method ?? "GET",
+    headers,
     signal: options.signal,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
 
   if (!response.ok) {
@@ -58,6 +84,11 @@ export async function requestJson<T>(
       status: response.status,
       url,
     });
+  }
+
+  // A 204 response (for example a delete) has no body to validate.
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   const payload: unknown = await response.json();
@@ -76,12 +107,49 @@ export async function fetchHealth(signal?: AbortSignal): Promise<Health> {
 }
 
 /**
- * Lists registry connection profiles. The payload is validated against the
- * Registry contract, which rejects any response that would carry a credential
- * value, so a secret can never reach a feature component through this path.
+ * Lists registry connection profiles from the mock adapter. The payload is
+ * validated against the Registry contract, which rejects any response that
+ * would carry a credential value.
  */
 export async function fetchRegistryProfiles(
   signal?: AbortSignal,
 ): Promise<RegistryProfile[]> {
   return requestJson("/registry/profiles", isRegistryProfileList, { signal });
+}
+
+/**
+ * Lists registry connection profiles from the live, authorized API and converts
+ * them to the browser view model. It requires a session token; without one the
+ * backend responds 401 and this throws an `ApiError`.
+ */
+export async function fetchLiveRegistryProfiles(
+  signal?: AbortSignal,
+): Promise<RegistryProfile[]> {
+  const api = await requestJson<ApiProfile[]>(
+    "/registry/profiles",
+    isApiProfileList,
+    { signal },
+  );
+  return api.map(toRegistryProfile);
+}
+
+/**
+ * Performs a read-only capability probe through the authorized API. The
+ * credential is resolved server-side; the browser sends only an endpoint and an
+ * optional credential reference ID, never a value.
+ */
+export async function probeCapabilities(
+  input: { connectionId: string; endpoint: string; credentialRefId?: string; deadlineMs?: number },
+  signal?: AbortSignal,
+): Promise<ApiProbeResult> {
+  return requestJson("/registry/probe", isApiProbeResult, {
+    signal,
+    method: "POST",
+    body: {
+      connection_id: input.connectionId,
+      endpoint: input.endpoint,
+      credential_ref_id: input.credentialRefId ?? "",
+      deadline_ms: input.deadlineMs ?? 0,
+    },
+  });
 }

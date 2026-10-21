@@ -7,6 +7,7 @@
 export const queryKeys = {
   health: () => ["health"] as const,
   registryProfiles: () => ["registry", "profiles"] as const,
+  liveRegistryProfiles: () => ["registry", "live", "profiles"] as const,
 };
 
 export type QueryKeys = typeof queryKeys;

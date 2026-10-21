@@ -88,10 +88,10 @@ describe("feature module entry points", () => {
     },
   );
 
-  it("keeps Databases labeled as not implemented with disabled mutation controls", async () => {
+  it("keeps Databases labeled as partially implemented with disabled mutation controls", async () => {
     renderAt("/databases");
 
-    const notice = await screen.findByText(/Mock workflow only/i);
+    const notice = await screen.findByText(/Mock workflow/i);
     expect(notice).toBeInTheDocument();
 
     const plannedActions = screen
@@ -110,5 +110,10 @@ describe("feature module entry points", () => {
       (module) => module.status === "scaffold",
     );
     expect(scaffoldModules.map((module) => module.id)).toEqual(["overview"]);
+  });
+
+  it("labels Databases as partially implemented, not live", () => {
+    const databases = MODULES.find((module) => module.id === "databases");
+    expect(databases?.status).toBe("partial");
   });
 });

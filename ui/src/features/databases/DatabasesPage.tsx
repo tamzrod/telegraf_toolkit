@@ -10,6 +10,8 @@ import {
   MockDataNotice,
 } from "../../components/common/StatePanels";
 import { useRegistryProfiles } from "../../hooks/useRegistryProfiles";
+import { useLiveRegistryProfiles } from "../../hooks/useLiveRegistry";
+import { clearSessionToken, hasSessionToken, setSessionToken } from "../../api/session";
 import { formatScope } from "../../api/registry";
 import type { CapabilityOutcome, RegistryProfile } from "../../api/registry";
 import {
@@ -35,16 +37,32 @@ function CapabilityBadge({ outcome }: { outcome: CapabilityOutcome }) {
 }
 
 /**
- * Database Registry mock workflow.
+ * Database Registry workflow.
  *
- * It renders clearly labeled mock profiles through the typed client, offers
- * explicit source/destination scope selectors, and shows capability status with
- * three-valued outcomes. It performs no real probing, stores no credential and
- * writes nothing. Every mutation control is disabled and unsaved draft state is
- * labeled as local-only.
+ * Two clearly separated sources:
+ *
+ *  - **Live** profiles from the authorized API. When a session token is held the
+ *    page lists real, persisted profiles and can perform a read-only capability
+ *    probe. Without a token the backend responds 401 and the page shows that
+ *    plainly; it never substitutes mock data for a live result.
+ *  - **Mock** profiles from the typed test-only adapter, always labeled MOCK.
+ *
+ * The page never resolves or displays a credential value and never writes a
+ * secret to browser storage.
  */
 export function DatabasesPage() {
-  const { data, isPending, isError, refetch } = useRegistryProfiles();
+  const [useLive, setUseLive] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenPresent, setTokenPresent] = useState(hasSessionToken());
+
+  const mockQuery = useRegistryProfiles();
+  // The live query is enabled only when the live source is selected, so mock
+  // mode never issues an unauthorized request.
+  const liveQuery = useLiveRegistryProfiles(useLive);
+
+  const active = useLive ? liveQuery : mockQuery;
+  const { data, isPending, isError, refetch } = active;
+
   const [sourceId, setSourceId] = useState<string>("");
   const [destinationId, setDestinationId] = useState<string>("");
   const [draftConnectionId, setDraftConnectionId] = useState("");
@@ -69,24 +87,119 @@ export function DatabasesPage() {
     scope: { kind: "database", database: "draft" },
   });
 
+  function applyToken() {
+    if (tokenInput.trim() === "") {
+      clearSessionToken();
+      setTokenPresent(false);
+    } else {
+      setSessionToken(tokenInput);
+      setTokenPresent(true);
+    }
+    // Never keep the value in component state after it is applied.
+    setTokenInput("");
+    void liveQuery.refetch();
+  }
+
+  function signOut() {
+    clearSessionToken();
+    setTokenPresent(false);
+    void liveQuery.refetch();
+  }
+
   return (
     <section aria-labelledby="databases-heading">
       <PageHeader
         id="databases-heading"
         title="Databases"
         scope="InfluxDB connection profiles, probed capabilities, explicit source/destination scope and credential references."
-        status="not implemented"
+        status="partial"
       />
 
-      <p
-        role="status"
-        className="mt-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm"
-      >
-        <strong>Mock workflow only.</strong> Profiles shown here come from a
-        typed test-only adapter. No connection is probed, no credential is
-        stored or resolved, and no profile is persisted. Saving, testing and
-        deploying remain disabled until a later, separately authorized phase.
-      </p>
+      <section className="mt-6 rounded border border-gray-300 p-4" aria-labelledby="source-mode">
+        <h2 id="source-mode" className="text-base font-medium">
+          Data source
+        </h2>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="rounded border border-gray-400 px-3 py-1 text-sm"
+            aria-pressed={!useLive}
+            onClick={() => setUseLive(false)}
+          >
+            Mock adapter
+          </button>
+          <button
+            type="button"
+            className="rounded border border-gray-400 px-3 py-1 text-sm"
+            aria-pressed={useLive}
+            onClick={() => setUseLive(true)}
+          >
+            Live Registry API
+          </button>
+        </div>
+
+        {useLive && (
+          <div className="mt-3">
+            <p className="text-sm text-gray-700">
+              The live API requires a bearer token. The token is held in memory
+              only for this session; it is never written to browser storage and
+              is dropped on refresh.
+            </p>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <div>
+                <label htmlFor="session-token" className="block text-sm font-medium">
+                  Session token
+                </label>
+                <input
+                  id="session-token"
+                  type="password"
+                  autoComplete="off"
+                  className="mt-1 w-64 rounded border border-gray-300 p-2 text-sm"
+                  value={tokenInput}
+                  onChange={(event) => setTokenInput(event.target.value)}
+                  aria-describedby="session-token-status"
+                />
+              </div>
+              <button
+                type="button"
+                className="rounded border border-gray-400 px-3 py-1 text-sm"
+                onClick={applyToken}
+              >
+                Use token
+              </button>
+              {tokenPresent && (
+                <button
+                  type="button"
+                  className="rounded border border-gray-400 px-3 py-1 text-sm"
+                  onClick={signOut}
+                >
+                  Sign out
+                </button>
+              )}
+            </div>
+            <p id="session-token-status" role="status" className="mt-1 text-sm text-gray-700">
+              {tokenPresent
+                ? "A session token is held for this session."
+                : "No session token is held; live requests will be rejected with 401."}
+            </p>
+          </div>
+        )}
+      </section>
+
+      {useLive ? (
+        <p role="status" className="mt-6 rounded border border-blue-300 bg-blue-50 p-4 text-sm">
+          <strong>Live Registry API.</strong> Profiles come from the authorized,
+          persistent backend. Capabilities are probed per connection; a
+          capability is shown as supported only when the probe confirmed it.
+        </p>
+      ) : (
+        <p role="status" className="mt-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+          <strong>Mock workflow.</strong> Profiles shown here come from a typed
+          test-only adapter. No connection is probed, no credential is stored or
+          resolved, and no profile is persisted. Saving, testing and deploying
+          remain disabled until a later, separately authorized phase.
+        </p>
+      )}
 
       <section className="mt-6" aria-labelledby="registry-profiles">
         <h2 id="registry-profiles" className="text-lg font-medium">
@@ -98,7 +211,11 @@ export function DatabasesPage() {
         {isError && (
           <ErrorState
             title="Registry profiles unavailable"
-            description="The typed registry endpoint did not respond. This is not a live connection."
+            description={
+              useLive
+                ? "The live Registry API did not accept the request. A valid session token is required; this is not a mock fallback."
+                : "The typed registry endpoint did not respond. This is not a live connection."
+            }
             onRetry={() => void refetch()}
           />
         )}
@@ -106,13 +223,17 @@ export function DatabasesPage() {
         {data && profiles.length === 0 && (
           <EmptyState
             title="No connection profiles"
-            description="No mock profile is registered in this shell."
+            description={
+              useLive
+                ? "No profile is persisted in the Registry yet."
+                : "No mock profile is registered in this shell."
+            }
           />
         )}
 
         {data && profiles.length > 0 && (
           <>
-            <MockDataNotice subject="connection profile list" />
+            {!useLive && <MockDataNotice subject="connection profile list" />}
             <ul className="mt-3 space-y-4">
               {profiles.map((profile) => {
                 const credential = credentialState(profile);
@@ -128,6 +249,11 @@ export function DatabasesPage() {
                       {profile.mock && (
                         <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-900">
                           MOCK
+                        </span>
+                      )}
+                      {useLive && !profile.mock && (
+                        <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-900">
+                          LIVE
                         </span>
                       )}
                     </div>
@@ -154,6 +280,10 @@ export function DatabasesPage() {
                           {credential.kind === "reference" ? (
                             <>
                               {credential.alias} ({credential.role} reference)
+                            </>
+                          ) : profile.credentialRefId ? (
+                            <>
+                              {profile.credentialRefId} (reference)
                             </>
                           ) : (
                             <span className="text-amber-800">
@@ -310,8 +440,8 @@ export function DatabasesPage() {
 
       <DisabledActionGroup
         heading="databases"
-        reason="Profile persistence, live capability probing and credential binding require an accepted metadata-store and secret-store decision."
-        actions={["Save profile", "Test connection", "Attach credential", "Delete profile"]}
+        reason="Saving a profile from the UI, credential entry and deletion require the write flows to be reviewed for this deployment; live listing and read-only capability probing are available above."
+        actions={["Save profile", "Attach credential", "Delete profile"]}
       />
     </section>
   );

@@ -9,6 +9,7 @@ ICC is a lightweight context cache. Start with `ICC/context/project.md`; follow 
 - Envelope-encrypted credential secret store (ADR-0003) — `docs/SECRET_STORE.md`, `backend/internal/secretstore/`
 - Authorized Registry HTTP API — `docs/REGISTRY_API.md`, `backend/internal/registryapi/`, `backend/internal/authz/`
 - Live capability probing (read-only, SSRF-protected) — `docs/LIVE_PROBING.md`, `backend/internal/liveprobe/`
+- Live Registry UI integration — `docs/LIVE_UI.md`, `ui/src/features/databases/`, `ui/src/hooks/useLiveRegistry.ts`
 - Phase 2 registry interface contracts and decision gate — `docs/contracts/registry.md`, `docs/decisions/phase-2-architecture-gate.md`, `docs/decisions/phase-2-integration-handoff.md`
 - Dual-database canonical mapping — `docs/CANONICAL_MAPPING.md`
 - Telegraf runtimes and configuration — `docs/FRONTEND_ARCHITECTURE.md`, `docs/adr/0001-official-telegraf-and-version-pinning.md`
