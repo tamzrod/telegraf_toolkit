@@ -57,4 +57,13 @@ func TestSeedCredentialForHarness(t *testing.T) {
 	if _, err := secrets.StoreWithRef(context.Background(), refID, "harness-seeded", registrycontract.RoleRead, value); err != nil {
 		t.Fatalf("seed credential: %v", err)
 	}
+	// Also register the non-secret reference metadata row, so the reference can
+	// be attached to a profile through the privileged binding operation.
+	if err := store.CredentialRefs().Put(registrycontract.CredentialRef{
+		CredentialRefID: refID,
+		Alias:           "harness-seeded",
+		Role:            registrycontract.RoleRead,
+	}); err != nil {
+		t.Fatalf("seed credential reference: %v", err)
+	}
 }

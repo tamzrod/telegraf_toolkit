@@ -20,7 +20,8 @@ func newRegistryService(t *testing.T) *registryservice.Service {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+	return registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
+		WithCredentialBindings(store.CredentialBindings())
 }
 
 func TestRegistryStatusEndpointReportsSchemaVersion(t *testing.T) {

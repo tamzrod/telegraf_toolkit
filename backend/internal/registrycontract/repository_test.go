@@ -80,14 +80,22 @@ func TestValidateProfileRejectsSecretMaterial(t *testing.T) {
 	assertCode(t, ValidateProfile(marker), CodeSecretMaterial)
 }
 
-func TestValidateProfileRequiresCompleteScopeAndReference(t *testing.T) {
+func TestValidateProfileRequiresCompleteScopeAndIdentity(t *testing.T) {
 	noScope := fixtures.Profile1x()
 	noScope.Scope = fixtures.Scope{Kind: fixtures.ScopeDatabaseRetentionPolicy}
 	assertCode(t, ValidateProfile(noScope), CodeScopeIncomplete)
 
+	// A profile may be created unbound (no credential reference): the credential
+	// is attached later through the privileged binding operation (P2L-007).
 	noRef := fixtures.Profile1x()
 	noRef.CredentialRefID = ""
-	assertCode(t, ValidateProfile(noRef), CodeInvalidProfile)
+	if err := ValidateProfile(noRef); err != nil {
+		t.Fatalf("an unbound profile should validate: %v", err)
+	}
+
+	noEndpoint := fixtures.Profile1x()
+	noEndpoint.Endpoint = ""
+	assertCode(t, ValidateProfile(noEndpoint), CodeInvalidProfile)
 
 	noID := fixtures.Profile1x()
 	noID.ConnectionID = "  "

@@ -29,7 +29,8 @@ func newTestAPI(t *testing.T) (*API, *registryservice.Service) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
+		WithCredentialBindings(store.CredentialBindings())
 
 	authenticator := authz.NewAuthenticator()
 	mustToken := func(token, actor string, roles ...authz.Role) {
@@ -45,6 +46,16 @@ func newTestAPI(t *testing.T) (*API, *registryservice.Service) {
 	mustToken("admin-token", "alice", authz.RoleAdministrator)
 	mustToken("config-token", "carol", authz.RoleConfigurator)
 	mustToken("viewer-token", "bob", authz.RoleViewer)
+
+	// Seed the credential reference that sampleProfileBody attaches, so an
+	// administrator create can bind it.
+	if err := service.PutCredentialRef(context.Background(), registrycontract.CredentialRef{
+		CredentialRefID: "ref-write-2x",
+		Alias:           "API write 2.x",
+		Role:            registrycontract.RoleWrite,
+	}); err != nil {
+		t.Fatalf("seed reference: %v", err)
+	}
 
 	return New(service, authenticator), service
 }
@@ -151,13 +162,25 @@ func TestViewerCannotReadCredentialsOrAudit(t *testing.T) {
 	}
 }
 
-func TestConfiguratorCanWriteProfilesButNotCredentials(t *testing.T) {
+func TestConfiguratorCanWriteProfilesButNotAttachCredentials(t *testing.T) {
 	api, _ := newTestAPI(t)
-	if rec := do(t, api, http.MethodPost, "/api/v1/registry/profiles", "config-token", sampleProfileBody()); rec.Code != http.StatusCreated {
-		t.Fatalf("configurator create = %d, want 201", rec.Code)
+
+	// A configurator may create a profile with no credential reference.
+	body := sampleProfileBody()
+	delete(body, "credential_ref_id")
+	body["connection_id"] = "config-no-cred"
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/profiles", "config-token", body); rec.Code != http.StatusCreated {
+		t.Fatalf("configurator create without credential = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
-	// Configurator may read credential references (operator-level) but the audit
-	// log requires the administrator permission.
+
+	// A configurator may NOT attach a credential reference: doing so would let it
+	// bind another principal's stored secret to an endpoint of its choosing
+	// (P2L-007).
+	if rec := do(t, api, http.MethodPost, "/api/v1/registry/profiles", "config-token", sampleProfileBody()); rec.Code != http.StatusForbidden {
+		t.Fatalf("configurator create with credential = %d, want 403 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// The audit log requires the administrator permission.
 	if rec := do(t, api, http.MethodGet, "/api/v1/registry/audit", "config-token", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("configurator audit = %d, want 403", rec.Code)
 	}
@@ -176,8 +199,15 @@ func TestAdminCanReadAudit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
 		t.Fatalf("decode audit: %v", err)
 	}
-	if len(events) == 0 || events[0].Actor != "alice" {
-		t.Fatalf("audit should record the acting principal, got %+v", events)
+	// The admin's create must be recorded with the acting principal as actor.
+	var found bool
+	for _, event := range events {
+		if event.Action == "profile.create" && event.Actor == "alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("audit should record the acting principal for the create, got %+v", events)
 	}
 }
 
@@ -228,13 +258,15 @@ func TestCreateProfileRejectsIncompleteScope(t *testing.T) {
 	}
 }
 
-func TestCreateProfileRejectsMissingReference(t *testing.T) {
+func TestCreateProfileWithoutReferenceIsAllowedUnbound(t *testing.T) {
 	api, _ := newTestAPI(t)
 	body := sampleProfileBody()
 	delete(body, "credential_ref_id")
+	// A profile with no credential reference is valid; it simply cannot resolve a
+	// credential at probe time until an administrator approves a binding.
 	rec := do(t, api, http.MethodPost, "/api/v1/registry/profiles", "admin-token", body)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("missing reference = %d, want 400", rec.Code)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unbound create = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -327,7 +359,9 @@ func newProbeAPIWithPolicy(t *testing.T, policy liveprobe.Policy) (*API, *regist
 	if err != nil {
 		t.Fatalf("new secret store: %v", err)
 	}
-	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).WithSecretStore(secrets)
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
+		WithCredentialBindings(store.CredentialBindings()).
+		WithSecretStore(secrets)
 
 	authenticator := authz.NewAuthenticator()
 	admin, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
@@ -336,6 +370,8 @@ func newProbeAPIWithPolicy(t *testing.T, policy liveprobe.Policy) (*API, *regist
 	_ = authenticator.RegisterToken("operator-token", operator)
 	viewer, _ := authz.NewPrincipal("bob", authz.RoleViewer)
 	_ = authenticator.RegisterToken("viewer-token", viewer)
+	configurator, _ := authz.NewPrincipal("dave", authz.RoleConfigurator)
+	_ = authenticator.RegisterToken("config-token", configurator)
 
 	return NewWithOptions(Options{
 		Service:       service,
@@ -364,7 +400,7 @@ func seedProfile(t *testing.T, service *registryservice.Service, connectionID, e
 	profile.DisplayName = connectionID
 	profile.Endpoint = endpoint
 	profile.CredentialRefID = ref.CredentialRefID
-	if err := service.CreateProfile(context.Background(), profile); err != nil {
+	if err := service.CreateProfileWithBindingAs(context.Background(), "seed-admin", profile); err != nil {
 		t.Fatalf("seed profile: %v", err)
 	}
 }

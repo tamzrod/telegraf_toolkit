@@ -60,9 +60,10 @@ func ValidateProfile(profile fixtures.ConnectionProfile) error {
 	if err := ValidateProfileEndpoint(profile.Endpoint); err != nil {
 		return err
 	}
-	if strings.TrimSpace(profile.CredentialRefID) == "" {
-		return NewSanitizedError(CodeInvalidProfile, "A profile requires a credential reference ID, never a value.")
-	}
+	// A profile may be created unbound (no credential reference): the credential
+	// is attached later through the privileged binding operation (P2L-007). When
+	// a reference is present it must never be a value, which the secret-material
+	// scan below enforces.
 	blob, err := json.Marshal(profile)
 	if err != nil {
 		return NewSanitizedError(CodeInvalidProfile, "Profile could not be serialized for validation.")
@@ -256,6 +257,61 @@ func (s *MemoryCredentialRefStore) List() ([]CredentialRef, error) {
 	return out, nil
 }
 
+// MemoryCredentialBindingStore is a test-only, in-memory binding repository. It
+// stores approved bindings and never a secret value.
+type MemoryCredentialBindingStore struct {
+	mu       sync.RWMutex
+	bindings map[string]CredentialBinding
+}
+
+// NewMemoryCredentialBindingStore returns an empty in-memory binding store.
+func NewMemoryCredentialBindingStore() *MemoryCredentialBindingStore {
+	return &MemoryCredentialBindingStore{bindings: map[string]CredentialBinding{}}
+}
+
+func bindingKey(credentialRefID, connectionID string) string {
+	return credentialRefID + "\x00" + connectionID
+}
+
+// Put stores an approved binding.
+func (s *MemoryCredentialBindingStore) Put(binding CredentialBinding) error {
+	if strings.TrimSpace(binding.CredentialRefID) == "" || strings.TrimSpace(binding.ConnectionID) == "" {
+		return NewSanitizedError(CodeReferenceNotFound, "A binding requires a credential reference and a connection ID.")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bindings[bindingKey(binding.CredentialRefID, binding.ConnectionID)] = binding
+	return nil
+}
+
+// Get returns a binding for a reference and connection.
+func (s *MemoryCredentialBindingStore) Get(credentialRefID, connectionID string) (CredentialBinding, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	binding, ok := s.bindings[bindingKey(credentialRefID, connectionID)]
+	return binding, ok, nil
+}
+
+// List returns every binding in a deterministic order.
+func (s *MemoryCredentialBindingStore) List() ([]CredentialBinding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]CredentialBinding, 0, len(s.bindings))
+	for _, binding := range s.bindings {
+		out = append(out, binding)
+	}
+	sortBindings(out)
+	return out, nil
+}
+
+// Delete removes a binding.
+func (s *MemoryCredentialBindingStore) Delete(credentialRefID, connectionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.bindings, bindingKey(credentialRefID, connectionID))
+	return nil
+}
+
 // MemoryAuditSink is a test-only, in-memory audit sink. It rejects any event
 // that would carry secret material.
 type MemoryAuditSink struct {
@@ -327,6 +383,14 @@ func sortRefs(refs []CredentialRef) {
 	for i := 1; i < len(refs); i++ {
 		for j := i; j > 0 && refs[j].CredentialRefID < refs[j-1].CredentialRefID; j-- {
 			refs[j], refs[j-1] = refs[j-1], refs[j]
+		}
+	}
+}
+
+func sortBindings(bindings []CredentialBinding) {
+	for i := 1; i < len(bindings); i++ {
+		for j := i; j > 0 && bindingKey(bindings[j].CredentialRefID, bindings[j].ConnectionID) < bindingKey(bindings[j-1].CredentialRefID, bindings[j-1].ConnectionID); j-- {
+			bindings[j], bindings[j-1] = bindings[j-1], bindings[j]
 		}
 	}
 }

@@ -70,6 +70,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/registry/profiles", a.handleProfiles)
 	mux.HandleFunc("/api/v1/registry/profiles/", a.handleProfile)
 	mux.HandleFunc("/api/v1/registry/credentials", a.handleCredentials)
+	mux.HandleFunc("/api/v1/registry/credential-bindings", a.handleCredentialBindings)
 	mux.HandleFunc("/api/v1/registry/audit", a.handleAudit)
 	if a.prober != nil {
 		mux.HandleFunc("/api/v1/registry/probe", a.handleProbe)
@@ -227,11 +228,100 @@ func (a *API) createProfile(w http.ResponseWriter, r *http.Request, principal au
 		writeSanitizedError(w, err)
 		return
 	}
+
+	// Attaching a credential reference is a privileged operation. A principal
+	// without credential.attach may still create a profile, but it must not carry
+	// a credential reference: it cannot bind another principal's stored secret to
+	// an endpoint of its choosing (P2L-007). A principal with credential.attach
+	// (an administrator) may attach a reference, which records the approved
+	// binding in the same operation.
+	attaching := strings.TrimSpace(profile.CredentialRefID) != ""
+	if attaching {
+		if err := a.authorizer.Authorize(principal, authz.PermCredentialAttach); err != nil {
+			writeError(w, http.StatusForbidden, "permission-denied",
+				"Attaching a credential reference requires the credential.attach permission.")
+			return
+		}
+		if err := a.service.CreateProfileWithBindingAs(r.Context(), principal.ID, profile); err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, profileToPayload(profile))
+		return
+	}
+
 	if err := a.service.CreateProfileAs(r.Context(), principal.ID, profile); err != nil {
 		writeSanitizedError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, profileToPayload(profile))
+}
+
+// credentialBindingRequest is the accepted body for approving a binding.
+type credentialBindingRequest struct {
+	CredentialRefID string `json:"credential_ref_id"`
+	ConnectionID    string `json:"connection_id"`
+}
+
+// credentialBindingPayload is the wire shape of an approved binding. It carries
+// no secret value.
+type credentialBindingPayload struct {
+	CredentialRefID string `json:"credential_ref_id"`
+	ConnectionID    string `json:"connection_id"`
+	Endpoint        string `json:"endpoint"`
+	Scope           string `json:"scope"`
+	ApprovedBy      string `json:"approved_by"`
+}
+
+// handleCredentialBindings lists (GET) or approves (POST) credential-to-profile
+// bindings. Both require the administrator-only credential.attach permission.
+func (a *API) handleCredentialBindings(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	if !a.authorize(w, principal, authz.PermCredentialAttach) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		bindings, err := a.service.ListCredentialBindings(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal-error", "The credential bindings could not be listed.")
+			return
+		}
+		out := make([]credentialBindingPayload, 0, len(bindings))
+		for _, binding := range bindings {
+			out = append(out, credentialBindingPayload{
+				CredentialRefID: binding.CredentialRefID,
+				ConnectionID:    binding.ConnectionID,
+				Endpoint:        binding.Endpoint,
+				Scope:           binding.Scope,
+				ApprovedBy:      binding.ApprovedBy,
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
+	case http.MethodPost:
+		var input credentialBindingRequest
+		if err := decodeJSON(r, &input); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+			return
+		}
+		binding, err := a.service.ApproveCredentialBinding(r.Context(), principal.ID, input.CredentialRefID, input.ConnectionID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, credentialBindingPayload{
+			CredentialRefID: binding.CredentialRefID,
+			ConnectionID:    binding.ConnectionID,
+			Endpoint:        binding.Endpoint,
+			Scope:           binding.Scope,
+			ApprovedBy:      binding.ApprovedBy,
+		})
+	default:
+		methodNotAllowed(w, http.MethodGet, http.MethodPost)
+	}
 }
 
 func (a *API) deleteProfile(w http.ResponseWriter, r *http.Request, connectionID string, principal authz.Principal) {
@@ -306,6 +396,15 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := registrycontract.ValidateProfileEndpoint(profile.Endpoint); err != nil {
 		// A profile with no valid endpoint cannot be probed.
+		writeSanitizedError(w, err)
+		return
+	}
+
+	// Re-verify the credential-to-profile binding at probe time. This is the
+	// second enforcement point: even if a profile row were altered out of band,
+	// no credential is resolved for a profile whose identity is not bound
+	// (P2L-007).
+	if err := a.service.VerifyProfileCredentialBinding(r.Context(), profile); err != nil {
 		writeSanitizedError(w, err)
 		return
 	}
@@ -398,6 +497,8 @@ func statusForCode(code registrycontract.ErrorCode) int {
 		return http.StatusNotFound
 	case registrycontract.CodeDuplicateProfile:
 		return http.StatusConflict
+	case registrycontract.CodeCredentialNotBound:
+		return http.StatusForbidden
 	case registrycontract.CodeInvalidProfile, registrycontract.CodeScopeIncomplete,
 		registrycontract.CodeRoleMismatch, registrycontract.CodeSelectionIncomplete,
 		registrycontract.CodeNotDistinct, registrycontract.CodeTLSValidationFailed,

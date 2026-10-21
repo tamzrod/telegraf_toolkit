@@ -49,6 +49,7 @@ TOKENS_FILE="${TMP_DIR}/e2e-tokens.json"
 DB_FILE="${TMP_DIR}/e2e-metadata.db"
 ADMIN_TOKEN="e2e-admin-token-value"
 VIEWER_TOKEN="e2e-viewer-token-value"
+CONFIGURATOR_TOKEN="e2e-configurator-token-value"
 
 # Start from a clean database so each run is deterministic; the key and token
 # files are reused so a rerun does not regenerate secrets.
@@ -62,16 +63,16 @@ if [ ! -f "${KEY_FILE}" ]; then
   )
   unset key
 fi
-if [ ! -f "${TOKENS_FILE}" ]; then
-  ( umask 077
-    cat > "${TOKENS_FILE}" <<JSON
+# Always rewrite the token file so a rerun includes every role the checks need.
+( umask 077
+  cat > "${TOKENS_FILE}" <<JSON
 {"tokens":[
   {"token":"${ADMIN_TOKEN}","actor":"e2e-admin","roles":["administrator"]},
-  {"token":"${VIEWER_TOKEN}","actor":"e2e-viewer","roles":["viewer"]}
+  {"token":"${VIEWER_TOKEN}","actor":"e2e-viewer","roles":["viewer"]},
+  {"token":"${CONFIGURATOR_TOKEN}","actor":"e2e-configurator","roles":["configurator"]}
 ]}
 JSON
-  )
-fi
+)
 chmod 600 "${KEY_FILE}" "${TOKENS_FILE}"
 
 api_log="${LOGS_DIR}/e2e-registry-api.log"
@@ -139,6 +140,25 @@ if [ "${code}" = "201" ]; then
   record PASS "admin POST /profiles persists" "HTTP 201"
 else
   record FAIL "admin POST /profiles persists" "HTTP ${code}"
+fi
+
+# 2b. A configurator must NOT be able to attach the stored credential to a
+#     profile, even naming an endpoint it controls (P2L-007 regression).
+attacker_body="{\"connection_id\":\"e2e-attacker\",\"display_name\":\"E2E attacker\",\"family\":\"influxdb\",\"major_version\":2,\"endpoint\":\"https://attacker.example.com\",\"scope\":{\"kind\":\"organization-bucket\",\"organization\":\"acme\",\"bucket\":\"historian\"},\"capabilities\":{\"query_dialects\":[\"flux\"],\"write_protocols\":[\"line-protocol\"],\"schema_discovery\":true},\"credential_ref_id\":\"${SEED_REF}\",\"mock\":false,\"note\":\"\"}"
+code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -X POST \
+  -H "Authorization: Bearer ${CONFIGURATOR_TOKEN}" -H 'Content-Type: application/json' \
+  -d "${attacker_body}" "${API_URL}/api/v1/registry/profiles" || echo 000)"
+if [ "${code}" = "403" ]; then
+  record PASS "configurator cannot attach stored credential" "HTTP 403"
+else
+  record FAIL "configurator cannot attach stored credential" "HTTP ${code}"
+fi
+# The attacker profile must not exist.
+attacker_list="$(curl -sS -m 5 -H "Authorization: Bearer ${ADMIN_TOKEN}" "${API_URL}/api/v1/registry/profiles" || true)"
+if printf '%s' "${attacker_list}" | grep -q 'e2e-attacker'; then
+  record FAIL "attacker profile was not created" "found e2e-attacker"
+else
+  record PASS "attacker profile was not created" "absent"
 fi
 
 # 3. Admin lists and sees the profile.

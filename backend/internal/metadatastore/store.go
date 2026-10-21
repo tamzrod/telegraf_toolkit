@@ -144,6 +144,11 @@ func (s *Store) SecretEnvelopes() *SecretEnvelopeRepository {
 	return &SecretEnvelopeRepository{db: s.db}
 }
 
+// CredentialBindings returns the approved credential-binding repository.
+func (s *Store) CredentialBindings() *CredentialBindingRepository {
+	return &CredentialBindingRepository{db: s.db}
+}
+
 // Backup writes a transactionally consistent copy of the database to dest using
 // SQLite's VACUUM INTO, which reads a stable snapshot rather than copying files
 // under a live writer. dest must not already exist.

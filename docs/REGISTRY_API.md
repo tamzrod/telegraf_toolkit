@@ -43,12 +43,12 @@ Roles follow [`DATABASE_REGISTRY.md`](DATABASE_REGISTRY.md). Permissions are
 additive and least-privilege: a principal holds only what its roles grant, and an
 unknown role grants nothing.
 
-| Role | profile.read | profile.write | profile.probe | credential.read | credential.write | audit.read | credential.resolve |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| viewer | ✓ | | | | | | |
-| operator | ✓ | | ✓ | ✓ | | | |
-| configurator | ✓ | ✓ | ✓ | ✓ | | | |
-| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | profile.read | profile.write | profile.probe | credential.read | credential.write | credential.attach | audit.read | credential.resolve |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| viewer | ✓ | | | | | | | |
+| operator | ✓ | | ✓ | ✓ | | | | |
+| configurator | ✓ | ✓ | ✓ | ✓ | | | | |
+| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Denial is the default. An anonymous principal is unauthenticated (401); a
 principal lacking the required permission is forbidden (403).
@@ -69,16 +69,53 @@ principal lacking the required permission is forbidden (403).
 Responses carry a `credential_ref_id`, never a value. The `credentials` route
 returns alias, role, fingerprint and timestamps only.
 
+## Credential-to-profile binding (P2L-007)
+
+Attaching a credential reference to a profile is a **privileged** operation,
+enforced server-side, not by the request shape or the UI:
+
+- `credential.attach` is an administrator-only permission. A `configurator` may
+  create a profile, but a profile that carries a credential reference is refused
+  with 403 unless the principal holds `credential.attach`.
+- An administrator either creates the profile with its credential through the
+  privileged path, which records an approved **binding**, or approves a binding
+  separately via `POST /api/v1/registry/credential-bindings`. The binding records
+  the credential reference, connection ID, endpoint and canonical scope.
+- A profile may exist **unbound** (no credential reference). An unbound profile
+  is valid but resolves no credential.
+- The service enforces the binding at **profile creation** (`CreateProfileAs`
+  refuses a credential reference without a matching binding) and re-verifies it
+  at **probe time** (`VerifyProfileCredentialBinding`), so a credential is never
+  resolved for a profile whose identity is not approved.
+- Changing a profile's endpoint or scope invalidates any prior binding: the
+  binding matches on all of reference, connection ID, endpoint and canonical
+  scope, so re-creating a profile with a different endpoint or scope cannot reuse
+  an existing approval.
+- The binding stores no secret value; the binding listing carries only the
+  reference and profile identity.
+
+This closes the escalation path where a principal with `profile.write` could
+enumerate reference IDs, attach another principal's stored secret to an
+endpoint it controls, and probe it to cause credential forwarding.
+
+| Method | Path | Permission | Behaviour |
+| --- | --- | --- | --- |
+| GET | `/api/v1/registry/credential-bindings` | credential.attach | List approved bindings (no values) |
+| POST | `/api/v1/registry/credential-bindings` | credential.attach | Approve a binding for a profile identity |
+
 ## Input validation
 
 - A create body is decoded strictly (unknown fields are rejected) and validated
   through the contract (`ValidateProfileInput`): a stable identity, a complete
-  scope, a credential **reference** and no secret-bearing text or
-  credential-bearing URL.
+  scope, a valid endpoint and no secret-bearing text or credential-bearing URL. A
+  credential reference is optional (a profile may be unbound) but must never be a
+  value.
 - A body carrying a secret-like key (`value`, `password`, `token`, `apikey`,
   `secret`, …) anywhere is refused before parsing, so a value is never handled.
 - Validation failures return a sanitized error with a stable code and an HTTP
-  status mapped from that code (400/404/409/422).
+  status mapped from that code (400/403/404/409/422). A credential reference that
+  is not approved for the profile's endpoint/scope returns `credential-not-bound`
+  (403).
 
 ## Audit
 

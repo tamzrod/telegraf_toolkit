@@ -14,6 +14,7 @@ package registryservice
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/fixtures"
@@ -46,6 +47,7 @@ type SecretStore interface {
 type Service struct {
 	profiles   registrycontract.ProfileStore
 	references registrycontract.CredentialRefStore
+	bindings   registrycontract.CredentialBindingStore
 	audit      registrycontract.AuditSink
 	store      *metadatastore.Store
 	secrets    SecretStore
@@ -55,6 +57,14 @@ type Service struct {
 // the service is exercised against in-memory adapters.
 func New(profiles registrycontract.ProfileStore, references registrycontract.CredentialRefStore, audit registrycontract.AuditSink, store *metadatastore.Store) *Service {
 	return &Service{profiles: profiles, references: references, audit: audit, store: store}
+}
+
+// WithCredentialBindings attaches the approved credential-binding store. Without
+// it, no credential may be attached to a profile and no probe may resolve one,
+// so the service fails closed (P2L-007).
+func (s *Service) WithCredentialBindings(bindings registrycontract.CredentialBindingStore) *Service {
+	s.bindings = bindings
+	return s
 }
 
 // WithSecretStore attaches the server-side secret store. It is a separate
@@ -134,12 +144,169 @@ func (s *Service) CreateProfile(ctx context.Context, profile fixtures.Connection
 }
 
 // CreateProfileAs stores a new profile and records an audit event attributed to
-// the given actor. The actor is an identity reference, never a credential.
+// the given actor.
+//
+// Credential binding is enforced here, not at the request boundary (P2L-007): a
+// profile may carry a credential reference only when a matching approved binding
+// already exists for its exact identity (connection ID, endpoint and canonical
+// scope). Creating a profile therefore cannot attach an existing secret to a new
+// or attacker-chosen endpoint. A trusted administrator establishes the binding
+// through CreateProfileWithBindingAs or ApproveCredentialBinding.
 func (s *Service) CreateProfileAs(ctx context.Context, actor string, profile fixtures.ConnectionProfile) error {
+	if err := s.requireBindingFor(ctx, profile); err != nil {
+		return err
+	}
 	if err := s.profiles.Put(profile); err != nil {
 		return err
 	}
 	return s.recordAuditAs(ctx, actor, "profile.create", registrycontract.TargetProfile, profile.ConnectionID, registrycontract.OutcomeSucceeded)
+}
+
+// CreateProfileWithBindingAs stores a profile and, when it carries a credential
+// reference, records the server-authoritative binding for its identity in the
+// same operation. It is the privileged enrollment path: the caller (the HTTP
+// layer) must require the credential.attach permission before invoking it, so
+// only an administrator can attach an existing credential to a profile.
+//
+// The binding is recorded first, so a failure to store the profile leaves no
+// dangling profile; a failure to record the binding leaves no profile either.
+func (s *Service) CreateProfileWithBindingAs(ctx context.Context, actor string, profile fixtures.ConnectionProfile) error {
+	if strings.TrimSpace(profile.CredentialRefID) != "" {
+		if s.bindings == nil {
+			return registrycontract.NewSanitizedError(
+				registrycontract.CodeSecretMaterial, "The credential binding store is not available.")
+		}
+		if err := s.profiles.Put(profile); err != nil {
+			return err
+		}
+		if _, err := s.ApproveCredentialBinding(ctx, actor, profile.CredentialRefID, profile.ConnectionID); err != nil {
+			// Roll back the profile so a profile never exists without its
+			// binding.
+			_ = s.profiles.Delete(profile.ConnectionID)
+			return err
+		}
+		return s.recordAuditAs(ctx, actor, "profile.create", registrycontract.TargetProfile, profile.ConnectionID, registrycontract.OutcomeSucceeded)
+	}
+	return s.CreateProfileAs(ctx, actor, profile)
+}
+
+// requireBindingFor refuses a profile that carries a credential reference without
+// a matching approved binding. A profile with no credential reference needs no
+// binding.
+func (s *Service) requireBindingFor(ctx context.Context, profile fixtures.ConnectionProfile) error {
+	if strings.TrimSpace(profile.CredentialRefID) == "" {
+		return nil
+	}
+	binding, ok, err := s.bindingFor(ctx, profile.CredentialRefID, profile.ConnectionID)
+	if err != nil {
+		return err
+	}
+	if !ok || !registrycontract.BindingMatches(binding, profile.ConnectionID, profile.Endpoint, profile.Scope) {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeCredentialNotBound,
+			"This credential reference is not approved for this profile endpoint and scope.")
+	}
+	return nil
+}
+
+func (s *Service) bindingFor(ctx context.Context, credentialRefID, connectionID string) (registrycontract.CredentialBinding, bool, error) {
+	if s.bindings == nil {
+		return registrycontract.CredentialBinding{}, false, nil
+	}
+	return s.bindings.Get(credentialRefID, connectionID)
+}
+
+// ApproveCredentialBinding records the server-authoritative approval that a
+// credential reference may be used with a profile identity. It is a privileged
+// administrative operation: the caller (the HTTP layer) must require the
+// credential.attach permission before invoking it.
+//
+// The binding is validated against the stored profile so it cannot approve a
+// binding for a profile that does not exist or for a different endpoint/scope
+// than the profile actually has.
+func (s *Service) ApproveCredentialBinding(ctx context.Context, actor, credentialRefID, connectionID string) (registrycontract.CredentialBinding, error) {
+	if s.bindings == nil {
+		return registrycontract.CredentialBinding{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential binding store is not available.")
+	}
+	if strings.TrimSpace(credentialRefID) == "" || strings.TrimSpace(connectionID) == "" {
+		return registrycontract.CredentialBinding{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A binding requires a credential reference and a connection ID.")
+	}
+
+	profile, found, err := s.profiles.Get(connectionID)
+	if err != nil {
+		return registrycontract.CredentialBinding{}, err
+	}
+	if !found {
+		return registrycontract.CredentialBinding{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeProfileNotFound, "No profile matches the requested identity.")
+	}
+	// The reference must exist so a binding cannot name an arbitrary ID.
+	if _, ok, err := s.references.Get(credentialRefID); err != nil {
+		return registrycontract.CredentialBinding{}, err
+	} else if !ok {
+		return registrycontract.CredentialBinding{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "No credential reference matches the requested identity.")
+	}
+
+	binding := registrycontract.CredentialBinding{
+		CredentialRefID: credentialRefID,
+		ConnectionID:    connectionID,
+		Endpoint:        profile.Endpoint,
+		Scope:           registrycontract.CanonicalScope(profile.Scope),
+		ApprovedBy:      actor,
+	}
+	if err := s.bindings.Put(binding); err != nil {
+		return registrycontract.CredentialBinding{}, err
+	}
+	if err := s.recordAuditAs(ctx, actor, "credential.bind", registrycontract.TargetCredentialRef, credentialRefID, registrycontract.OutcomeSucceeded); err != nil {
+		return registrycontract.CredentialBinding{}, err
+	}
+	return binding, nil
+}
+
+// ListCredentialBindings returns the approved bindings in deterministic order.
+func (s *Service) ListCredentialBindings(ctx context.Context) ([]registrycontract.CredentialBinding, error) {
+	if s.bindings == nil {
+		return nil, nil
+	}
+	return s.bindings.List()
+}
+
+// RevokeCredentialBinding removes an approved binding. It is a privileged
+// administrative operation: the caller (the HTTP layer) must require the
+// credential.attach permission before invoking it. After revocation a probe no
+// longer resolves the credential for that profile.
+func (s *Service) RevokeCredentialBinding(ctx context.Context, actor, credentialRefID, connectionID string) error {
+	if s.bindings == nil {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential binding store is not available.")
+	}
+	if err := s.bindings.Delete(credentialRefID, connectionID); err != nil {
+		return err
+	}
+	return s.recordAuditAs(ctx, actor, "credential.unbind", registrycontract.TargetCredentialRef, credentialRefID, registrycontract.OutcomeSucceeded)
+}
+
+// VerifyProfileCredentialBinding re-verifies, at probe time, that the profile's
+// credential reference is approved for the profile's exact identity. It is the
+// second enforcement point: even if a profile row were altered out of band, a
+// probe resolves no credential without a matching binding.
+func (s *Service) VerifyProfileCredentialBinding(ctx context.Context, profile fixtures.ConnectionProfile) error {
+	if strings.TrimSpace(profile.CredentialRefID) == "" {
+		return nil
+	}
+	binding, ok, err := s.bindingFor(ctx, profile.CredentialRefID, profile.ConnectionID)
+	if err != nil {
+		return err
+	}
+	if !ok || !registrycontract.BindingMatches(binding, profile.ConnectionID, profile.Endpoint, profile.Scope) {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeCredentialNotBound,
+			"The profile's credential reference is not approved for its endpoint and scope.")
+	}
+	return nil
 }
 
 // GetProfile returns a profile by connection_id.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/fixtures"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 )
 
 // openTemp opens a store on a fresh file under t.TempDir() so each test is
@@ -151,6 +152,49 @@ func TestProfileEndpointSurvivesMigration(t *testing.T) {
 	}
 	if got.Endpoint != profile.Endpoint {
 		t.Fatalf("endpoint = %q, want %q", got.Endpoint, profile.Endpoint)
+	}
+	_ = ctx
+}
+
+// TestCredentialBindingSurvivesMigration proves the version-5 binding table is
+// created and round-trips through the repository.
+func TestCredentialBindingSurvivesMigration(t *testing.T) {
+	store := openTemp(t)
+	ctx := context.Background()
+
+	if SchemaVersion() < 5 {
+		t.Fatalf("expected at least five migrations, got %d", SchemaVersion())
+	}
+
+	binding := registrycontract.CredentialBinding{
+		CredentialRefID: "ref-1",
+		ConnectionID:    "profile-1",
+		Endpoint:        "https://influx.example.com:8086",
+		Scope:           "acme/historian",
+		ApprovedBy:      "alice",
+	}
+	if err := store.CredentialBindings().Put(binding); err != nil {
+		t.Fatalf("put binding: %v", err)
+	}
+	got, ok, err := store.CredentialBindings().Get("ref-1", "profile-1")
+	if err != nil || !ok {
+		t.Fatalf("get binding: ok=%v err=%v", ok, err)
+	}
+	if got != binding {
+		t.Fatalf("binding round-trip = %+v, want %+v", got, binding)
+	}
+	list, err := store.CredentialBindings().List()
+	if err != nil {
+		t.Fatalf("list bindings: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("bindings = %d, want 1", len(list))
+	}
+	if err := store.CredentialBindings().Delete("ref-1", "profile-1"); err != nil {
+		t.Fatalf("delete binding: %v", err)
+	}
+	if _, ok, _ := store.CredentialBindings().Get("ref-1", "profile-1"); ok {
+		t.Fatal("binding should be gone after delete")
 	}
 	_ = ctx
 }

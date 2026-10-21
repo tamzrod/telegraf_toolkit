@@ -126,6 +126,29 @@ var migrations = []migration{
 			`ALTER TABLE connection_profiles ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''`,
 		},
 	},
+	{
+		version: 5,
+		name:    "credential-bindings",
+		stmts: []string{
+			// credential_bindings records the server-authoritative approval that
+			// a credential reference may be used with a specific profile
+			// identity (connection ID, endpoint, canonical scope). A probe
+			// resolves a credential only when a matching binding exists, so a
+			// principal with profile.write cannot attach another principal's
+			// stored secret to an endpoint of its choosing (P2L-007). No secret
+			// value is stored here.
+			`CREATE TABLE credential_bindings (
+				credential_ref_id TEXT NOT NULL,
+				connection_id     TEXT NOT NULL,
+				endpoint          TEXT NOT NULL,
+				scope             TEXT NOT NULL,
+				approved_by       TEXT NOT NULL DEFAULT '',
+				approved_at       TEXT NOT NULL,
+				PRIMARY KEY (credential_ref_id, connection_id)
+			)`,
+			`CREATE INDEX idx_credential_bindings_connection ON credential_bindings (connection_id)`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

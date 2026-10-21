@@ -141,6 +141,34 @@ Production-default SSRF denial (private, metadata, loopback) is unchanged; the
 loopback/insecure-TLS exception remains opt-in for the isolated test harness
 only.
 
+### Credential-to-profile binding (P2L-007)
+
+P2L-006 stopped a caller from overriding the probe endpoint/credential, but
+profile creation still accepted an arbitrary `credential_ref_id` together with an
+arbitrary endpoint. A `configurator` (which can list references and probe) could
+therefore attach another principal's stored secret to an endpoint it controlled
+and cause credential forwarding.
+
+The fix binds a credential to a trusted profile identity **server-side**:
+
+- attaching a credential reference requires the administrator-only
+  `credential.attach` permission; a profile carrying a reference is refused with
+  403 for any other principal;
+- an approved binding records the credential reference, connection ID, endpoint
+  and canonical scope, and is enforced at profile creation and re-verified at
+  probe time;
+- a binding that does not exactly match the profile's endpoint/scope is rejected,
+  so a create/delete/recreate with a changed endpoint or scope, a stale
+  reference, or forged scope fields cannot reuse an approval;
+- a profile may exist unbound (no credential reference) and then resolves no
+  credential.
+
+This does not depend on browser checks or the public-host SSRF policy alone. The
+adversarial regression (`registryapi/binding_test.go`) reproduces the exact path
+— a configurator enumerates a reference, attempts to attach it to an attacker
+endpoint, and probes — and asserts the create is refused (403), the attacker host
+receives **zero** Authorization headers, and the profile is not created.
+
 ## Coverage and unverified editions
 
 - **Verified live:** InfluxDB **2 OSS v2.9.1** and **3 Core v3.12.1** against the

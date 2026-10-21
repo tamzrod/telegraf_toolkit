@@ -13,7 +13,8 @@ import (
 )
 
 // newPersistentService wires the service to a real SQLite store so the test
-// exercises the actual persistence path rather than only in-memory adapters.
+// exercises the actual persistence path rather than only in-memory adapters. The
+// credential-binding store is attached so the privileged enrollment path works.
 func newPersistentService(t *testing.T) (*Service, *metadatastore.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "metadata.db")
@@ -22,20 +23,36 @@ func newPersistentService(t *testing.T) (*Service, *metadatastore.Store) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return New(store.Profiles(), store.CredentialRefs(), store.Audit(), store), store
+	service := New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
+		WithCredentialBindings(store.CredentialBindings())
+	return service, store
+}
+
+// createBoundProfile seeds the profile's credential reference and creates the
+// profile through the privileged enrollment path, so a test can focus on the
+// behaviour under test rather than on establishing the binding.
+func createBoundProfile(t *testing.T, service *Service, profile fixtures.ConnectionProfile) {
+	t.Helper()
+	if profile.CredentialRefID != "" {
+		if err := service.PutCredentialRef(context.Background(), registrycontract.CredentialRef{
+			CredentialRefID: profile.CredentialRefID,
+			Alias:           profile.CredentialRefID,
+			Role:            registrycontract.RoleRead,
+		}); err != nil {
+			t.Fatalf("seed credential reference: %v", err)
+		}
+	}
+	if err := service.CreateProfileWithBindingAs(context.Background(), "test-admin", profile); err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
 }
 
 func TestServiceWritesThroughToPersistentStore(t *testing.T) {
 	service, store := newPersistentService(t)
 	ctx := context.Background()
 
-	if err := service.CreateProfile(ctx, fixtures.Profile1x()); err != nil {
-		t.Fatalf("create profile: %v", err)
-	}
-	if err := service.CreateProfile(ctx, fixtures.Profile2x()); err != nil {
-		t.Fatalf("create profile: %v", err)
-	}
-
+	createBoundProfile(t, service, fixtures.Profile1x())
+	createBoundProfile(t, service, fixtures.Profile2x())
 	// Read back through the raw repository to prove the service wrote to disk.
 	persisted, ok, err := store.Profiles().Get("mock-influx-1x")
 	if err != nil || !ok {
@@ -58,9 +75,7 @@ func TestServiceRecordsAuditOnMutations(t *testing.T) {
 	service, _ := newPersistentService(t)
 	ctx := context.Background()
 
-	if err := service.CreateProfile(ctx, fixtures.Profile3x()); err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	createBoundProfile(t, service, fixtures.Profile3x())
 	if err := service.DeleteProfile(ctx, "mock-influx-3x"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -69,11 +84,15 @@ func TestServiceRecordsAuditOnMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("audit events = %d, want 2", len(events))
+	// The privileged enrollment records extra audit events (credential reference
+	// attach, credential bind) before profile.create; assert the last two events
+	// are the profile create and delete.
+	if len(events) < 2 {
+		t.Fatalf("audit events = %d, want at least 2", len(events))
 	}
-	if events[0].Action != "profile.create" || events[1].Action != "profile.delete" {
-		t.Fatalf("unexpected audit actions: %s, %s", events[0].Action, events[1].Action)
+	last := events[len(events)-2:]
+	if last[0].Action != "profile.create" || last[1].Action != "profile.delete" {
+		t.Fatalf("unexpected audit actions: %s, %s", last[0].Action, last[1].Action)
 	}
 	for _, event := range events {
 		if event.TargetID == "" {
@@ -114,12 +133,11 @@ func TestServiceStatusWithoutStoreIsNotConnected(t *testing.T) {
 // contract interfaces, so a future PostgreSQL adapter can replace SQLite
 // without changing the service (ADR-0002 migration path).
 func TestServiceWorksOverInMemoryAdapters(t *testing.T) {
-	service := New(registrycontract.NewMemoryProfileStore(), registrycontract.NewMemoryCredentialRefStore(), registrycontract.NewMemoryAuditSink(), nil)
+	service := New(registrycontract.NewMemoryProfileStore(), registrycontract.NewMemoryCredentialRefStore(), registrycontract.NewMemoryAuditSink(), nil).
+		WithCredentialBindings(registrycontract.NewMemoryCredentialBindingStore())
 	ctx := context.Background()
 
-	if err := service.CreateProfile(ctx, fixtures.Profile2x()); err != nil {
-		t.Fatalf("create over memory store: %v", err)
-	}
+	createBoundProfile(t, service, fixtures.Profile2x())
 	list, err := service.ListProfiles(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -133,10 +151,8 @@ func TestServiceRejectsDuplicateProfile(t *testing.T) {
 	service, _ := newPersistentService(t)
 	ctx := context.Background()
 
-	if err := service.CreateProfile(ctx, fixtures.Profile1x()); err != nil {
-		t.Fatalf("first create: %v", err)
-	}
-	err := service.CreateProfile(ctx, fixtures.Profile1x())
+	createBoundProfile(t, service, fixtures.Profile1x())
+	err := service.CreateProfileWithBindingAs(ctx, "test-admin", fixtures.Profile1x())
 	if err == nil {
 		t.Fatal("expected duplicate profile to be rejected")
 	}

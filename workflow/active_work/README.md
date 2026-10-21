@@ -1,9 +1,22 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `phase-2/live-registry-implementation`
-**Current human-authorized task:** `P2L-007-credential-profile-authorization.md`
-**Authorized queue:** P2L-007 only.
+**Current task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
+**Human-authorized queue:** empty.
 
-Independent pre-PR finding HIGH: a configurator may enumerate credential-reference IDs, create an attacker-endpoint profile referencing another stored secret, and probe it. Close this credential-to-profile binding/privilege escalation path in server code, not UI alone. Preserve P2L-006 protections and deny arbitrary existing credential-ref association. See current task acceptance for adversarial tests, isolated real DB integration and quality gates.
+P2L-007 (credential-to-profile authorization) is complete, verified and archived.
+No task remains authorized.
 
-Operation CWAL: execute only P2L-007, verify, archive via `git mv`, reset both pointers to empty queue, commit/push/remote-confirm and report `WORK_PACKAGE_READY`. Stop honestly if blocked. Human-only PR actions.
+Remediation delivered: attaching a credential reference to a profile now requires
+the administrator-only `credential.attach` permission and a server-authoritative
+approved binding (credential reference + connection ID + endpoint + canonical
+scope). The binding is enforced at profile creation and re-verified at probe
+time, so a principal with `profile.write`/`profile.probe` cannot attach another
+principal's stored secret to an endpoint it controls. P2L-006 DNS-pinning and
+probe-parameter protections are preserved. Validated with adversarial tests
+(attacker host receives zero Authorization headers), the isolated InfluxDB 2/3
+harness, `make check`, `go test -race ./...` and `scripts/policy-check.sh`.
+
+Operation CWAL: the sole task is fixed, verified, archived by `git mv`, both
+pointers set to an empty queue, committed/pushed and remote-confirmed. Report
+`WORK_PACKAGE_READY`. No self-promotion, production access or PR actions.

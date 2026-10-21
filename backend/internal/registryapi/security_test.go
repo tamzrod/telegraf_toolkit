@@ -58,7 +58,7 @@ func seedProfileWithCredential(t *testing.T, service *registryservice.Service, c
 	profile.DisplayName = connectionID
 	profile.Endpoint = endpoint
 	profile.CredentialRefID = ref.CredentialRefID
-	if err := service.CreateProfile(context.Background(), profile); err != nil {
+	if err := service.CreateProfileWithBindingAs(context.Background(), "seed-admin", profile); err != nil {
 		t.Fatalf("create profile: %v", err)
 	}
 	return ref.CredentialRefID

@@ -41,6 +41,7 @@ const (
 	PermProfileProbe      Permission = "profile.probe"
 	PermCredentialRead    Permission = "credential.read"
 	PermCredentialWrite   Permission = "credential.write"
+	PermCredentialAttach  Permission = "credential.attach"
 	PermAuditRead         Permission = "audit.read"
 	PermCredentialResolve Permission = "credential.resolve"
 )
@@ -48,6 +49,11 @@ const (
 // rolePermissions maps a role to its granted permissions. The map is the single
 // source of truth for the role model; it is deliberately explicit rather than
 // derived, so a role cannot silently gain a permission.
+//
+// credential.attach is the authority to associate an existing credential
+// reference with a profile endpoint/scope. It is deliberately administrator-only:
+// a configurator can write profiles but must not be able to attach another
+// principal's stored secret to a profile it controls (P2L-007).
 var rolePermissions = map[Role]map[Permission]bool{
 	RoleViewer: {
 		PermProfileRead: true,
@@ -69,6 +75,7 @@ var rolePermissions = map[Role]map[Permission]bool{
 		PermProfileProbe:      true,
 		PermCredentialRead:    true,
 		PermCredentialWrite:   true,
+		PermCredentialAttach:  true,
 		PermAuditRead:         true,
 		PermCredentialResolve: true,
 	},

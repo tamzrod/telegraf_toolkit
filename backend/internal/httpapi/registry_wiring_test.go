@@ -12,6 +12,7 @@ import (
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryapi"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 )
 
@@ -25,12 +26,23 @@ func TestRegistryDataRoutesRequireAuthentication(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer func() { _ = store.Close() }()
-	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store)
+	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
+		WithCredentialBindings(store.CredentialBindings())
 
 	authenticator := authz.NewAuthenticator()
 	principal, _ := authz.NewPrincipal("alice", authz.RoleAdministrator)
 	if err := authenticator.RegisterToken("admin-token", principal); err != nil {
 		t.Fatalf("register token: %v", err)
+	}
+
+	// Seed a credential reference so the admin can attach it (an admin holds
+	// credential.attach, which records the approved binding).
+	if err := service.PutCredentialRef(context.Background(), registrycontract.CredentialRef{
+		CredentialRefID: "ref-1x",
+		Alias:           "Wired 1.x reference",
+		Role:            registrycontract.RoleRead,
+	}); err != nil {
+		t.Fatalf("seed reference: %v", err)
 	}
 
 	srv := httptest.NewServer(HandlerWithRegistry(service, registryapi.New(service, authenticator)))

@@ -65,6 +65,7 @@ Current set:
 | 2 | `audit-and-profile-lookup-indexes` | lookup indexes on audit target, audit time, profile family |
 | 3 | `encrypted-secret-envelopes` | `secret_envelopes` (ciphertext envelopes only) |
 | 4 | `profile-endpoint` | `connection_profiles.endpoint` (server-resolved probe target) |
+| 5 | `credential-bindings` | `credential_bindings` (approved credential↔profile bindings) |
 
 A test builds a database at version 1, writes a row, upgrades to the current
 version, and asserts the row survives — proving later migrations are additive.
@@ -83,6 +84,9 @@ version, and asserts the row survives — proving later migrations are additive.
 - `secret_envelopes` — authenticated ciphertext envelopes plus the key ID that
   wrapped each one (ADR-0003). The envelope contains no plaintext and no key; the
   key lives in a separate file. See [`SECRET_STORE.md`](SECRET_STORE.md).
+- `credential_bindings` — approved credential-to-profile bindings: the credential
+  reference, connection ID, endpoint and canonical scope. A probe resolves a
+  credential only when a matching binding exists (P2L-007). No secret value.
 
 A test enumerates every column of every table and fails if any is named like a
 secret value (`value`, `secret`, `password`, `token`, …).
