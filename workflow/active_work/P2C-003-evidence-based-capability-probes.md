@@ -26,6 +26,16 @@ Actual read-only observations drive supported/unsupported/unknown; unknown on am
 ## Verification evidence
 Isolated InfluxDB 2 OSS and 3 Core probes plus malicious endpoint/timeout/negative auth tests; make check and race tests.
 
+## Refined execution and acceptance contract (P2C-003)
+
+- Replace edition-derived supported/unsupported capability assertions with **specific nonmutating observations**. Record for each dialect/schema check what was actually attempted, status, and supported/unsupported/unknown semantics.
+- Do not treat an HTTP 200, edition label, a 401/403, or an unrecognized endpoint response as proof of query/write functionality. Auth errors, timeouts, malformed/ambiguous data, or untested functionality yield **unknown**.
+- Prober remains GET/read-only; never issue test writes or requests to arbitrary user-selected endpoints. Any write-protocol capability without an independently authorized synthetic test is **unknown**, not supported or unsupported.
+- Preserve profile-based destination selection, approved credential binding and one-time pinned peer/TLS/SSRF checks on **every** outgoing request; prevent redirects/proxies and bound response size, time and request budget.
+- Ensure API wire format, UI three-state mapping and docs agree (unknown must never collapse to unsupported or supported).
+- Verify against synthetic isolated InfluxDB 2 OSS / 3 Core; test untrusted/mixed DNS, auth denied, timeouts, redirects, inconclusive responses and edition variation. InfluxDB 1.x is unverified.
+- Deliver a capability evidence matrix and exact executed test output; run make check and race tests.
+
 ## Stop conditions
 Stop and report `TASK_BLOCKED` for unsafe network/credential access, unresolved architecture, or required testing unavailable. No weakening tests or replacing working behavior with mocks.
 
