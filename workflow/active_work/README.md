@@ -1,9 +1,19 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `test/real-influxdb-integration`
-**Current task:** `TEST-002-repeatable-influxdb-verification.md`
-**Human-authorized queue:** TEST-002 only.
+**Current task:** none.
+**Human-authorized queue:** empty.
 
-Execute the task's two sequential real Docker integration runs on the isolated OpenHands test host, retaining state and credentials between runs; verify safeguards, shell syntax, `make check`, test evidence and no Git-tracked secrets. Make only minimum scoped fixes required by actual failures, and rerun acceptance.
+TEST-002 was completed and verified: two consecutive full integration runs
+against retained InfluxDB 2 OSS / InfluxDB 3 Core state passed unchanged
+(InfluxDB 16 passed / 0 failed; Toolkit smoke 2 passed / 0 failed / 1 not
+implemented), credential reuse was confirmed, and negative credential cases
+failed safely without overwriting or regenerating credentials.
 
-Once passing, archive task via `git mv`, update this README and `handoff.md` to current task none / queue empty, commit and push, confirm remote checkpoint, report `WORK_PACKAGE_READY` and stop. Block honestly if Docker cannot safely run or tests fail. No production access, ADR acceptance, self-promotion or PR actions.
+No further task is authorized. Planning does not authorize work, and this
+pointer does not promote any task. A human must promote the next microtask into
+this directory (and set it as the current task) before any agent acts.
+
+See `archive/active-work/TEST-002-repeatable-influxdb-verification.md` for the
+recorded evidence and limitations. Human controls all PR actions.
+
