@@ -167,6 +167,7 @@ func (mockRefStore) Get(string) (CredentialRef, bool, error) {
 	return CredentialRef{}, false, nil
 }
 func (mockRefStore) List() ([]CredentialRef, error) { return nil, nil }
+func (mockRefStore) Delete(string) error            { return nil }
 
 type mockAuditSink struct{}
 

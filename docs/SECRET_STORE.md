@@ -2,7 +2,7 @@
 
 Status: **Implemented (backend-only, envelope-encrypted).**
 Decision: [ADR-0003](adr/0003-secret-store-integration.md) (Accepted — Option A, application-level envelope encryption).
-Task: P2L-002.
+Task: P2L-002; the credential replacement swap and the staged material were added by P2C-005.
 
 This document describes the backend-only credential secret store that ADR-0003
 selects. It covers key custody, the envelope format, the resolver boundary,
@@ -212,6 +212,29 @@ No new dependency: envelope encryption uses only the Go standard library.
   any stored or returned field.
 - Keys outside database and git → key file is separate and `.gitignore` excludes
   `*.key`; a test asserts the database file contains no plaintext.
+
+## Replacement and staged material (P2C-005)
+
+The store gained one operation for the credential replacement lifecycle:
+
+- `StoreWithRef` stores a value under a caller-chosen reference. The
+  replacement lifecycle uses it to **stage** a candidate value under a
+  `staged-…` reference. The staged envelope is disposable: it is removed
+  whatever the outcome, and a leftover staged envelope from an interrupted
+  attempt is removed before the next stage, so a retry after a crash succeeds.
+- `Replace` swaps the value behind an **existing** reference. The procedure is
+  failure safe: the previous envelope is read first, the new value is sealed
+  under the active key, the new envelope is written, and the new envelope is
+  decrypted again and compared with the new value. If that verification fails,
+  the previous envelope is restored, so the credential stays usable and the
+  swap is never half-applied.
+
+Because the swap keeps the reference ID, the profile that names it and the
+approval that authorises it stay valid: a replacement never invalidates an
+approval and never interrupts an unrelated profile.
+
+The staged material and the value itself are never returned, logged or
+audited; only the reference is.
 
 ## Limitations
 

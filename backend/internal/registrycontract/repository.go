@@ -214,6 +214,20 @@ func (s *MemoryProfileStore) Delete(connectionID string) error {
 	return nil
 }
 
+// SetCredentialRef points a profile at a credential reference. It never changes
+// the profile's identity, endpoint or scope.
+func (s *MemoryProfileStore) SetCredentialRef(connectionID, credentialRefID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile, ok := s.profiles[connectionID]
+	if !ok {
+		return NewSanitizedError(CodeProfileNotFound, fmt.Sprintf("Profile %q not found.", connectionID))
+	}
+	profile.CredentialRefID = credentialRefID
+	s.profiles[connectionID] = profile
+	return nil
+}
+
 // MemoryCredentialRefStore is a test-only, in-memory credential-reference
 // repository. It stores references only and never a secret value.
 type MemoryCredentialRefStore struct {
@@ -255,6 +269,17 @@ func (s *MemoryCredentialRefStore) List() ([]CredentialRef, error) {
 	}
 	sortRefs(out)
 	return out, nil
+}
+
+// Delete removes a stored reference.
+func (s *MemoryCredentialRefStore) Delete(credentialRefID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.refs[credentialRefID]; !ok {
+		return NewSanitizedError(CodeReferenceNotFound, fmt.Sprintf("No credential reference matches %q.", credentialRefID))
+	}
+	delete(s.refs, credentialRefID)
+	return nil
 }
 
 // MemoryCredentialBindingStore is a test-only, in-memory binding repository. It

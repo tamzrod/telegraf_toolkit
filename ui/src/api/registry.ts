@@ -93,6 +93,19 @@ export type ApiCredentialRef = {
   mock: boolean;
 };
 
+/** Validates a credential reference payload. It never carries a value. */
+export function isApiCredentialRef(value: unknown): value is ApiCredentialRef {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.credential_ref_id === "string" &&
+    typeof value.alias === "string" &&
+    typeof value.role === "string" &&
+    typeof value.mock === "boolean"
+  );
+}
+
 export type ApiProfile = {
   connection_id: string;
   display_name: string;
@@ -105,6 +118,53 @@ export type ApiProfile = {
   mock: boolean;
   note: string;
 };
+
+/**
+ * The body the browser may send to enroll a credential.
+ *
+ * The value is **write-only**: it is submitted once, encrypted server-side and
+ * never returned. The browser must clear the field immediately after the
+ * request and must never persist it in storage, the URL or a log.
+ */
+export type ApiCredentialInput = {
+  connection_id: string;
+  alias: string;
+  role: string;
+  value: string;
+};
+
+/**
+ * The body the browser may send to replace the credential a profile is bound
+ * to. It carries the same write-only value.
+ */
+export type ApiCredentialReplaceInput = {
+  connection_id: string;
+  alias: string;
+  value: string;
+};
+
+/**
+ * Validates an enrollment body before it is sent.
+ *
+ * The check is a client-side guard only: the server validates again and is
+ * authoritative. It requires the single permitted secret-bearing field and
+ * refuses any other secret-like key.
+ */
+export function isApiCredentialInput(
+  value: unknown,
+): value is ApiCredentialInput {
+  // The value is the one permitted secret-bearing field; any other secret-like
+  // key is refused.
+  if (!isRecord(value) || hasSecretLikeKeyExcept(value, ["value"])) {
+    return false;
+  }
+  return (
+    typeof value.connection_id === "string" &&
+    typeof value.alias === "string" &&
+    typeof value.role === "string" &&
+    typeof value.value === "string"
+  );
+}
 
 export type ApiCapabilityOutcomeMap = Record<string, CapabilityOutcome>;
 
@@ -215,18 +275,33 @@ function isOutcomeMap(value: unknown): value is Record<string, CapabilityOutcome
  * or malicious payload is refused rather than rendered.
  */
 export function hasSecretLikeKey(value: unknown): boolean {
+  return hasSecretLikeKeyExcept(value, []);
+}
+
+/**
+ * Rejects a payload that carries a secret-like key anywhere in its shape,
+ * except for the listed keys.
+ *
+ * The credential enrollment body is the one case that legitimately carries a
+ * secret-bearing field: the value is submitted under the exact key `value` and
+ * nowhere else, so any other secret-like key is still refused.
+ */
+export function hasSecretLikeKeyExcept(
+  value: unknown,
+  allowed: string[],
+): boolean {
   if (Array.isArray(value)) {
-    return value.some(hasSecretLikeKey);
+    return value.some((nested) => hasSecretLikeKeyExcept(nested, allowed));
   }
   if (!isRecord(value)) {
     return false;
   }
   return Object.entries(value).some(([key, nested]) => {
     const normalized = key.toLowerCase().replace(/-/g, "_");
-    if (SECRET_LIKE_KEYS.includes(normalized)) {
+    if (!allowed.includes(normalized) && SECRET_LIKE_KEYS.includes(normalized)) {
       return true;
     }
-    return hasSecretLikeKey(nested);
+    return hasSecretLikeKeyExcept(nested, allowed);
   });
 }
 

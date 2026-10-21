@@ -12,6 +12,7 @@ package registryapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -70,7 +71,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/registry/profiles", a.handleProfiles)
 	mux.HandleFunc("/api/v1/registry/profiles/", a.handleProfile)
 	mux.HandleFunc("/api/v1/registry/credentials", a.handleCredentials)
+	mux.HandleFunc("/api/v1/registry/credentials/", a.handleCredentialLifecycle)
 	mux.HandleFunc("/api/v1/registry/credential-bindings", a.handleCredentialBindings)
+	mux.HandleFunc("/api/v1/registry/credential-bindings/", a.handleCredentialBindings)
 	mux.HandleFunc("/api/v1/registry/audit", a.handleAudit)
 	if a.prober != nil {
 		mux.HandleFunc("/api/v1/registry/probe", a.handleProbe)
@@ -155,24 +158,194 @@ func (a *API) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleCredentials lists the credential references and enrolls a new
+// credential.
+//
+// Enrolling is an administrator-only, write-only operation: the value in the
+// body is encrypted server-side and never returned, logged or echoed. The
+// reference is bound to a stored profile, and the endpoint and scope of that
+// approval come from the profile, never from the request.
 func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 	principal, ok := a.principal(w, r)
 	if !ok {
 		return
 	}
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w, http.MethodGet)
+	switch r.Method {
+	case http.MethodGet:
+		if !a.authorize(w, principal, authz.PermCredentialRead) {
+			return
+		}
+		refs, err := a.service.ListCredentialRefs(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal-error", "The credential references could not be listed.")
+			return
+		}
+		writeJSON(w, http.StatusOK, credentialRefsPayload(refs))
+	case http.MethodPost:
+		a.enrollCredential(w, r, principal)
+	default:
+		methodNotAllowed(w, http.MethodGet, http.MethodPost)
+	}
+}
+
+// credentialInput is the accepted body for enrolling a credential.
+//
+// The value is write-only: it is encrypted into an envelope and is never
+// returned, logged or embedded in an error.
+type credentialInput struct {
+	ConnectionID string `json:"connection_id"`
+	Alias        string `json:"alias"`
+	Role         string `json:"role"`
+	Value        string `json:"value"`
+}
+
+// credentialReplaceInput is the accepted body for replacing the credential a
+// profile is bound to.
+type credentialReplaceInput struct {
+	ConnectionID string `json:"connection_id"`
+	Alias        string `json:"alias"`
+	Value        string `json:"value"`
+}
+
+// enrollCredential stores a credential value for a profile and approves the
+// binding that authorises it.
+func (a *API) enrollCredential(w http.ResponseWriter, r *http.Request, principal authz.Principal) {
+	// Enrolling writes a credential value and attaches it to a profile: both
+	// permissions are administrator-only.
+	if !a.authorize(w, principal, authz.PermCredentialWrite) {
 		return
 	}
-	if !a.authorize(w, principal, authz.PermCredentialRead) {
+	if !a.authorize(w, principal, authz.PermCredentialAttach) {
 		return
 	}
-	refs, err := a.service.ListCredentialRefs(r.Context())
+	var input credentialInput
+	if err := decodeCredentialJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+		return
+	}
+	if strings.TrimSpace(input.ConnectionID) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A credential requires a connection profile ID.")
+		return
+	}
+	if strings.TrimSpace(input.Value) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeSecretMaterial), "A credential value is required.")
+		return
+	}
+	role := registrycontract.Role(strings.TrimSpace(input.Role))
+	if role == "" {
+		role = registrycontract.RoleWrite
+	}
+	alias := strings.TrimSpace(input.Alias)
+	if alias == "" {
+		alias = input.ConnectionID
+	}
+
+	ref, err := a.service.EnrollCredential(r.Context(), principal.ID, input.ConnectionID, alias, role, input.Value)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal-error", "The credential references could not be listed.")
+		writeSanitizedError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, credentialRefsPayload(refs))
+	// The response carries the reference only. The value is never echoed.
+	writeJSON(w, http.StatusCreated, credentialRefResponse(ref))
+}
+
+// handleCredentialLifecycle serves the replacement and revocation routes.
+//
+//	POST   /api/v1/registry/credentials/replace
+//	DELETE /api/v1/registry/credentials/{reference}
+func (a *API) handleCredentialLifecycle(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/registry/credentials/")
+	path = strings.Trim(path, "/")
+
+	switch {
+	case path == "replace" && r.Method == http.MethodPost:
+		a.replaceCredential(w, r, principal)
+	case path != "" && path != "replace" && r.Method == http.MethodDelete:
+		a.revokeCredential(w, r, principal, path)
+	default:
+		methodNotAllowed(w, http.MethodPost, http.MethodDelete)
+	}
+}
+
+// replaceCredential replaces the value behind the credential a profile is bound
+// to.
+//
+// The candidate value is staged, validated against the profile's approved
+// endpoint with the same pinned-peer, TLS and SSRF controls the probe route
+// uses, and only then swapped in. An inconclusive validation fails closed: the
+// credential that was in place stays in use.
+func (a *API) replaceCredential(w http.ResponseWriter, r *http.Request, principal authz.Principal) {
+	if !a.authorize(w, principal, authz.PermCredentialWrite) {
+		return
+	}
+	if !a.authorize(w, principal, authz.PermCredentialAttach) {
+		return
+	}
+	if a.prober == nil {
+		writeError(w, http.StatusServiceUnavailable, "probe-unavailable", "The credential cannot be replaced because no prober is configured.")
+		return
+	}
+	var input credentialReplaceInput
+	if err := decodeCredentialJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+		return
+	}
+	if strings.TrimSpace(input.ConnectionID) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A replacement requires a connection profile ID.")
+		return
+	}
+	if strings.TrimSpace(input.Value) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeSecretMaterial), "A credential value is required.")
+		return
+	}
+	alias := strings.TrimSpace(input.Alias)
+
+	// The validation runs the read-only prober against the profile's own
+	// endpoint with the candidate credential. The endpoint is resolved
+	// server-side from the stored profile, so the caller cannot point the
+	// validation at a host of its choosing.
+	validate := func(ctx context.Context, endpoint string, value string) error {
+		result, err := a.prober.Probe(ctx, liveprobe.Request{
+			ConnectionID: input.ConnectionID,
+			Endpoint:     endpoint,
+			Policy:       a.probePolicy,
+			Credential:   credentialFor(value),
+			Deadline:     10 * time.Second,
+			MaxRequests:  10,
+		})
+		if err != nil {
+			return err
+		}
+		// A probe that could not identify the deployment proves nothing.
+		if strings.TrimSpace(result.Edition) == "" {
+			return errors.New("the endpoint did not identify as a supported deployment")
+		}
+		return nil
+	}
+
+	ref, err := a.service.ReplaceCredential(r.Context(), principal.ID, input.ConnectionID, alias, input.Value, validate)
+	if err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, credentialRefResponse(ref))
+}
+
+// revokeCredential removes a stored credential. It is refused while an
+// approved binding still requires the credential.
+func (a *API) revokeCredential(w http.ResponseWriter, r *http.Request, principal authz.Principal, credentialRefID string) {
+	if !a.authorize(w, principal, authz.PermCredentialWrite) {
+		return
+	}
+	if err := a.service.RevokeCredential(r.Context(), principal.ID, credentialRefID); err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) handleAudit(w http.ResponseWriter, r *http.Request) {
@@ -273,8 +446,13 @@ type credentialBindingPayload struct {
 	ApprovedBy      string `json:"approved_by"`
 }
 
-// handleCredentialBindings lists (GET) or approves (POST) credential-to-profile
-// bindings. Both require the administrator-only credential.attach permission.
+// handleCredentialBindings lists (GET), approves (POST) or revokes (DELETE)
+// credential-to-profile bindings. All three require the administrator-only
+// credential.attach permission.
+//
+//	GET    /api/v1/registry/credential-bindings
+//	POST   /api/v1/registry/credential-bindings
+//	DELETE /api/v1/registry/credential-bindings/{reference}/{connection}
 func (a *API) handleCredentialBindings(w http.ResponseWriter, r *http.Request) {
 	principal, ok := a.principal(w, r)
 	if !ok {
@@ -319,8 +497,21 @@ func (a *API) handleCredentialBindings(w http.ResponseWriter, r *http.Request) {
 			Scope:           binding.Scope,
 			ApprovedBy:      binding.ApprovedBy,
 		})
+	case http.MethodDelete:
+		// DELETE /credential-bindings/{reference}/{connection}
+		path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/registry/credential-bindings/"), "/")
+		parts := strings.Split(path, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			writeError(w, http.StatusBadRequest, "invalid-path", "A binding revocation requires a credential reference and a connection ID.")
+			return
+		}
+		if err := a.service.RevokeCredentialBinding(r.Context(), principal.ID, parts[0], parts[1]); err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	default:
-		methodNotAllowed(w, http.MethodGet, http.MethodPost)
+		methodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodDelete)
 	}
 }
 
@@ -503,6 +694,10 @@ func statusForCode(code registrycontract.ErrorCode) int {
 		return http.StatusNotFound
 	case registrycontract.CodeDuplicateProfile:
 		return http.StatusConflict
+	case registrycontract.CodeCredentialInUse:
+		return http.StatusConflict
+	case registrycontract.CodeCredentialValidationFailed:
+		return http.StatusUnprocessableEntity
 	case registrycontract.CodeCredentialNotBound:
 		return http.StatusForbidden
 	case registrycontract.CodeInvalidProfile, registrycontract.CodeScopeIncomplete,
@@ -529,6 +724,34 @@ func decodeJSON(r *http.Request, target any) error {
 	// secret-like key before it is parsed, so no partial value is ever handled.
 	if containsSecretLikeKey(raw) {
 		return errSecretLikeBody
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
+}
+
+// decodeCredentialJSON decodes a body that legitimately carries one
+// secret-bearing field: the credential value.
+//
+// The value is accepted under the exact key "value" and nowhere else. Any
+// other secret-like key is refused before the body is parsed, so a value is
+// never handled under a key the application does not expect.
+func decodeCredentialJSON(r *http.Request, target any) error {
+	raw, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for key := range fields {
+		if key == "value" {
+			continue
+		}
+		if secretLikeKey(key) {
+			return errSecretLikeBody
+		}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

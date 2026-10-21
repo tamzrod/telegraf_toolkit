@@ -149,6 +149,87 @@ func (s *Store) StoreWithRef(ctx context.Context, refID, alias string, role regi
 	return ref, nil
 }
 
+// Replace replaces the value stored for an existing reference.
+//
+// It is the swap step of a credential replacement. The procedure is failure
+// safe:
+//
+//  1. The previous envelope is read, so it can be restored.
+//  2. The new value is sealed under the active key and the envelope is written.
+//  3. The new envelope is decrypted again and compared with the new value; if
+//     that fails, the previous envelope is restored and the failure is
+//     reported.
+//
+// The reference ID, the profile that names it and the binding that approves it
+// are untouched, so a swap never invalidates an approval and never interrupts
+// an unrelated profile. The value is never logged or returned.
+func (s *Store) Replace(ctx context.Context, refID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error) {
+	if err := validateRole(role); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if value == "" {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeInvalidProfile, "A credential value is required.")
+	}
+	if strings.TrimSpace(refID) == "" {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
+	}
+	previous, err := s.envelopes.Get(refID)
+	if errors.Is(err, metadatastore.ErrEnvelopeNotFound) {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "No credential is stored for this reference.")
+	}
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+
+	enc, err := s.seal(refID, []byte(value))
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if err := s.envelopes.Put(metadatastore.Envelope{
+		CredentialRefID: refID,
+		KeyID:           enc.keyID,
+		Envelope:        enc.encoded,
+		UpdatedAt:       s.now(),
+	}); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+
+	// Verify the new envelope before reporting success. If it does not decrypt
+	// to the new value, the previous envelope is restored so the credential
+	// stays usable.
+	stored, err := s.envelopes.Get(refID)
+	if err != nil {
+		_ = s.envelopes.Put(previous)
+		return registrycontract.CredentialRef{}, err
+	}
+	opened, err := s.open(stored.Envelope, refID)
+	if err != nil || string(opened) != value {
+		if restoreErr := s.envelopes.Put(previous); restoreErr != nil {
+			return registrycontract.CredentialRef{}, fmt.Errorf("restore previous envelope: %w", restoreErr)
+		}
+		if err != nil {
+			return registrycontract.CredentialRef{}, err
+		}
+		return registrycontract.CredentialRef{}, ErrEnvelopeAuthFailed
+	}
+
+	ref := registrycontract.CredentialRef{
+		CredentialRefID: refID,
+		Alias:           alias,
+		Role:            role,
+		Fingerprint:     fingerprint([]byte(value)),
+		LastRotated:     s.now(),
+		Mock:            false,
+	}
+	if err := s.recordAudit(ctx, "credential.replace", refID); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	return ref, nil
+}
+
 // Resolve decrypts the envelope for a reference and returns the value. It is
 // server-side only. The value must never be logged, returned to the browser or
 // embedded in an error; callers that do so violate ADR-0003.

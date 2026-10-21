@@ -13,7 +13,10 @@ import { useRegistryProfiles } from "../../hooks/useRegistryProfiles";
 import {
   useCreateLiveProfile,
   useDeleteLiveProfile,
+  useEnrollCredential,
   useLiveRegistryProfiles,
+  useReplaceCredential,
+  useRevokeCredential,
 } from "../../hooks/useLiveRegistry";
 import { clearSessionToken, hasSessionToken, setSessionToken } from "../../api/session";
 import { formatScope } from "../../api/registry";
@@ -86,6 +89,9 @@ export function DatabasesPage() {
   const liveQuery = useLiveRegistryProfiles(useLive);
   const createProfile = useCreateLiveProfile();
   const deleteProfile = useDeleteLiveProfile();
+  const enrollCredential = useEnrollCredential();
+  const replaceCredential = useReplaceCredential();
+  const revokeCredential = useRevokeCredential();
 
   const active = useLive ? liveQuery : mockQuery;
   const { data, isPending, isError, refetch } = active;
@@ -97,6 +103,16 @@ export function DatabasesPage() {
   const [liveDraft, setLiveDraft] = useState<ProfileDraft>(EMPTY_DRAFT);
   const [pendingDeletion, setPendingDeletion] = useState<string>("");
   const [notice, setNotice] = useState<string>("");
+  // The credential value is write-only: it is held in component state only
+  // until the request is sent, and it is cleared immediately afterwards.
+  const [credentialDraft, setCredentialDraft] = useState({
+    connectionId: "",
+    alias: "",
+    role: "write",
+    value: "",
+  });
+  const [credentialNotice, setCredentialNotice] = useState<string>("");
+  const [pendingRevocation, setPendingRevocation] = useState<string>("");
 
   const profiles = useMemo(() => data ?? [], [data]);
 
@@ -169,6 +185,64 @@ export function DatabasesPage() {
       setNotice(describeApiFailure(error));
     } finally {
       setPendingDeletion("");
+    }
+  }
+
+  async function submitCredential() {
+    const draft = credentialDraft;
+    if (draft.connectionId.trim() === "" || draft.value.trim() === "") {
+      setCredentialNotice("A profile and a credential value are required.");
+      return;
+    }
+    // The value is cleared before the request is awaited, so it is not held
+    // in component state while the request is in flight.
+    setCredentialDraft({ ...draft, value: "" });
+    setCredentialNotice("");
+    try {
+      const ref = await enrollCredential.mutateAsync({
+        connection_id: draft.connectionId.trim(),
+        alias: draft.alias.trim() || draft.connectionId.trim(),
+        role: draft.role,
+        value: draft.value,
+      });
+      setCredentialNotice(
+        `Enrolled credential ${ref.credential_ref_id}. The value is stored encrypted and is never shown again.`,
+      );
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    }
+  }
+
+  async function submitReplacement() {
+    const draft = credentialDraft;
+    if (draft.connectionId.trim() === "" || draft.value.trim() === "") {
+      setCredentialNotice("A profile and a replacement value are required.");
+      return;
+    }
+    setCredentialDraft({ ...draft, value: "" });
+    setCredentialNotice("");
+    try {
+      const ref = await replaceCredential.mutateAsync({
+        connection_id: draft.connectionId.trim(),
+        alias: draft.alias.trim() || draft.connectionId.trim(),
+        value: draft.value,
+      });
+      setCredentialNotice(
+        `Replaced the credential ${ref.credential_ref_id}. The previous value was revoked.`,
+      );
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    }
+  }
+
+  async function confirmRevocation(credentialRefId: string) {
+    try {
+      await revokeCredential.mutateAsync({ credentialRefId });
+      setCredentialNotice(`Revoked credential ${credentialRefId}.`);
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    } finally {
+      setPendingRevocation("");
     }
   }
 
@@ -251,6 +325,175 @@ export function DatabasesPage() {
           </div>
         )}
       </section>
+
+      {useLive && (
+        <section className="mt-6" aria-labelledby="credential-lifecycle">
+          <h2 id="credential-lifecycle" className="text-lg font-medium">
+            Credential lifecycle
+          </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            The credential value is <strong>write-only</strong>: it is sent once
+            over the authorized API, encrypted server-side, and never shown
+            again. It is not written to browser storage, the URL or a log.
+            Submit it only over a TLS-terminated transport. Enrolling and
+            replacing a credential require the administrator role.
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="credential-profile" className="block text-sm font-medium">
+                Connection profile
+              </label>
+              <select
+                id="credential-profile"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.connectionId}
+                onChange={(event) =>
+                  setCredentialDraft({
+                    ...credentialDraft,
+                    connectionId: event.target.value,
+                  })
+                }
+                aria-describedby="credential-status"
+              >
+                <option value="">Select a profile…</option>
+                {profiles.map((profile) => (
+                  <option key={profile.connectionId} value={profile.connectionId}>
+                    {profile.displayName} — {formatScope(profile.scope)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="credential-alias" className="block text-sm font-medium">
+                Alias
+              </label>
+              <input
+                id="credential-alias"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.alias}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, alias: event.target.value })
+                }
+                aria-describedby="credential-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="credential-role" className="block text-sm font-medium">
+                Role
+              </label>
+              <select
+                id="credential-role"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.role}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, role: event.target.value })
+                }
+                aria-describedby="credential-status"
+              >
+                <option value="read">read</option>
+                <option value="write">write</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="credential-value" className="block text-sm font-medium">
+                Credential value
+              </label>
+              <input
+                id="credential-value"
+                type="password"
+                autoComplete="off"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.value}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, value: event.target.value })
+                }
+                aria-describedby="credential-status"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-gray-500 px-3 py-1 text-sm"
+              onClick={() => void submitCredential()}
+              disabled={enrollCredential.isPending}
+            >
+              {enrollCredential.isPending ? "Enrolling…" : "Enroll credential"}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-gray-500 px-3 py-1 text-sm"
+              onClick={() => void submitReplacement()}
+              disabled={replaceCredential.isPending}
+            >
+              {replaceCredential.isPending ? "Replacing…" : "Replace credential"}
+            </button>
+          </div>
+
+          <p
+            id="credential-status"
+            role="status"
+            aria-live="polite"
+            className="mt-2 rounded border border-gray-300 bg-gray-50 p-2 text-sm text-gray-800"
+          >
+            {credentialNotice !== ""
+              ? credentialNotice
+              : "No credential action has been performed in this session."}
+          </p>
+
+          {profiles.some((profile) => profile.credentialRefId) && (
+            <ul className="mt-3 space-y-2">
+              {profiles
+                .filter((profile) => profile.credentialRefId)
+                .map((profile) => (
+                  <li
+                    key={profile.connectionId}
+                    className="flex flex-wrap items-center gap-2 rounded border border-gray-300 p-2 text-sm"
+                  >
+                    <span className="text-gray-800">
+                      {profile.connectionId} — {profile.credentialRefId}
+                    </span>
+                    {pendingRevocation === profile.credentialRefId ? (
+                      <>
+                        <span className="text-gray-800">
+                          Revoke {profile.credentialRefId}?
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded border border-red-500 px-3 py-1 text-sm text-red-800"
+                          onClick={() =>
+                            void confirmRevocation(profile.credentialRefId as string)
+                          }
+                          disabled={revokeCredential.isPending}
+                        >
+                          Confirm revoke
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-gray-400 px-3 py-1 text-sm"
+                          onClick={() => setPendingRevocation("")}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="rounded border border-gray-400 px-3 py-1 text-sm"
+                        onClick={() => setPendingRevocation(profile.credentialRefId as string)}
+                      >
+                        Revoke credential
+                      </button>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {useLive ? (
         <p role="status" className="mt-6 rounded border border-blue-300 bg-blue-50 p-4 text-sm">
@@ -789,8 +1032,8 @@ export function DatabasesPage() {
 
       <DisabledActionGroup
         heading="databases"
-        reason="Credential entry, attachment and rotation stay disabled: attaching a stored credential is an administrator-only operation that is delivered with the credential lifecycle. Live profile creation and deletion are available above; live listing and read-only capability probing are available above as well."
-        actions={["Attach credential", "Rotate credential", "Revoke credential"]}
+        reason="Rotating a credential and runtime secret delivery stay disabled: a rotation needs an independently authorized synthetic write check, and runtime secret injection depends on the host-agent boundary (ADR-0004, still Proposed). Credential enrollment, replacement and revocation are available above for the administrator role."
+        actions={["Rotate credential", "Deliver credential to a runtime"]}
       />
     </section>
   );

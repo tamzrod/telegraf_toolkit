@@ -41,6 +41,13 @@ const (
 	CodeRoleMismatch          ErrorCode = "credential-role-mismatch"
 	CodeSecretMaterial        ErrorCode = "secret-material-rejected"
 	CodeCredentialNotBound    ErrorCode = "credential-not-bound"
+	// CodeCredentialInUse reports that a credential is still required by an
+	// approved binding, so it may not be revoked yet.
+	CodeCredentialInUse ErrorCode = "credential-in-use"
+	// CodeCredentialValidationFailed reports that a replacement credential
+	// could not be validated against the profile's approved endpoint, so the
+	// credential that was in place stays in use.
+	CodeCredentialValidationFailed ErrorCode = "credential-validation-failed"
 )
 
 // secretMarkers are substrings that must never appear in a sanitized error.
@@ -180,6 +187,20 @@ type ProfileStore interface {
 	Delete(connectionID string) error
 }
 
+// CredentialRefUpdater is implemented by a profile store that can point a
+// profile at a different credential reference.
+//
+// It is a separate, optional capability so a store that cannot repoint a
+// profile is not silently mishandled: the Registry service fails closed when the
+// store does not implement it. The update never changes the profile's
+// identity, endpoint or scope - those are the approved identity a binding
+// matches against (P2L-007).
+type CredentialRefUpdater interface {
+	// SetCredentialRef points a profile at a credential reference. An empty
+	// reference detaches the profile.
+	SetCredentialRef(connectionID, credentialRefID string) error
+}
+
 // CapabilityProber probes a connection's real capabilities. Implementations
 // must not write and must not infer capabilities from a version label.
 type CapabilityProber interface {
@@ -192,6 +213,9 @@ type CredentialRefStore interface {
 	Put(ref CredentialRef) error
 	Get(credentialRefID string) (CredentialRef, bool, error)
 	List() ([]CredentialRef, error)
+	// Delete removes a reference. It is used when a credential is revoked, so
+	// that no profile is left pointing at a reference that no longer exists.
+	Delete(credentialRefID string) error
 }
 
 // AuditSink records sanitized audit events.

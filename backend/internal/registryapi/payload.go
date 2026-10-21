@@ -142,6 +142,26 @@ func profileToPayload(profile fixtures.ConnectionProfile) profilePayload {
 	}
 }
 
+// credentialRefResponse is the wire shape of a single credential reference. It
+// carries the reference, the alias, the role and the fingerprint - never a
+// credential value.
+func credentialRefResponse(ref registrycontract.CredentialRef) credentialRefPayload {
+	payload := credentialRefPayload{
+		CredentialRefID: ref.CredentialRefID,
+		Alias:           ref.Alias,
+		Role:            string(ref.Role),
+		Fingerprint:     ref.Fingerprint,
+		Mock:            ref.Mock,
+	}
+	if !ref.LastRotated.IsZero() {
+		payload.LastRotated = ref.LastRotated.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	if !ref.ExpiresAt.IsZero() {
+		payload.ExpiresAt = ref.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	}
+	return payload
+}
+
 func credentialRefsPayload(refs []registrycontract.CredentialRef) []credentialRefPayload {
 	out := make([]credentialRefPayload, 0, len(refs))
 	for _, ref := range refs {

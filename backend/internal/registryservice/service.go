@@ -36,10 +36,24 @@ type StoreStatus struct {
 type SecretStore interface {
 	ActiveKeyID() string
 	Store(ctx context.Context, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error)
+	// StoreWithRef stores a value under a caller-chosen reference, which the
+	// replacement lifecycle uses to stage a candidate value.
+	StoreWithRef(ctx context.Context, refID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error)
+	// Replace swaps the value behind an existing reference, keeping the
+	// reference, the profile that names it and the binding that approves it.
+	Replace(ctx context.Context, refID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error)
 	Resolve(ctx context.Context, credentialRefID string) (string, error)
 	Rotate(ctx context.Context, fromKeyID string) (int, error)
 	Delete(ctx context.Context, credentialRefID string) error
 }
+
+// CredentialValidator validates a candidate credential value against the
+// approved endpoint of a profile.
+//
+// It returns an error when the candidate cannot be used. The credential that was
+// in place then stays in use: a replacement never activates a value that could
+// not be proven to work.
+type CredentialValidator func(ctx context.Context, endpoint string, value string) error
 
 // Service is the Registry backend service. Every dependency is an interface, so
 // the same service runs against the SQLite repositories in production and the
@@ -514,6 +528,241 @@ func (s *Service) PutCredentialRef(ctx context.Context, ref registrycontract.Cre
 	})
 }
 
+// EnrollCredential stores a credential value for a profile and approves the
+// binding that authorises it.
+//
+// The value is write-only: it is encrypted into an envelope (ADR-0003) and
+// neither the value nor anything derived from it is returned to the caller. The
+// endpoint and the scope of the approval come from the stored profile, never
+// from the request, so an approval can only ever be created for the profile's
+// own identity (P2L-007).
+//
+// The reference, the binding and the profile's pointer to the reference are
+// applied as one unit of work. If that unit of work fails, the envelope is
+// removed again, so a failed enrollment leaves no secret material behind.
+func (s *Service) EnrollCredential(ctx context.Context, actor, connectionID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error) {
+	if s.secrets == nil {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	if strings.TrimSpace(value) == "" {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "A credential value is required.")
+	}
+	profile, found, err := s.profiles.Get(connectionID)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if !found {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeProfileNotFound, "No profile matches the requested identity.")
+	}
+
+	ref, err := s.secrets.Store(ctx, alias, role, value)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+
+	err = s.unitOfWork(ctx, func(repos registrycontract.Repositories, compensate func(func())) error {
+		if err := repos.References.Put(ref); err != nil {
+			return err
+		}
+		compensate(func() { _ = repos.References.Delete(ref.CredentialRefID) })
+		if _, err := approveBinding(actor, ref.CredentialRefID, connectionID, repos, compensate); err != nil {
+			return err
+		}
+		if err := setProfileCredentialRef(repos, connectionID, ref.CredentialRefID, profile.CredentialRefID, compensate); err != nil {
+			return err
+		}
+		return recordAudit(repos.Audit, actor, "credential.enroll", registrycontract.TargetCredentialRef, ref.CredentialRefID, registrycontract.OutcomeSucceeded)
+	})
+	if err != nil {
+		// The enrollment did not complete: the secret material is removed again
+		// so nothing is left behind, and the rollback is audited.
+		_ = s.secrets.Delete(ctx, ref.CredentialRefID)
+		_ = s.recordAudit(ctx, actor, "credential.enroll.rolled-back", registrycontract.TargetCredentialRef, ref.CredentialRefID, registrycontract.OutcomeFailed)
+		return registrycontract.CredentialRef{}, err
+	}
+	return ref, nil
+}
+
+// ReplaceCredential replaces the value behind the credential a profile is bound
+// to, using the reviewed stage → validate → swap → revoke lifecycle.
+//
+//  1. **Stage.** The new value is stored under a staged reference. The staged
+//     material is disposable and is removed whatever the outcome.
+//  2. **Validate.** The staged value is resolved server-side and validated
+//     against the profile's approved endpoint. An inconclusive or failed
+//     validation fails closed: the staged material is removed and the
+//     credential that was in place stays usable.
+//  3. **Swap.** The value behind the *original* reference is replaced. The
+//     reference ID, the profile and the binding are untouched, so the approval
+//     stays valid and no unrelated profile is interrupted.
+//  4. **Revoke.** The staged material is removed.
+//
+// The value never leaves the server, and the audit records the transition
+// without it.
+func (s *Service) ReplaceCredential(ctx context.Context, actor, connectionID, alias string, value string, validate CredentialValidator) (registrycontract.CredentialRef, error) {
+	if s.secrets == nil {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	if strings.TrimSpace(value) == "" {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "A credential value is required.")
+	}
+	profile, found, err := s.profiles.Get(connectionID)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if !found {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeProfileNotFound, "No profile matches the requested identity.")
+	}
+	if strings.TrimSpace(profile.CredentialRefID) == "" {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeCredentialNotBound, "The profile has no credential to replace.")
+	}
+	// The credential that is in place must still be approved for this profile.
+	if err := requireBindingFor(registrycontract.Repositories{Bindings: s.bindings}, profile); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+
+	existing, found, err := s.references.Get(profile.CredentialRefID)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	if !found {
+		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "No credential reference matches the requested identity.")
+	}
+
+	// Stage: the candidate value is stored under a staged reference. A leftover
+	// staged envelope from an interrupted attempt is removed first, so a retry
+	// after a crash succeeds.
+	stagedID := "staged-" + profile.CredentialRefID
+	_ = s.secrets.Delete(ctx, stagedID)
+	staged, err := s.secrets.StoreWithRef(ctx, stagedID, "staged", existing.Role, value)
+	if err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	cleanupStaged := func() {
+		_ = s.secrets.Delete(ctx, staged.CredentialRefID)
+	}
+
+	// Validate: the candidate is resolved server-side and checked against the
+	// profile's approved endpoint.
+	if validate != nil {
+		stagedValue, err := s.secrets.Resolve(ctx, staged.CredentialRefID)
+		if err != nil {
+			cleanupStaged()
+			return registrycontract.CredentialRef{}, err
+		}
+		if err := validate(ctx, profile.Endpoint, stagedValue); err != nil {
+			// Fail closed: the old credential stays usable and the staged
+			// material is removed.
+			cleanupStaged()
+			_ = s.recordAudit(ctx, actor, "credential.replace.rejected", registrycontract.TargetCredentialRef, profile.CredentialRefID, registrycontract.OutcomeFailed)
+			return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
+				registrycontract.CodeCredentialValidationFailed,
+				"The replacement credential could not be validated against the profile's approved endpoint; the credential in place is unchanged.")
+		}
+	}
+
+	// Swap: the value behind the original reference is replaced. The reference
+	// ID, the profile and the binding are unchanged.
+	replaced, err := s.secrets.Replace(ctx, profile.CredentialRefID, alias, existing.Role, value)
+	if err != nil {
+		cleanupStaged()
+		return registrycontract.CredentialRef{}, err
+	}
+
+	// Revoke: the staged material is no longer needed.
+	cleanupStaged()
+
+	if err := s.recordAudit(ctx, actor, "credential.replace", registrycontract.TargetCredentialRef, profile.CredentialRefID, registrycontract.OutcomeSucceeded); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	return replaced, nil
+}
+
+// RevokeCredential removes a stored credential.
+//
+// A credential that an approved binding still requires cannot be revoked: the
+// binding is revoked first, so a credential is never removed while a profile
+// still depends on it.
+//
+// The secret material is removed before the metadata, so an interruption
+// between the two leaves a reference without a secret: the reference cannot
+// resolve anything (it fails closed) and a retry finishes the cleanup.
+func (s *Service) RevokeCredential(ctx context.Context, actor, credentialRefID string) error {
+	if s.secrets == nil {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial, "The credential store is not available.")
+	}
+	if strings.TrimSpace(credentialRefID) == "" {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
+	}
+	if s.bindings != nil {
+		bindings, err := s.bindings.List()
+		if err != nil {
+			return err
+		}
+		for _, binding := range bindings {
+			if binding.CredentialRefID == credentialRefID {
+				return registrycontract.NewSanitizedError(
+					registrycontract.CodeCredentialInUse,
+					"The credential is still approved for a profile; revoke that approval first.")
+			}
+		}
+	}
+
+	// The secret is removed first: a failure leaves the credential unusable
+	// rather than usable, and the metadata cleanup can be retried.
+	if err := s.secrets.Delete(ctx, credentialRefID); err != nil {
+		return err
+	}
+
+	return s.unitOfWork(ctx, func(repos registrycontract.Repositories, compensate func(func())) error {
+		// Detach the profiles that name the reference, so no profile is left
+		// pointing at a credential that no longer exists.
+		profiles, err := repos.Profiles.List()
+		if err != nil {
+			return err
+		}
+		for _, profile := range profiles {
+			if profile.CredentialRefID != credentialRefID {
+				continue
+			}
+			if err := setProfileCredentialRef(repos, profile.ConnectionID, "", profile.CredentialRefID, compensate); err != nil {
+				return err
+			}
+		}
+		if err := repos.References.Delete(credentialRefID); err != nil {
+			return err
+		}
+		return recordAudit(repos.Audit, actor, "credential.revoke", registrycontract.TargetCredentialRef, credentialRefID, registrycontract.OutcomeSucceeded)
+	})
+}
+
+// setProfileCredentialRef points a profile at a credential reference and
+// registers the inverse action, so a failed unit of work restores the previous
+// reference.
+func setProfileCredentialRef(repos registrycontract.Repositories, connectionID, credentialRefID, previous string, compensate func(func())) error {
+	updater, ok := repos.Profiles.(registrycontract.CredentialRefUpdater)
+	if !ok {
+		return registrycontract.NewSanitizedError(
+			registrycontract.CodeSecretMaterial,
+			"The metadata store cannot repoint a profile at a credential reference.")
+	}
+	if err := updater.SetCredentialRef(connectionID, credentialRefID); err != nil {
+		return err
+	}
+	compensate(func() { _ = updater.SetCredentialRef(connectionID, previous) })
+	return nil
+}
+
 // ListCredentialRefs returns every stored reference in deterministic order.
 func (s *Service) ListCredentialRefs(ctx context.Context) ([]registrycontract.CredentialRef, error) {
 	return s.references.List()
@@ -532,6 +781,13 @@ func (s *Service) RecordProbe(ctx context.Context, actor, edition string) error 
 		actor = "system"
 	}
 	return recordAudit(s.audit, actor, "profile.probe", registrycontract.TargetProfile, edition, registrycontract.OutcomeSucceeded)
+}
+
+// recordAudit appends a sanitized audit event to the service's own sink. It is
+// used for the transitions that are not part of a unit of work, such as a
+// rolled-back enrollment.
+func (s *Service) recordAudit(ctx context.Context, actor, action string, kind registrycontract.TargetKind, targetID string, outcome registrycontract.Outcome) error {
+	return recordAudit(s.audit, actor, action, kind, targetID, outcome)
 }
 
 // recordAudit appends a sanitized audit event to the given sink. The event

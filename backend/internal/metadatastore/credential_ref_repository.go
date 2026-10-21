@@ -92,6 +92,27 @@ func (r *CredentialRefRepository) List() ([]registrycontract.CredentialRef, erro
 	return out, nil
 }
 
+// Delete removes a stored reference. It is used when a credential is revoked,
+// so that no profile is left pointing at a reference that no longer exists.
+func (r *CredentialRefRepository) Delete(credentialRefID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := r.db.ExecContext(ctx, `DELETE FROM credential_refs WHERE credential_ref_id = ?`, credentialRefID)
+	if err != nil {
+		return fmt.Errorf("delete credential reference: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete credential reference result: %w", err)
+	}
+	if affected == 0 {
+		return registrycontract.NewSanitizedError(registrycontract.CodeReferenceNotFound,
+			fmt.Sprintf("No credential reference matches %q.", credentialRefID))
+	}
+	return nil
+}
+
 func scanCredentialRef(s scanner) (registrycontract.CredentialRef, error) {
 	var (
 		ref         registrycontract.CredentialRef

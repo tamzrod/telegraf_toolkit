@@ -1,12 +1,17 @@
 import type { Health } from "../types/health";
 import { isHealth } from "../types/health";
 import type {
+  ApiCredentialInput,
+  ApiCredentialRef,
+  ApiCredentialReplaceInput,
   ApiProbeResult,
   ApiProfile,
   ApiProfileInput,
   RegistryProfile,
 } from "./registry";
 import {
+  isApiCredentialInput,
+  isApiCredentialRef,
   isApiProfile,
   isApiProfileInput,
   isApiProfileList,
@@ -231,4 +236,70 @@ export async function deleteLiveProfile(
 function acceptsAnyBody(value: unknown): value is unknown {
   void value;
   return true;
+}
+
+/**
+ * Enrolls a credential for a profile through the authorized API.
+ *
+ * The value is **write-only**: it is submitted once and never returned. The
+ * response carries the reference only, so the browser never holds the value
+ * after the request. The enrollment requires the administrator-only
+ * `credential.write` and `credential.attach` permissions.
+ */
+export async function enrollCredential(
+  input: ApiCredentialInput,
+  signal?: AbortSignal,
+): Promise<ApiCredentialRef> {
+  if (!isApiCredentialInput(input)) {
+    throw new ApiError("the credential body did not match the expected contract", {
+      status: 0,
+      url: `${API_BASE}/registry/credentials`,
+    });
+  }
+  return requestJson("/registry/credentials", isApiCredentialRef, {
+    signal,
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Replaces the credential a profile is bound to.
+ *
+ * The server stages the new value, validates it against the profile's
+ * approved endpoint and only then swaps it in; an inconclusive validation
+ * leaves the credential that was in place usable.
+ */
+export async function replaceCredential(
+  input: ApiCredentialReplaceInput,
+  signal?: AbortSignal,
+): Promise<ApiCredentialRef> {
+  if (!isApiCredentialInput(input)) {
+    throw new ApiError("the credential body did not match the expected contract", {
+      status: 0,
+      url: `${API_BASE}/registry/credentials/replace`,
+    });
+  }
+  return requestJson("/registry/credentials/replace", isApiCredentialRef, {
+    signal,
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Revokes a stored credential.
+ *
+ * The server refuses the revocation while an approved binding still requires
+ * the credential.
+ */
+export async function revokeCredential(
+  credentialRefId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<unknown>(
+    `/registry/credentials/${encodeURIComponent(credentialRefId)}`,
+    acceptsAnyBody,
+    { signal, method: "DELETE" },
+  );
 }

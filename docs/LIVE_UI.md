@@ -80,17 +80,34 @@ A profile without a credential binding is shown as such
 ("No credential reference attached — a probe of this profile resolves no
 credential"), so a missing binding can never look like a successful probe.
 
+## Credential lifecycle in the browser (P2C-005)
+
+The live view manages credentials for a profile. The value is **write-only**:
+
+- The value is entered in a `type="password"` field with `autocomplete="off"`,
+  submitted once, and **cleared from the form before the request is awaited**,
+  so the browser holds it only until it is sent. It is never written to
+  `localStorage`, `sessionStorage`, a cookie, the URL or a log, and it is never
+  echoed back into the page.
+- The response shows the **reference** and the fingerprint, never the value.
+- The section states the transport requirement: a value must only be submitted
+  over a TLS-terminated transport.
+- Enrolling, replacing and revoking require the administrator role; a refusal
+  is shown as a refusal ("Your role is not permitted to perform this action in
+  the Registry."), and a credential that is still approved for a profile is
+  reported as such rather than as a silent success.
+
 ## What remains gated
 
-- **Credential entry, attachment, rotation and revocation** stay disabled. The
-  browser cannot attach a stored credential: that is an administrator-only
-  operation delivered with the credential lifecycle (P2C-005), and the
-  disabled controls state this honestly.
+- **Rotation** (rewrapping envelopes onto a new master key) and **runtime
+  secret delivery** stay disabled. A rotation needs an independently
+  authorized synthetic write check, and runtime secret injection depends on the
+  host-agent boundary (ADR-0004, still **Proposed**).
 - **Updating** a profile is not implemented: the API supports create, read,
   list and delete, and the UI does not imply an edit flow.
-- **Credential values** are never entered, displayed, stored or resolved in the
-  browser. The page shows credential **references** only, and the session token
-  is held in memory only.
+- **Credential values** are never entered into any other field, displayed,
+  stored or resolved in the browser. The page shows credential **references**
+  only, and the session token is held in memory only.
 
 ## Verification evidence (recorded 2026-10-21)
 

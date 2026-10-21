@@ -63,12 +63,70 @@ principal lacking the required permission is forbidden (403).
 | GET | `/api/v1/registry/profiles/{id}` | profile.read | Read one profile |
 | DELETE | `/api/v1/registry/profiles/{id}` | profile.write | Delete a profile |
 | GET | `/api/v1/registry/credentials` | credential.read | List credential references (no values) |
+| POST | `/api/v1/registry/credentials` | credential.write **and** credential.attach | Enroll a credential for a profile: the value is write-only, the response carries the reference |
+| POST | `/api/v1/registry/credentials/replace` | credential.write **and** credential.attach | Replace the credential a profile is bound to (stage → validate → swap → revoke) |
+| DELETE | `/api/v1/registry/credentials/{reference}` | credential.write | Revoke a credential; refused while an approval still requires it |
 | GET | `/api/v1/registry/audit` | audit.read | List sanitized audit events |
 | GET | `/api/v1/registry/status` | none (status only) | Store reachability, schema version, secret-store flag |
 | POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side). The response carries the three-valued outcomes **and** the `observations` that back them (check, method, path, status, outcome, reason) |
+| GET | `/api/v1/registry/credential-bindings` | credential.attach | List approved bindings (no values) |
+| POST | `/api/v1/registry/credential-bindings` | credential.attach | Approve a binding for a profile identity |
+| DELETE | `/api/v1/registry/credential-bindings/{reference}/{connection}` | credential.attach | Revoke an approval |
 
 Responses carry a `credential_ref_id`, never a value. The `credentials` route
 returns alias, role, fingerprint and timestamps only.
+
+## Credential lifecycle (P2C-005)
+
+Enrolling, replacing and revoking a credential are **administrator-only**:
+`credential.write` and `credential.attach` are granted to the administrator
+role alone, so a configurator, an operator and a viewer are refused with 403 and
+nothing is written.
+
+The value is **write-only**. It is accepted under the exact key `value` and
+nowhere else: a body that smuggles a value under `password`, `token`, `apikey`
+or `secret` is refused before it is parsed. The value is encrypted into an
+envelope (ADR-0003), and the response carries the **reference** only - the
+alias, the role, the fingerprint and the timestamps. No route returns a
+credential value, and the browser never holds one after the request.
+
+> **Transport requirement.** A credential value must only be submitted over a
+> TLS-terminated transport. The backend does not terminate TLS itself
+> (packaging is ADR-0005, **Proposed**), so the deployment must place a
+> TLS-terminating front end in front of it. Over plain http the value would
+> travel in clear.
+
+**Enrolment** binds the credential to a profile. The body names the
+`connection_id`; the endpoint and the canonical scope of the approval come from
+the **stored profile**, never from the request, so an approval can only ever be
+created for the profile's own identity (P2L-007). The reference, the approval
+and the profile's pointer to the reference are applied as one unit of work
+(P2C-002); if that unit of work fails, the envelope is removed again and the
+rollback is audited.
+
+**Replacement** follows a reviewed lifecycle:
+
+1. **Stage.** The new value is stored under a staged reference. The staged
+   material is disposable and is removed whatever the outcome.
+2. **Validate.** The staged value is resolved server-side and validated against
+   the profile's approved endpoint with the read-only prober - the same pinned
+   peer, TLS and SSRF controls the probe route uses. An inconclusive or failed
+   validation **fails closed**: the staged material is removed and the
+   credential that was in place stays usable (422).
+3. **Swap.** The value behind the **original** reference is replaced. The
+   reference ID, the profile and the approval are untouched, so the approval
+   stays valid and no unrelated profile is interrupted.
+4. **Revoke.** The staged material is removed.
+
+**Revocation** is refused with 409 while an approved binding still requires the
+credential: the approval is revoked first, so a credential is never removed
+while a profile depends on it. When the revocation goes through, the profiles
+that named the reference are detached, so no profile is left pointing at a
+credential that no longer exists.
+
+Every transition is audited (`credential.enroll`, `credential.replace`,
+`credential.revoke`, and the rollbacks) with the reference, never with the
+value.
 
 ## Credential-to-profile binding (P2L-007)
 
