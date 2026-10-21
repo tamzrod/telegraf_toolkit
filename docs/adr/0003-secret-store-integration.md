@@ -1,7 +1,7 @@
 # ADR-0003: Secret-Store Integration and Encryption-Key Management
 
-- **Status:** Proposed
-- **Date:** 2026-10-20
+- **Status:** Accepted
+- **Date:** 2026-10-21
 - **Scope:** How the Toolkit stores, references, resolves and rotates database credentials and runtime secrets.
 - **Deciders:** Human architecture owner (acceptance required).
 
@@ -52,13 +52,17 @@ The metadata store decision ([ADR-0002](0002-metadata-store-selection.md)) delib
 
 ## Recommendation
 
-**Proposed, not accepted.** Recommend Option A (application-level envelope encryption with a pluggable interface) as the initial default, designed behind a `SecretStore` abstraction so that Option B (external secret manager) can be adopted later without changing contract shapes. **Human acceptance is required** before implementation, and before any decision to depend on an external secret manager.
+**Accepted 2026-10-21 by human architecture owner.** Option A is the initial single-host default: application-level envelope encryption behind a pluggable `SecretStore` abstraction. External Vault/KMS implementations are deferred and require separate authorization.
 
-## Decisions requiring human acceptance
+## Accepted initial key-custody and rotation policy
 
-- Whether the initial default is A (self-contained) or B (external secret manager).
-- The accepted key-custody and rotation procedure.
-- Whether external secret-manager integration is required in Phase 0 or deferred.
+- **Key custody:** the encryption master key is generated outside the application/database and provided to the backend via a restrictive, administrator-provisioned, **read-only host/Compose secret file** outside Git and outside metadata/ciphertext backups; never accept a key from browser/API input, a command line argument, or plaintext application configuration. No default committed or predictable development key. A missing/unreadable key prevents secret resolution (fail closed).
+- **Encryption boundary:** use a reviewed authenticated-envelope mechanism with random per-record data-encryption keys/nonces, explicit key identifiers, tamper detection and versioned ciphertext envelope; expose only opaque credential references through Registry APIs. Do not invent a custom cryptographic primitive.
+- **Key recovery:** preserve secure separately held recovery copies of the master-key material, with restricted administrator access and a restore drill. A metadata backup alone must never contain the decryption key.
+- **Master-key rotation:** stage a new separately provisioned key and key ID, retain the previous key only for an explicitly bounded migration period, rewrap/re-encrypt all affected secret envelopes transactionally with verification, test restart/recovery, then retire the old key after completeness is confirmed. Failure must preserve recoverability; never discard a required old key prematurely.
+- **Database token rotation:** provision and validate the replacement scoped token before swapping the active credential reference; audit the reference transition, then revoke the old token, without interrupting unrelated runtimes.
+- **External manager integration:** deferred beyond the initial single-host phase. Any production key provisioning/backup environment must be separately reviewed before deployment.
+- This ADR acceptance is a design decision; all implementation and testing still require authorized CWAL tasks. No production credential handling is implied.
 
 ## References
 
