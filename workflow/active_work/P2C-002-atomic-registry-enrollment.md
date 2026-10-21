@@ -26,6 +26,15 @@ Fault injection at every write; no orphaned profile/binding, no privilege bypass
 ## Verification evidence
 Go unit/integration and race tests pass, make check passes; record isolation level and rollback evidence.
 
+## Refined execution and acceptance contract (P2C-002)
+
+- Inspect the existing multi-step profile/create/bind/audit and delete/recreate flows before editing. Implement a single transaction or equivalent atomic unit-of-work for dependent SQLite mutations; never delete or overwrite an existing profile as rollback for a failed enrollment.
+- Enforce administrator-only credential attachment at the HTTP boundary and server-side exact reference + connection ID + endpoint + canonical scope binding. Reject stale, missing, or revoked bindings at probe time.
+- Define deletion policy: remove/revoke dependent bindings atomically with a profile deletion, or explicitly preserve them only if their non-reusability is proven. Idempotency and uniqueness must be defined.
+- Inject errors after each dependent write; verify **zero** partial profile/binding/audit commits, original data unchanged on failure, and reliable restart/retry and concurrent-write behavior.
+- Use production SQLite adapter in tests, not only in-memory stubs. Document transaction boundaries and SQLite busy/constraint treatment.
+- No new production access or credential ingestion API; preserve P2L-006/007 security tests. Evidence: focused transaction/fault tests, race tests, make check; do not claim Docker checks unless run.
+
 ## Stop conditions
 Stop and report `TASK_BLOCKED` for unsafe network/credential access, unresolved architecture, or required testing unavailable. No weakening tests or replacing working behavior with mocks.
 
