@@ -9,7 +9,7 @@
 # usage: run-all.sh            full run, leave the stack up
 #        run-all.sh --teardown tear down afterwards (keep data + secrets)
 #        run-all.sh --purge    tear down and delete data + secrets
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
