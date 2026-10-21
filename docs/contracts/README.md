@@ -177,6 +177,15 @@ The Database Registry slice of this inventory is refined at interface level in [
 
 **Current implementation state (merged via PR #6, 2026-10-21):** ADR-0002 (SQLite metadata store) and ADR-0003 (envelope-encrypted secret store) were **accepted by the human on 2026-10-21** and are implemented in `backend/internal/metadatastore` and `backend/internal/secretstore`. The Registry contract is served by a server-authorized HTTP API (`backend/internal/registryapi`, [`docs/REGISTRY_API.md`](../REGISTRY_API.md)) with role-based permissions, a read-only live capability prober (`backend/internal/liveprobe`, [`docs/LIVE_PROBING.md`](../LIVE_PROBING.md)) and an administrator-only credential attachment binding ([`docs/REGISTRY_API.md`](../REGISTRY_API.md)). Authentication is **static file-provisioned bearer tokens** (no issuance, expiry, rotation or OIDC/OAuth); capability outcomes are projected from the detected edition rather than observed per capability; **InfluxDB 1.x remains unverified**. ADR-0004 and ADR-0005 remain **Proposed**.
 
+## Phase 3 entry contract
+
+The bounded contract the Canonical Mapper starts from - the source and
+destination identity, the scope of the first increment, what the Registry can
+prove today, the unknown states the mapper must model and the boundaries it
+inherits - is recorded in
+[`docs/contracts/canonical-mapper.md`](canonical-mapper.md). It implements
+nothing and claims no capability the Registry has not observed.
+
 ## Cross-cutting contract rules
 
 - **Planned vs decided separation.** Sections marked **Decided** carry invariants that must not be contradicted; **Planned**/**Unresolved** items must not be frozen into wire formats, Go types, REST routes, database schemas or auth mechanisms by this task.

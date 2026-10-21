@@ -3,14 +3,14 @@
 ## CURRENT OPERATION
 **Workflow:** Phase 2 Registry completion.
 **Designated branch:** `phase-2/registry-completion`.
-**Current human-authorized task:** `workflow/active_work/P2C-006-phase2-integration-acceptance.md`.
-**Authorized sequence:** P2C-001 → P2C-002 → P2C-003 → P2C-004 → P2C-005 → P2C-006.
+**Current human-authorized task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
+**Authorized sequence:** P2C-001 → P2C-002 → P2C-003 → P2C-004 → P2C-005 → P2C-006 (all complete).
 
 ## Human authorization
-The entire P2C-001 through P2C-006 workstream is explicitly authorized for sequential Operation CWAL execution. No intermediate approval is required after a task passes acceptance and its remote checkpoint is verified. Only the designated CURRENT task may be executed at a time; on completion archive that task with `git mv`, commit/push, verify the remote checkpoint, and advance CURRENT to the next authorized task in both handoff pointers.
+The entire P2C-001 through P2C-006 workstream was explicitly authorized for sequential Operation CWAL execution. All six tasks are complete, verified, archived and confirmed on the remote branch. No further task is authorized; planning, ICC, handoff and archives never authorize new work.
 
 ## Current task
-**P2C-006 — Phase 2 integration acceptance and Phase 3 handoff.** Read its active task and complete acceptance requirements.
+None. P2C-006 (Phase 2 integration acceptance and the Phase 3 handoff) is complete, verified and archived. The queue is empty; the agent reports `WORK_PACKAGE_READY` and stops.
 
 ## Completed tasks
 - P2C-001 (roadmap, contract and architecture reconciliation with merged PR #6
@@ -23,6 +23,8 @@ The entire P2C-001 through P2C-006 workstream is explicitly authorized for seque
   validation and visible permission states) — verified and archived.
 - P2C-005 (administrator-only write-only credential enrolment, stage → validate
   → swap → revoke replacement, safe revocation) — verified and archived.
+- P2C-006 (integrated acceptance against the real isolated containers, Phase 2
+  checklist reconciliation, Phase 3 entry contract) — verified and archived.
 
 ## Restrictions and stop conditions
 ADR-0002 and ADR-0003 are Accepted. ADR-0004/0005 remain Proposed. No production historians/credentials, uncontrolled probes, historian writes, Telegraf/Docker runtime management, or PR create/review/merge. Preserve P2L-006 pinned-peer TLS/SSRF controls and P2L-007 administrator-only credential attachment/binding at every step. If implementation requires unresolved architecture, privileged access, unsafe operation, or mandatory live tests unavailable, report `TASK_BLOCKED` with evidence and stop without skipping the task.
