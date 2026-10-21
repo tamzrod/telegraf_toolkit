@@ -26,6 +26,16 @@ Publish evidence by exercised edition, pass/fail/unknown including InfluxDB 1.x 
 ## Verification evidence
 make check, go test -race, e2e harness, static secret/policy checks and documented manual browser/a11y checks or explicitly outstanding.
 
+## Refined execution and acceptance contract (P2C-006)
+
+- Perform a reproducible integrated test from fresh checkout against isolated synthetic InfluxDB 2 OSS and 3 Core: profile create/list/delete, privileged credential enrollment/binding, denied roles, rotation failure/recovery, probe evidence, UI source/destination selection, restart and backup/restore.
+- Confirm security regression coverage from P2L-006/007 and P2C-002/005: DNS rebinding, peer pinning/TLS, SSRF, cross-profile credential theft, transactional integrity, redaction and revocation.
+- Publish a **per-edition evidence table** with commands, pass/fail/unknown, limitations and provenance. InfluxDB 1.x remains **unverified** unless an independently authorized real test setup is available.
+- Reconcile Phase 2 checklist without overclaiming: mark each item complete, partial or blocked based on real evidence; identify remaining token lifecycle, production TLS/packaging, dependency inspection, fine-grained authorization, write-capability uncertainty and UI accessibility limitations as applicable.
+- Produce a bounded Phase 3 Canonical Mapper entry contract describing source/destination identity, scope, available schema/query evidence and explicit unknown states; no mapper implementation or data writes.
+- Run make check, Go race, policy checks and available isolated harness scripts; document skipped or unavailable tests, never invent passing results.
+- Archive P2C-006, set both CWAL pointers to queue-empty, commit/push and remote-verify; report WORK_PACKAGE_READY or TASK_BLOCKED. No PR actions.
+
 ## Stop conditions
 Stop and report `TASK_BLOCKED` for unsafe network/credential access, unresolved architecture, or required testing unavailable. No weakening tests or replacing working behavior with mocks.
 
