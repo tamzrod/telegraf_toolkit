@@ -4,7 +4,7 @@
 **Name:** Telegraf Toolkit  
 **Repository:** https://github.com/tamzrod/telegraf_toolkit  
 **Tagline:** Configure. Map. Synchronize.  
-**Status:** Architecture and documentation stage; implementation not yet started.  
+**Status:** Early implementation. The Phase 0 toolchain, the Phase 1 application shell and the Phase 2 Database Registry backend are implemented and merged into `main`; the pipeline designer, canonical mapper, synchronizer, runtime management and production packaging remain design-only. Delivery status is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).  
 **License:** Apache License 2.0.
 
 Telegraf Toolkit is an open-source, browser-based management and configuration platform for Telegraf, with canonical data mapping and cross-version InfluxDB historical synchronization.

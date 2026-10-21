@@ -1,6 +1,10 @@
 # UI/UX Specification — Telegraf Toolkit
 
-Status: **Design concept, not implemented**. Frontend technology and build plan: [Frontend Architecture](FRONTEND_ARCHITECTURE.md).
+Status: **Design concept, partially implemented.** The application shell and the
+live Databases view (profile listing and read-only capability probing) ship;
+browser write flows, credential entry/revocation and the runtime, pipeline,
+mapper and synchronizer screens remain design only. Frontend technology and
+build plan: [Frontend Architecture](FRONTEND_ARCHITECTURE.md).
 
 ## Navigation
 - Overview — Runtime health, ingestion, sync progress

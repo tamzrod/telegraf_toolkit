@@ -1,6 +1,10 @@
 # Frontend Architecture and Development Plan
 
-Status: **Selected design direction; implementation not started**.
+Status: **Selected design direction, partially implemented.** The Phase 1 SPA
+shell and the Phase 2 live Registry view (profile listing and read-only
+capability probing) are implemented and merged into `main` (PRs #3 and #6). The
+pipeline editor, canonical mapper, synchronizer and runtime views remain design
+only.
 
 ## Technology stack
 - **React + TypeScript** for one browser-based single-page application.

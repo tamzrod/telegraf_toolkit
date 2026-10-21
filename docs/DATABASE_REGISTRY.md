@@ -1,6 +1,14 @@
 # Database Registry and Credential Management
 
-Status: **Architecture proposal — not implemented**.
+Status: **Design intent, partially implemented.** The Database Registry backend is
+implemented and merged into `main` (PR #6, 2026-10-21): persistent connection
+profiles, credential *references*, an envelope-encrypted secret store, a
+server-authorized API with role-based permissions, read-only live capability
+probing and an administrator-only credential attachment binding. The browser
+delivers live listing and read-only probing only. Profile reuse across the
+pipeline editor, mapper and synchronizer; dependency inspection; browser
+credential enrollment/revocation; runtime secret injection and production
+packaging remain **planned** (ADR-0004 and ADR-0005 are **Proposed**).
 
 ## Purpose
 Provide a single registry of database **connection profiles** shared by the Telegraf configuration editor, canonical Taglist mapper, and historical synchronization engine. Store connection metadata separately from credentials. Never embed API keys or passwords in project exports, Git repositories, UI responses, or ordinary TOML snapshots.
@@ -80,3 +88,17 @@ Treat an API key as sensitive **even if read-only**. Never display its full valu
 - Failed TLS validation is visible and not silently bypassed.
 - Each version uses its supported query/write interface, verified at registration time.
 - Deleting an in-use credential requires dependency review.
+
+## Implementation status against this design
+
+| Area | State | Source |
+| --- | --- | --- |
+| Connection profile persistence (SQLite, versioned migrations) | Implemented (P2L-001) | [`docs/METADATA_STORE.md`](METADATA_STORE.md) |
+| Envelope-encrypted credential store, server-side resolve and rotation | Implemented (P2L-002) | [`docs/SECRET_STORE.md`](SECRET_STORE.md) |
+| Server-authorized API, RBAC, sanitized errors, audit | Implemented (P2L-003, P2L-007) | [`docs/REGISTRY_API.md`](REGISTRY_API.md) |
+| Read-only live capability probing with pinned-peer/SSRF controls | Implemented (P2L-004, P2L-006) | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| Browser live listing and read-only probing | Implemented (P2L-005); writes gated | [`docs/LIVE_UI.md`](LIVE_UI.md) |
+| Capability evidence per capability (not per edition) | Not implemented — capabilities are projected from the detected edition | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| InfluxDB 1.x support | Unverified — no isolated 1.x instance | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| Profile reuse by pipeline editor / mapper / synchronizer | Not implemented — those modules are Phase 4–6 | [`docs/ROADMAP.md`](ROADMAP.md) |
+| Dependency inspection, browser credential lifecycle, runtime secret injection | Not implemented | [`docs/ROADMAP.md`](ROADMAP.md) |

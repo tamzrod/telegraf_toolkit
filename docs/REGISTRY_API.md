@@ -1,7 +1,8 @@
 # Authorized Registry API
 
 Status: **Implemented (server-authorized, metadata and references only).**
-Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API).
+Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API), P2L-006 (probe hardening), P2L-007 (credential binding).
+Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`).
 
 This document describes the authorized Registry HTTP surface. Authorization is
 enforced **server-side**; the browser is never a security boundary. No route
@@ -170,3 +171,7 @@ dependency (standard library plus the existing pinned SQLite driver).
   TLS-terminating front end in deployment (packaging is ADR-0005, Proposed).
 - Only Linux amd64 is verified. No historian read/write, Docker control or live
   probe is performed.
+- The token file and the master key file must be readable only by their owner
+  (mode 0600). On a host whose filesystem reports no POSIX permission bits
+  (Windows), both files are refused and the Registry data routes stay
+  unregistered; run the Registry locally on Linux.

@@ -1,8 +1,8 @@
 # Domain and API Contract Inventory
 
-Status: **Contract inventory proposal — not implemented.**
+Status: **Contract inventory proposal — the Registry slice is now implemented; the remaining domains are still planned.**
 Task: P0-001 (Domain/API contract inventory).
-Scope: planning/contract catalog only. This document does **not** define final wire formats, Go types, REST routes, database schemas or authentication mechanisms.
+Scope: planning/contract catalog. This document does **not** itself define final wire formats, Go types, REST routes, database schemas or authentication mechanisms. The Database Registry slice has since been implemented and merged (see [Phase 2 refinement](#phase-2-refinement)); the canonical schema, mapping profile, runtime revision and sync job/block domains remain planned.
 
 ## Purpose and authority
 
@@ -24,7 +24,7 @@ Each contract below is classified so planned, decided and implemented behavior s
 | **Planned** | The concept is required by a cited design document, but its concrete shape is not yet accepted. |
 | **Unresolved** | A dependent choice is explicitly open and blocks finalizing the contract. |
 
-No contract here is **Implemented**. No executable adapter, service, REST route or database schema is created by this task.
+No contract here was **Implemented** by this task. This catalog created no executable adapter, service, REST route or database schema. The **Database Registry slice** (connection profile, logical scope, credential reference, probed capabilities, audit event) has since been implemented and merged — see [Phase 2 refinement](#phase-2-refinement). The canonical schema, mapping profile, runtime revision and sync job/block domains remain **Planned**.
 
 ## Contract inventory (versioned)
 
@@ -173,7 +173,9 @@ The inventory itself is versioned as `contract_inventory_version: 1`. Individual
 
 ## Phase 2 refinement
 
-The Database Registry slice of this inventory is refined at interface level in [`docs/contracts/registry.md`](registry.md) (P2-001). That document separates fixed invariants from provisional interface shapes and explicitly-open items, and is paired with the human decision checklist [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md). Neither accepts [ADR-0002](../adr/0002-metadata-store-selection.md) or [ADR-0003](../adr/0003-secret-store-integration.md), which remain **Proposed**.
+The Database Registry slice of this inventory is refined at interface level in [`docs/contracts/registry.md`](registry.md) (P2-001). That document separates fixed invariants from provisional interface shapes and explicitly-open items, and is paired with the human decision checklist [`docs/decisions/phase-2-architecture-gate.md`](../decisions/phase-2-architecture-gate.md).
+
+**Current implementation state (merged via PR #6, 2026-10-21):** ADR-0002 (SQLite metadata store) and ADR-0003 (envelope-encrypted secret store) were **accepted by the human on 2026-10-21** and are implemented in `backend/internal/metadatastore` and `backend/internal/secretstore`. The Registry contract is served by a server-authorized HTTP API (`backend/internal/registryapi`, [`docs/REGISTRY_API.md`](../REGISTRY_API.md)) with role-based permissions, a read-only live capability prober (`backend/internal/liveprobe`, [`docs/LIVE_PROBING.md`](../LIVE_PROBING.md)) and an administrator-only credential attachment binding ([`docs/REGISTRY_API.md`](../REGISTRY_API.md)). Authentication is **static file-provisioned bearer tokens** (no issuance, expiry, rotation or OIDC/OAuth); capability outcomes are projected from the detected edition rather than observed per capability; **InfluxDB 1.x remains unverified**. ADR-0004 and ADR-0005 remain **Proposed**.
 
 ## Cross-cutting contract rules
 
@@ -185,29 +187,27 @@ The Database Registry slice of this inventory is refined at interface level in [
 
 ## ADR candidates
 
-The following architectural decisions are open and gate one or more contracts above. They are recorded as candidates for the ADR task (P0-002) and are cross-linked, not decided, here. Sources: [`docs/ROADMAP.md`](../ROADMAP.md) "Open decisions" and Phase 0 remaining items; [`ICC/context/project.md`](../../ICC/context/project.md) "Open decisions".
+The following architectural decisions gate one or more contracts above. They were recorded as candidates for the ADR task (P0-002) and are cross-linked, not decided, here. Sources: [`docs/ROADMAP.md`](../ROADMAP.md) "Open decisions" and Phase 0 remaining items; [`ICC/context/project.md`](../../ICC/context/project.md) "Open decisions".
 
-| ID | Candidate decision | Blocks |
+| ID | Candidate decision | Blocks | Status |
+| --- | --- | --- | --- |
+| ADR-A | Metadata store selection | Connection profile, scope, sync job/block, verification state persistence | **Accepted** (ADR-0002, 2026-10-21) |
+| ADR-B | Secret-store integration and encryption-key management | Credential reference, runtime secret injection | **Accepted** (ADR-0003, 2026-10-21) |
+| ADR-C | Host-agent privilege boundary and control interface | Runtime revision, runtime control | **Proposed** (ADR-0004) |
+| ADR-D | Initial production packaging | Runtime revision, deployment | **Proposed** (ADR-0005) |
+| ADR-E | Version/capability matrix and concrete InfluxDB adapters | Probed capabilities, sync jobs | Not yet proposed |
+
+This inventory does not accept any decision. Where an ADR has since been accepted by the human, the dependent Registry schema details are implemented (see [Phase 2 refinement](#phase-2-refinement)); where an ADR is still **Proposed**, the dependent schema details remain intentionally unresolved.
+
+### ADR proposals (P0-002) and current status
+
+| Candidate | Proposal | Status |
 | --- | --- | --- |
-| ADR-A | Metadata store selection | Connection profile, scope, sync job/block, verification state persistence |
-| ADR-B | Secret-store integration and encryption-key management | Credential reference, runtime secret injection |
-| ADR-C | Host-agent privilege boundary and control interface | Runtime revision, runtime control |
-| ADR-D | Initial production packaging | Runtime revision, deployment |
-| ADR-E | Version/capability matrix and concrete InfluxDB adapters | Probed capabilities, sync jobs |
-
-These candidates are **not** accepted decisions. This inventory intentionally leaves the dependent schema details unresolved until the corresponding ADR is accepted.
-
-### Proposed ADR proposals (P0-002)
-
-Proposals now exist for four of these candidates; all remain **Proposed**, not **Accepted**:
-
-| Candidate | Proposal |
-| --- | --- |
-| ADR-A | [ADR-0002 Metadata Store Selection](../adr/0002-metadata-store-selection.md) |
-| ADR-B | [ADR-0003 Secret-Store Integration](../adr/0003-secret-store-integration.md) |
-| ADR-C | [ADR-0004 Host-Agent Privilege Boundary](../adr/0004-host-agent-privilege-boundary.md) |
-| ADR-D | [ADR-0005 Initial Production Packaging](../adr/0005-initial-production-packaging.md) |
-| ADR-E | Not yet proposed (version/capability matrix) |
+| ADR-A | [ADR-0002 Metadata Store Selection](../adr/0002-metadata-store-selection.md) | **Accepted** 2026-10-21, implemented (P2L-001) |
+| ADR-B | [ADR-0003 Secret-Store Integration](../adr/0003-secret-store-integration.md) | **Accepted** 2026-10-21, implemented (P2L-002) |
+| ADR-C | [ADR-0004 Host-Agent Privilege Boundary](../adr/0004-host-agent-privilege-boundary.md) | **Proposed** — not accepted, not implemented |
+| ADR-D | [ADR-0005 Initial Production Packaging](../adr/0005-initial-production-packaging.md) | **Proposed** — not accepted, not implemented |
+| ADR-E | Not yet proposed (version/capability matrix) | Not proposed |
 
 ## Domain-coverage checklist
 
@@ -223,6 +223,11 @@ Proposals now exist for four of these candidates; all remain **Proposed**, not *
 | 8 | Sync jobs / UTC half-open blocks | Yes | SYNCHRONIZATION.md | Decided / Planned shape | Distinct source/destination | Non-destructive; idempotent | Yes |
 | 9 | Verification states | Yes | SYNCHRONIZATION.md | Decided / Planned shape | Per source/destination block | Read-mostly; COUNT_MATCH≠VERIFIED | Yes |
 | 10 | Audit events | Yes | DATABASE_REGISTRY.md, ARCHITECTURE.md | Decided / Planned shape | Cross-cutting | References only, no secrets | Yes |
+
+**Coverage note (after PR #6):** rows 1, 2, 3, 4 and 10 now have an implemented
+Registry backend — persistence, secret storage, the authorized API, live probing
+and audit. Their "Planned shape" status above refers to this inventory catalog,
+not to the shipped implementation. Rows 5, 6, 7, 8 and 9 remain planned.
 
 ## Stop conditions
 

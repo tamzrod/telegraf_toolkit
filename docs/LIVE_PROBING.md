@@ -1,7 +1,8 @@
 # Live Capability Probing
 
 Status: **Implemented (read-only, consented, SSRF-protected).**
-Task: P2L-004.
+Tasks: P2L-004 (live prober), P2L-006 (DNS/peer pinning hardening), P2L-007 (administrator-only credential binding).
+Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`).
 
 This document describes the live capability prober that replaces version-based
 guessing with real, read-only observation. It covers the endpoint policy, DNS and
@@ -10,10 +11,21 @@ verified against real InfluxDB containers.
 
 ## Principle
 
-Capabilities are **probed per connection** and never inferred from a version
-label ([`DATABASE_REGISTRY.md`](DATABASE_REGISTRY.md)). A probe outcome is one of
+The running **edition** is identified from real read-only responses for each
+connection, never from a caller-supplied version label
+([`DATABASE_REGISTRY.md`](DATABASE_REGISTRY.md)). A probe outcome is one of
 three values — `supported`, `unsupported` or `unknown` — and `unknown` is never
 treated as support.
+
+**Current limitation — projected, not observed per capability.** Once the
+edition is identified, the capability vocabulary is **projected from that
+edition** using the table in [Edition identification and capability
+mapping](#edition-identification-and-capability-mapping). It is **not** derived
+from an observation of each query dialect or of schema discovery, and the write
+protocol is **asserted** by that projection rather than proven by a write (the
+prober is GET-only and never writes). Evidence-based, per-capability probing is
+not implemented; treat the projected values as a curated expectation for the
+detected edition, not as a measured capability set.
 
 ## Read-only guarantee
 
@@ -104,7 +116,8 @@ Identification uses read-only responses, not a version guess:
 | anonymous `/health` 401 with a credential supplied, confirmed via `/api/v3/configure/database` | `influxdb-3.x-core` |
 
 The capability vocabulary is then projected from the identified edition, never
-from a version string alone:
+from a version string alone. These rows are a **projection**, not per-capability
+observations; see the Principle section.
 
 | Edition | influxql | flux | sql | line-protocol | schema discovery |
 | --- | --- | --- | --- | --- | --- |
@@ -192,7 +205,11 @@ Docker Engine 29.9.1 with Compose v5.6.0. Pinned images unchanged:
 - `go test -race ./... -count=1` → all packages `ok`.
 - `make check` → exit 0 (backend + frontend + policy).
 - `./scripts/run-all.sh --teardown` (harness) → exit 0; InfluxDB **16 passed /
-  0 failed**, Toolkit smoke 2 passed / 1 not implemented.
+  0 failed**, Toolkit smoke 2 passed / 1 not registered. The third smoke check
+  is an unauthenticated `GET /api/v1/registry/profiles`: the route exists in
+  source since PR #6, but the registry data routes are **not registered unless
+  an authentication token file is configured**, so the request answers 404. The
+  authenticated surface is covered by `toolkit-live-registry.sh`.
 - `./scripts/live-probe.sh` (read-only probes, re-run after the P2L-006
   hardening) → exit 0:
   - InfluxDB 2 → `edition=influxdb-2.x-oss`, `dialects=[flux influxql sql]`,
@@ -237,5 +254,6 @@ Docker Engine 29.9.1 with Compose v5.6.0. Pinned images unchanged:
   its health payload would be reported as unidentified rather than misidentified.
 - InfluxDB 1.x is unverified (no isolated instance).
 - Capability mapping is a small, explicit table, not a full compatibility matrix
-  (ADR-E is not yet proposed).
+  (ADR-E is not yet proposed). The table is applied from the **detected**
+  edition; it is not validated capability-by-capability against each container.
 - Only Linux amd64 is verified.
