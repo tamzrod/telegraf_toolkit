@@ -26,6 +26,16 @@ Functional authenticated user journeys, visible validation/error/loading/permiss
 ## Verification evidence
 Vitest, typed API tests, real API e2e smoke and make check; no production access.
 
+## Refined execution and acceptance contract (P2C-004)
+
+- Enable only API-supported profile **create, list/detail, delete, and scoped source/destination selection** in Live mode. Do not imply a UI can edit/update when only create/delete exist.
+- This task handles **unbound** profile creation; credential enrollment/attachment remains gated until P2C-005. Explicitly show a missing credential/binding and prohibit a fake successful probe.
+- Honor backend authorization (401/403), strict validation and sanitized errors. Mock/Live sources stay separate and Live errors never silently fall back to fixtures.
+- Mutations require confirmation for deletion, an explicit active connection target, predictable refresh/invalidation and safe handling of deletion of a selected profile.
+- Token stays in memory only; no browser credential values, local/sessionStorage, URL leakage, logs or unsafe error echoes. Use accessible labels, focus behavior, keyboard navigation and responsive states.
+- Exercise viewer/configurator/admin UX as applicable; tests include failures, duplicate IDs, stale selection, invalid scope, non-JSON/error bodies and no-mock fallback.
+- Run frontend lint/types/build/Vitest, make check, and process-level authenticated API e2e where available. Manual visual/screen-reader checks must be marked done only if actually performed.
+
 ## Stop conditions
 Stop and report `TASK_BLOCKED` for unsafe network/credential access, unresolved architecture, or required testing unavailable. No weakening tests or replacing working behavior with mocks.
 
