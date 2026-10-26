@@ -1,6 +1,16 @@
 # Telegraf Toolkit — Operation CWAL handoff
 
-## CURRENT OPERATION
+## OPERATION CWAL — EXECUTION DIRECTIVE (binding)
+
+When the operator enters `operation cwal`, **perform the current authorized task immediately**. This is an execution command, not a request to restate status, ask if work should begin, or ask for another approval. The existing human authorization of P3-001 through P3-006 is sufficient for each packet once it becomes CURRENT in BOTH pointers.
+
+For the present checkpoint, CURRENT is **P3-004**. Implement editable typed mapping drafts and validation within its packet; run prescribed tests, document real evidence, and accept/archive it only if criteria pass. Then `git mv` to `archive/active-work/`, update both pointers to P3-005, commit, push and confirm remote SHA. Continue P3-005 and P3-006 sequentially in the same operation when feasible, respecting the one-CURRENT-at-a-time rule. On completed P3-006 report WORK_PACKAGE_READY. If blocked, report a specific TASK_BLOCKED reason with evidence and leave pointers unchanged.
+
+**Human approval is NOT required for each micro-task, for task acceptance after passing its prescribed criteria, for archival, or for pointer advancement.** Stop only for a genuinely new architecture/security authorization, unsafe operation, or failed mandatory verification. Never create, approve or merge a PR; never write to a historian or deploy. The word "queued" in packet boilerplate means awaiting designation as CURRENT, not awaiting repeated approval.
+
+Read this directive before the historical status narrative below. Do not reply with only a status summary to an `operation cwal` command.
+
+
 **Branch:** `phase-3/canonical-mapper`
 **Current human-authorized task:** `workflow/active_work/P3-004-mapping-drafts-and-validation.md`
 **Authorized sequence:** P3-001 → P3-002 → P3-003 → P3-004 → P3-005 → P3-006.
