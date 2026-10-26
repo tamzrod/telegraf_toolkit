@@ -81,6 +81,9 @@ GO_BIN=/path/to/go ./scripts/credential-lifecycle.sh
 # 8. run the authorized GET-only schema-discovery check (task P3-002)
 GO_BIN=/path/to/go ./scripts/schema-discovery.sh
 
+# 9. run the authenticated real-backend schema client smoke (task P3-003)
+GO_BIN=/path/to/go ./scripts/canonical-mapper-smoke.sh
+
 # ...or do everything in one go and write sanitized evidence
 GO_BIN=/path/to/go ./scripts/run-all.sh --teardown
 
@@ -157,6 +160,16 @@ is a GET from the fixed `SHOW MEASUREMENTS` / `SHOW FIELD KEYS` /
 reported edition and scope, an injection attempt and an absent measurement are
 refused with 404, and a viewer is denied with 403. It requires the stack to be
 up and `run-tests.sh` to have seeded the synthetic data.
+
+`scripts/canonical-mapper-smoke.sh` (task P3-003) starts the Toolkit API with a
+throwaway master key and admin token under `tmp/`, seeds a read credential
+server-side, creates a profile bound to the isolated InfluxDB 2 OSS bucket, and
+checks the fixed GET measurements/fields/tags routes. It then runs the typed
+browser client (`ui/src/api/schema.live.integration.test.ts`) against the same
+authenticated API: the test is skipped in normal `npm test` runs and enabled only
+by the harness environment. The token is passed in the child environment, never
+printed or placed in argv; all deployment requests are GETs and the script
+leaves the containers' synthetic state unchanged.
 
 `scripts/toolkit-live-registry.sh` (task P2L-005) starts the Toolkit backend
 with a throwaway master key and authentication token file under `tmp/`, then

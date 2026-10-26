@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 documentation reconciliation (P3-001) is complete and the authorized schema-discovery read path is implemented by P3-002 (2026-10-26) against the pinned InfluxDB 2 OSS / 3 Core containers; the mapper itself is not implemented and InfluxDB 1.x remains unverified.
+**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 documentation reconciliation (P3-001) is complete, the authorized schema-discovery read path is implemented by P3-002 (2026-10-26), and the read-only Canonical Mapper schema browser is implemented by P3-003 (2026-10-26) against the pinned InfluxDB 2 OSS / 3 Core containers. Mapping drafts, validation, versioned persistence/export and InfluxDB 1.x coverage are not implemented; P3-003 is checkpointed on `phase-3/canonical-mapper` and is not merged.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -12,7 +12,7 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | 0 | Repository and engineering foundation | Engineering scaffold merged; ADR-0002/0003 accepted for single-host Registry on 2026-10-21; ADR-0004/0005 still Proposed |
 | 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
 | 2 | Database Registry and credential references | Mock/interface scope merged in PR #4; isolated InfluxDB 2/3 tests merged in PR #5; operational live Registry backend merged in PR #6 (P2L-001–P2L-007); completion workstream merged in PR #7 (P2C-001–P2C-008, including browser profile and credential writes); per-capability evidence matrix and InfluxDB 1.x coverage remain |
-| 3 | Dual-database Canonical Registry / Taglist Mapper | Documentation reconciliation complete (P3-001); authorized measurement-level GET metadata read implemented and verified on the pinned InfluxDB 2 OSS / 3 Core containers (P3-002); mapper browse/mapping UI and 1.x coverage not implemented |
+| 3 | Dual-database Canonical Registry / Taglist Mapper | Documentation reconciliation complete (P3-001); authorized measurement-level GET metadata read implemented and verified on the pinned InfluxDB 2 OSS / 3 Core containers (P3-002); read-only dual-profile schema browser implemented (P3-003, branch checkpoint); mapping drafts/validation/persistence and 1.x coverage not implemented |
 | 4 | Visual Pipeline Designer and TOML validation | Not started |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
 | 6 | Independent historian synchronizer and block explorer | Not started |
@@ -75,7 +75,7 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 **Exit criteria status (after the P2C workstream):** permissions and secret isolation are tested server-side, profiles persist, bind credentials and probe live, and the browser manages unbound profiles and credentials within the role model. Two parts of the criterion are **not** met yet: no downstream module consumes registered profiles (no Phase 3–6 module exists; Phase 3 has only started documentation reconciliation), and the query dialects and the write protocol are **unknown** in the capability model rather than proven - the GET-only probe cannot establish them as currently catalogued. The Phase 3 entry contract records what the mapper may rely on today ([`docs/contracts/canonical-mapper.md`](contracts/canonical-mapper.md)).
 
-P3-001 added a correction to the "POST-only query" premise: a read-only GET survey of the pinned containers found that both editions answer fixed **GET** metadata statements, and that the probe catalogue checked different v3 paths. P3-002 implemented the approved correction: the probe now observes 3 Core InfluxQL and SQL as `supported` through the corrected GET routes, while 2 OSS query dialects remain `unknown`; the authorized measurement-level schema read is also implemented ([`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md)).
+P3-001 added a correction to the "POST-only query" premise: a read-only GET survey of the pinned containers found that both editions answer fixed **GET** metadata statements, and that the probe catalogue checked different v3 paths. P3-002 implemented the approved correction: the probe now observes 3 Core InfluxQL and SQL as `supported` through the corrected GET routes, while 2 OSS query dialects remain `unknown`; the authorized measurement-level schema read is also implemented ([`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md)). P3-003 added the browser consumer: explicit dual-profile selection and typed schema browsing with honest states and cache cancellation, without a mapping draft or write.
 
 ### Phase 2 acceptance evidence by exercised edition (P2C-006)
 
@@ -89,8 +89,9 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 > unknown: the authorized `schema.read` routes read measurements, field keys and
 > tag keys from the pinned 2 OSS and 3 Core containers, and the 3 Core
 > InfluxQL/SQL observations were corrected to `supported`. The historical table
-> above is preserved. InfluxDB 1.x remains unverified, the write protocol remains
-> unknown, and the mapper UI does not exist.
+> above is preserved. **P3-003 update:** the read-only schema browser now consumes
+> that read. InfluxDB 1.x remains unverified, the write protocol remains unknown,
+> and no mapping draft or canonical artifact exists.
 
 ### Real database test infrastructure (merged PR #5)
 
@@ -101,8 +102,8 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 
 ## Phase 3 — Dual-database Canonical Registry / Taglist Mapper
 
-- [ ] Require explicit **Source Database** and **Destination Database** selection, including scope, before schema browsing.
-- [ ] Browse actual source and destination measurements, field keys and tag keys as distinct types, with cache invalidation on connection/scope changes.
+- [x] Require explicit **Source Database** and **Destination Database** selection, including scope, before schema browsing. **P3-003:** both sides are native selects; the same profile is refused; an ID that disappears is reported.
+- [x] Browse actual source and destination measurements, field keys and tag keys as distinct types, with cache invalidation on connection/scope changes. **P3-003:** live reads use the P3-002 fixed GET routes under `schema.read`; loading/empty/permission/unknown/unsupported/truncated/stale are distinct; query keys include connection + canonical scope (and measurement) and a selection/token/mode change cancels and drops the affected answers. Mock mode is labeled and never a live fallback.
 - [ ] Create editable drag-and-drop mapping drafts for measurement/field/tag names, tag values, filters and explicit unit transforms.
 - [ ] Validate types, destination collisions and canonical contracts with sample-point previews.
 - [ ] Version and import/export canonical schemas separately from source-specific mapping profiles; exclude secrets.
@@ -111,6 +112,8 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 **Exit criteria:** source/destination switching, drafts, validation, save/rollback and portable artifacts pass tests. Shared mapping semantics are specified for both live data and backfill.
 
 > **Status (P3-001, 2026-10-26):** the roadmap and the Phase 3 entry contract were reconciled with PR #7, and no mapper feature is implemented. The measurement-level read path is **approved** (Option A1): a backend-authorized, GET-only, fixed-`SHOW` metadata read under a dedicated `schema.read` permission, with no passthrough, POST query, `SELECT ... INTO`, DDL or writes. Implementation is P3-002. See [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md) §11. P3-002–P3-006 are queued.
+>
+> **Status (P3-002/P3-003, 2026-10-26):** P3-002 implemented and verified the authorized read path. P3-003 added the read-only mapper: explicit distinct source/destination selection, typed source/destination schema groups over that read path, all unknown/empty/permission/stale states, labeled Mock mode with no live fallback, and cache cancellation on selection/token/mode changes. No mapping draft, validation, versioned schema/profile persistence, export or deployment exists yet; P3-004–P3-006 remain queued. P3-003 is on `phase-3/canonical-mapper`, not merged.
 
 ## Phase 4 — Visual Pipeline Designer and TOML validation
 

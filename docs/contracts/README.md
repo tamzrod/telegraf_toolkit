@@ -191,8 +191,13 @@ implements nothing and claims no capability the Registry has not observed.
 [`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md)
 §11 and **implemented by P3-002** as
 `GET /api/v1/registry/schema/{measurements,fields,tags}`, verified against the
-pinned InfluxDB 2 OSS v2.9.1 and 3 Core v3.12.1 containers. The mapper itself
-has not been implemented and InfluxDB 1.x remains unverified.
+pinned InfluxDB 2 OSS v2.9.1 and 3 Core v3.12.1 containers.
+
+**Schema browser (P3-003, 2026-10-26):** the read-only Canonical Mapper browser
+consumes those routes for explicit distinct source/destination profiles, with
+typed groups and honest states, and never falls back to mock data. It is not a
+mapping draft and creates no canonical schema or mapping profile; those remain
+planned (rows 5 and 6 below) and InfluxDB 1.x remains unverified.
 
 ## Cross-cutting contract rules
 

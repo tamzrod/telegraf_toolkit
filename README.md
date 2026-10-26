@@ -12,8 +12,13 @@ Visual Telegraf management, configuration, canonical data mapping, and cross-ver
 > reconciliation is complete and the approved schema-discovery read path
 > (**Option A1**, GET-only fixed metadata statements under `schema.read`) is
 > implemented (P3-002) and verified against the isolated InfluxDB 2/3
-> containers; the canonical mapper UI, pipeline designer, synchronizer, runtime
-> management, production packaging and InfluxDB 1.x coverage remain
+> containers. The read-only Canonical Mapper schema browser (P3-003) is
+> implemented on `phase-3/canonical-mapper`: it selects explicit distinct
+> source/destination profiles, shows typed measurement/field/tag groups with
+> honest loading/empty/permission/unknown/unsupported/stale states, and has a
+> clearly labeled Mock mode. Mapping drafts, validation, canonical-schema
+> persistence/export, the pipeline designer, synchronizer, runtime management,
+> production packaging and InfluxDB 1.x coverage remain
 > **proposed/unverified** and are not implemented. See
 > [Roadmap](docs/ROADMAP.md) and the
 > [Phase 3 gate record](docs/decisions/phase-3-schema-discovery-gate.md).

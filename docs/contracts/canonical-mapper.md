@@ -1,7 +1,7 @@
 # Phase 3 Canonical Mapper — entry contract
 
-Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26) for the pinned InfluxDB 2 OSS and 3 Core editions; the mapper itself is not implemented and InfluxDB 1.x remains unverified.**
-Task: P2C-006 (Phase 2 integration acceptance and Phase 3 handoff); reconciled by P3-001; read path delivered by P3-002.
+Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26) and consumed by the read-only Canonical Mapper schema browser (P3-003) for the pinned InfluxDB 2 OSS and 3 Core editions; mapping drafts/export are not implemented and InfluxDB 1.x remains unverified.**
+Task: P2C-006 (Phase 2 integration acceptance and Phase 3 handoff); reconciled by P3-001; read path delivered by P3-002; schema browser delivered by P3-003.
 Depends on: the Phase 2 Registry (P2L-001–P2L-007, P2C-001–P2C-008).
 
 This document is the bounded contract the Phase 3 Canonical Mapper starts from.
@@ -33,14 +33,23 @@ Two rules carry over unchanged from the Registry contract:
 
 ## 2. Scope of the first mapper increment
 
-The first increment may:
+The first, read-only increment (P3-003) implements:
 
-- read the **metadata** of the selected source and destination (measurements,
-  field keys, tag keys) through a read-only, authorized path;
-- build a mapping **draft** in the browser and validate it locally;
-- show the source and destination metadata side by side.
+- explicit **source** and **distinct destination** selection from the active
+  Registry profile list, with the stored canonical scope visible on each side;
+- reading the **metadata** of both sides (measurements, field keys, tag keys)
+  through the authorized GET-only path;
+- showing the source and destination metadata side by side as separate typed
+  groups, with loading, empty, permission, unknown, unsupported, not-found,
+  truncated and stale states;
+- cancelling and dropping cached answers when the profile, scope, token or mode
+  changes.
 
-It must not:
+It does **not** yet implement a mapping draft. P3-004 is expected to add the
+local draft and validation; P3-005 the versioned canonical schema and mapping
+profile persistence.
+
+The mapper must not:
 
 - write to a historian, create a measurement or alter a schema;
 - deploy a pipeline or start a synchronization;
@@ -59,6 +68,7 @@ not claim more:
 | The **edition** of a deployment, identified from a read-only response | available | P2C-003 (real InfluxDB 2 OSS and 3 Core) |
 | A **namespace-level listing** (buckets on 2.x, databases on 3.x) | available | P2C-003 (real containers) |
 | A **measurement-level** schema listing (measurements, field keys, tag keys) | **available** | P3-002: a backend-authorized GET-only read of fixed `SHOW` statements under `schema.read`, verified end to end against the pinned InfluxDB 2 OSS v2.9.1 and 3 Core v3.12.1 containers — see §8 |
+| A browser **read-only schema browser** for two explicit profiles | **available (read-only)** | P3-003: typed groups, stale/cache cancellation, live/mock labeling and no mock fallback; authenticated real-backend smoke in §9 |
 | A **query dialect** (InfluxQL, Flux, SQL) proven to work | **partially observed; not proven for 2.x or 1.x** | P2C-003 correction (P3-002): on the pinned 3 Core, `influxql` and `sql` are observed as `supported` through the corrected GET routes; on 2 OSS both stay `unknown` because its API query route refuses GET. No dialect is claimed for 1.x |
 | A **write** protocol | **unknown** | A read-only probe never writes; no authorized synthetic write check exists |
 | InfluxDB 1.x | **unverified** | No isolated 1.x instance exists |
@@ -82,7 +92,10 @@ GET routes.
 | The profile has no credential | The mapper may read only what the deployment serves anonymously, and must say so |
 
 Every one of these states is a **first-class answer**, not an error to be
-hidden: a draft that cannot be validated says why.
+hidden: a draft that cannot be validated says why. P3-003 surfaces them in the
+schema browser as distinct loading, empty, permission, unknown, unsupported,
+not-found, truncated and stale states; only a positively supported empty answer
+is shown as an observed empty schema.
 
 ## 5. Boundaries the mapper inherits
 
@@ -213,5 +226,70 @@ and canonical-schema versioning do not exist yet.
 
 P3-002 satisfies entry-checklist item 1 (the read surface and permission) and
 item 5 (edition, commands, bounds and what stays unknown) for the read path.
-Items 2–4 belong to the mapper increment that consumes the read; no mapping
-draft, UI or export exists yet.
+P3-003 satisfies item 2 (the unknown states are surfaced and never rendered as
+support) and item 3 (the schema browser performs no historian write or schema
+creation) for the read-only browser. Item 4 (a reference-only mapping draft and
+an export contract) remains future work: no mapping draft, canonical artifact or
+export exists yet.
+
+
+## 9. Implementation (P3-003, 2026-10-26)
+
+The Canonical Mapper reads the P3-002 metadata routes through the typed browser
+client (`ui/src/api/client.ts`, `ui/src/api/registry.ts`,
+`ui/src/hooks/useSchemaBrowser.ts`) and a pure presentation module
+(`ui/src/features/canonical/canonicalWorkflow.ts`). The page
+(`ui/src/features/canonical/CanonicalMapperPage.tsx`) does not add a backend
+surface and does not change the read allowlist.
+
+- **Selection.** Two native selects, source and destination, from the active
+  mock or live profile list. The pair must be distinct; selecting the same
+  profile on both sides is refused before a schema request. A selected ID that
+  disappears from the list is reported as missing.
+- **Reads.** Only `connection_id` (measurements) and `connection_id` plus an
+  observed `measurement` (fields/tags) are requested. Field/tag reads are not
+  issued until a measurement has been observed and selected.
+- **Freshness.** Query keys include `connection_id`, the canonical scope and
+  the measurement. Each answer is checked for matching connection, scope, kind
+  and measurement; a non-matching answer is a stale state, never rendered data.
+  A response marked `mock` on a live path is also stale. A selection, token or
+  mode change cancels the affected in-flight queries and removes their cache
+  entries; the panel key includes the profile identity and scope.
+- **States.** Loading, positively-supported empty, permission/authentication,
+  not-found, unknown, unsupported, truncated and stale are distinct. A 401,
+  403, 404, timeout, malformed answer or unrecognized body is not an empty
+  schema and is not "unsupported" unless the server actually observed
+  unsupported.
+- **Mock mode.** The default mode is labeled `MOCK` and uses the existing typed
+  profile endpoint plus a feature-local synthetic preview. The preview sets
+  `mock: true`, reports no request, shows a 1.x profile as unknown, and honors a
+  mock profile's unsupported schema-discovery capability. It is never imported
+  by a live path and is never rendered after a live failure.
+- **Safe identity.** The page renders display name, connection ID, family/major
+  version, canonical scope and observed edition. It renders no endpoint or
+  credential reference and receives no credential value. The session token is
+  memory-only and the input is cleared after application.
+- **No writes.** Every browser request is a GET; there is no mapper POST, query
+  text, `SELECT … INTO`, DDL or write. The page's mapping actions remain
+  disabled.
+
+**Evidence.** `CanonicalMapperPage.test.tsx` covers distinctness, mock/live
+labels, loading, empty, permission, unknown, unsupported, truncated and stale
+states, token handling, safe identity, GET-only calls, keyboard activation,
+heading order, unique IDs and cancellation on a selection change.
+`canonicalWorkflow.test.ts` covers the pure freshness/failure/mock-preview rules;
+`schemaClient.test.ts` covers the typed client and guard. The full UI gate is
+`npx eslint .`, `npx tsc -b`, `npm run build` and `npx vitest run` (223 passed,
+1 gated test skipped). `testing/influxdb/scripts/canonical-mapper-smoke.sh` is
+the authenticated real-backend smoke: it starts the API with a throwaway token,
+seeds a server-side credential, creates a profile bound to the isolated
+InfluxDB 2 OSS v2.9.1 bucket, verifies the fixed GET routes (measurements
+`environment`/`sensor`, `value`, `host`/`sensor_id`) and runs the typed client
+against the same API; result 6/6 PASS. See [`docs/LIVE_UI.md`](../LIVE_UI.md)
+for the recorded evidence.
+
+**Limits.** No mapping draft, canonical-schema editor, validation, sample-point
+preview, save/import/export or deployment exists. InfluxDB 1.x remains
+unverified and is never contacted for schema metadata. No real-browser or
+screen-reader session was performed; jsdom component tests plus an explicit gap
+are recorded.

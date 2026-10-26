@@ -165,10 +165,15 @@ describe("application shell", () => {
       }),
     );
 
-    // Databases has an authorized mock registry workflow that calls the typed
-    // registry endpoint, so it is exercised separately (see DatabasesPage.test).
+    // Databases and Canonical Mapper call the typed registry endpoint for
+    // their explicitly labeled mock workflows, so they are exercised
+    // separately (see DatabasesPage.test and CanonicalMapperPage.test). The
+    // remaining inert pages must issue no request beyond health.
     for (const module of MODULES.filter(
-      (entry) => entry.path !== "/" && entry.id !== "databases",
+      (entry) =>
+        entry.path !== "/" &&
+        entry.id !== "databases" &&
+        entry.id !== "canonical-mapper",
     )) {
       renderApp(module.path);
       await screen.findByRole("heading", { level: 1, name: module.label });

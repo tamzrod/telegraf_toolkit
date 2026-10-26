@@ -7,6 +7,7 @@ import type {
   ApiProbeResult,
   ApiProfile,
   ApiProfileInput,
+  ApiSchemaResult,
   RegistryProfile,
 } from "./registry";
 import {
@@ -16,6 +17,7 @@ import {
   isApiProfileInput,
   isApiProfileList,
   isApiProbeResult,
+  isApiSchemaResult,
   isRegistryProfileList,
   toRegistryProfile,
 } from "./registry";
@@ -170,6 +172,65 @@ export async function probeCapabilities(
       deadline_ms: input.deadlineMs ?? 0,
     },
   });
+}
+
+/**
+ * Reads the observed measurement names for one stored connection profile.
+ *
+ * The browser sends only the connection ID: the endpoint, canonical scope and
+ * credential are resolved server-side from the stored profile. The request is a
+ * GET and the server executes a fixed `SHOW MEASUREMENTS` statement; there is no
+ * caller-supplied query in this path.
+ */
+export async function fetchSchemaMeasurements(
+  connectionId: string,
+  signal?: AbortSignal,
+): Promise<ApiSchemaResult> {
+  const query = new URLSearchParams({ connection_id: connectionId });
+  return requestJson(
+    `/registry/schema/measurements?${query.toString()}`,
+    isApiSchemaResult,
+    { signal },
+  );
+}
+
+/**
+ * Reads the observed field keys for one measurement of a stored profile.
+ *
+ * The measurement must be one the server already observed; the server verifies
+ * membership before it executes `SHOW FIELD KEYS`. The browser supplies no
+ * query, endpoint or credential.
+ */
+export async function fetchSchemaFields(
+  connectionId: string,
+  measurement: string,
+  signal?: AbortSignal,
+): Promise<ApiSchemaResult> {
+  const query = new URLSearchParams({ connection_id: connectionId, measurement });
+  return requestJson(
+    `/registry/schema/fields?${query.toString()}`,
+    isApiSchemaResult,
+    { signal },
+  );
+}
+
+/**
+ * Reads the observed tag keys for one measurement of a stored profile.
+ *
+ * This is the tag-key counterpart of `fetchSchemaFields`; it shares the same
+ * membership check and fixed `SHOW TAG KEYS` statement.
+ */
+export async function fetchSchemaTags(
+  connectionId: string,
+  measurement: string,
+  signal?: AbortSignal,
+): Promise<ApiSchemaResult> {
+  const query = new URLSearchParams({ connection_id: connectionId, measurement });
+  return requestJson(
+    `/registry/schema/tags?${query.toString()}`,
+    isApiSchemaResult,
+    { signal },
+  );
 }
 
 /**

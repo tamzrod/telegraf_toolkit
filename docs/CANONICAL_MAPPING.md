@@ -1,9 +1,12 @@
 # Canonical Registry and Taglist Mapper
 
-Status: **Design proposal — not implemented.** The measurement-level metadata
-read path is implemented (Option A1, P3-002) behind `schema.read` for the pinned
-InfluxDB 2 OSS and 3 Core editions; the mapper UI, mapping drafts and export are
-not implemented, and InfluxDB 1.x remains unverified. See
+Status: **Read-only schema browser implemented on `phase-3/canonical-mapper`
+(P3-003); mapping drafts and persistence are not implemented.** The
+measurement-level metadata read path is implemented (Option A1, P3-002) behind
+`schema.read` for the pinned InfluxDB 2 OSS and 3 Core editions, and the mapper
+now consumes it for explicit source/destination browsing. Drag-and-drop mapping
+drafts, canonical-schema versioning, validation, previews, import/export and
+deployment are not implemented. InfluxDB 1.x remains unverified. See
 [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Terminology
@@ -16,6 +19,39 @@ The mapper must **first select a Source Database and a Destination Database** fr
 The source explorer loads actual measurements, field keys and tag keys from the selected source database. The destination explorer loads existing destination measurements and their field/tag schema or allows a new destination measurement name. Capability and authorization checks use their registered connection profiles.
 
 A mapping profile records the source and target connection references/scopes as well as measurement/field/tag mapping rules. Selecting a different database invalidates cached schema and prompts to revalidate or discard draft mappings. Secrets must not appear in mapping exports.
+
+## Implemented increment: read-only schema browser (P3-003)
+
+The Canonical Mapper page now performs the first two steps — explicit selection
+and metadata browsing — without creating a mapping:
+
+- The operator selects a **source** and a **distinct destination** from the
+  active Registry profile list (the labeled mock list in Mock mode, the live API
+  list in Live mode). The same profile on both sides is refused.
+- Each side shows measurements, field keys and tag keys as separate typed
+  groups. Field keys retain the reported type; tag keys are a distinct labelled
+  list. A field/tag read is issued only after a measurement observed on that
+  side is selected.
+- The live read is the authorized P3-002 GET route under `schema.read`. The
+  browser supplies only the stored connection ID and an observed measurement;
+  the endpoint, scope and credential are resolved server-side. No query,
+  endpoint or credential is accepted from the page.
+- Loading, observed-empty, permission, unknown, unsupported, not-found,
+  truncated and stale answers are distinct states. Unknown is never rendered as
+  support, and a failed live read never falls back to the synthetic mock
+  preview.
+- Query keys and panel identity include the connection ID and canonical scope
+  (plus measurement for detail reads). A selection, scope, token or mode change
+  cancels and removes the affected answers so an in-flight result cannot render
+  into the new selection.
+- Mock mode remains explicitly labeled `MOCK`; its preview is generated locally
+  from the typed mock profile list, is always marked `mock`, and is never used
+  on a live path. A 1.x mock profile is shown as Unknown.
+
+There is still **no mapping draft**, no canonical-schema editor, no sample-point
+preview, no save/import/export and no deployment action. The page's planned
+actions remain disabled. The design below is the intended next increment
+(P3-004/P3-005), not current behaviour.
 
 ## Interaction model
 Browse source database -> measurement -> field/tag lists while inspecting the separately selected destination database and measurement. Drag one or multiple selected source fields onto a destination measurement; optionally rename destination measurement, fields and tag keys, preserve or set tag values, apply transforms, and choose a canonical target. Dragging only changes a mapping draft; preview, validate and explicitly save/deploy.
@@ -66,3 +102,23 @@ tags:
 - Support versioned profile changes, diff, rollback and validation before deployment.
 - Reuse mapping semantics consistently for live collection and historical synchronization.
 - Never mutate source historian data by default.
+- The read-only browser already enforces the inherited Registry controls: no
+  caller-supplied query, endpoint or credential; GET-only fixed metadata
+  statements; server-side authorization; and no mock fallback on live failure.
+
+## Implemented evidence and limits
+
+The P3-003 component/unit tests cover distinctness, live/mock labeling, loading,
+empty, permission, unknown, unsupported, stale and truncated states, cache
+invalidation and cancellation, GET-only calls, safe identity and keyboard
+activation. The authenticated real-backend smoke starts the Toolkit API, creates
+a profile bound to the isolated InfluxDB 2 OSS container, reads measurements,
+field keys and tag keys over the fixed GET routes, and then exercises the typed
+browser client against the same API. See [`LIVE_UI.md`](LIVE_UI.md) for the
+recorded commands and results.
+
+Limitations: InfluxDB 1.x remains unverified; there is no SQL/Flux read, no
+sample-point retrieval and no schema creation; the browser is not a security
+boundary; and no real-browser/screen-reader session was performed (the manual
+accessibility evidence is an explicit gap). Mapping drafts and canonical
+artifacts are not implemented.
