@@ -7,3 +7,8 @@
 P3-001 is the sole active execution target; P3-002–006 are authorized and **queued, not concurrently executable**. Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
 
 Phase 3 consumes the Phase 2 Registry; preserve exact profile/binding/scope and pinned-peer/TLS/SSRF controls. P3-001 must document the safe schema-discovery API decision and **must not silently authorize a new query method or Proposed ADR**. No real historian writes, deployment, production endpoints or agent-created PR. Stop TASK_BLOCKED for missing required authority or evidence. On completion clear queue and report WORK_PACKAGE_READY.
+
+
+## Approved gate — next Operation CWAL
+
+On 2026-10-26 the human approved P3-001's Option A1, P2C-003 catalogue/evidence correction, dedicated `schema.read`, and bounded fixed GET `SHOW` statements, including deployment-dependent DB authentication without silent fallback from invalid/revoked credentials. **Do not ask for this approval again.** Follow `docs/decisions/phase-3-schema-discovery-gate.md` §11 and `handoff.md` Resume instruction. CURRENT remains **P3-001** until verification, acceptance, archival and remote confirmation; do not start P3-002 early. No agent PR actions.
