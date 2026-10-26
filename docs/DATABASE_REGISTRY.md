@@ -1,6 +1,14 @@
 # Database Registry and Credential Management
 
-Status: **Architecture proposal — not implemented**.
+Status: **Design intent, partially implemented.** The Database Registry backend is
+implemented and merged into `main` (PR #6, 2026-10-21): persistent connection
+profiles, credential *references*, an envelope-encrypted secret store, a
+server-authorized API with role-based permissions, read-only live capability
+probing and an administrator-only credential attachment binding. The browser
+delivers live listing and read-only probing only. Profile reuse across the
+pipeline editor, mapper and synchronizer; dependency inspection; browser
+credential enrollment/revocation; runtime secret injection and production
+packaging remain **planned** (ADR-0004 and ADR-0005 are **Proposed**).
 
 ## Purpose
 Provide a single registry of database **connection profiles** shared by the Telegraf configuration editor, canonical Taglist mapper, and historical synchronization engine. Store connection metadata separately from credentials. Never embed API keys or passwords in project exports, Git repositories, UI responses, or ordinary TOML snapshots.
@@ -40,8 +48,8 @@ A database connection may have separate credentials for *read*, *write* and *adm
 2. **Scope**: assign minimum permissions and target database/bucket/measurement access supported by the destination.
 3. **Reference**: attach credential IDs to profiles and authorized jobs; UI only receives names, scopes, fingerprints and last-rotated metadata.
 4. **Use**: resolve credentials only server-side or in an authorized host agent/worker. Pass secrets to a Telegraf runtime through a protected delivery mechanism (restricted files or securely managed runtime secrets); avoid command-line flags, public environment dumps, logs, and world-readable Compose/TOML files.
-5. **Rotate**: add new credential, validate, atomically update affected assignments/runtime configurations, confirm operation and then revoke old credentials. Handle in-flight jobs and rollbacks.
-6. **Revoke/Delete**: block unauthorized future use and display impacted runtime pipelines and jobs before removal.
+5. **Rotate**: add new credential, validate, atomically update affected assignments/runtime configurations, confirm operation and then revoke old credentials. Handle in-flight jobs and rollbacks. Implemented for profile-bound credentials as stage → validate → fenced swap: the replacement commits in one short transaction that re-checks the active reference, the approved binding and the profile endpoint/scope, so a revocation, rebinding, profile deletion or enrollment that commits during validation fails the replacement closed instead of swapping into it (P2C-008).
+6. **Revoke/Delete**: block unauthorized future use and display impacted runtime pipelines and jobs before removal. Revocation refuses while any binding or profile still names the credential, commits the metadata transition first, and erases the envelope only while the reference is still gone; retrying an interrupted revocation is an idempotent completion.
 7. **Audit**: record creator, actor, action, credential *reference* and outcome without recording the secret value.
 
 Treat an API key as sensitive **even if read-only**. Never display its full value again after creation unless the upstream system explicitly requires one-time retrieval; in normal Toolkit operation secrets are write-only from the UI.
@@ -80,3 +88,18 @@ Treat an API key as sensitive **even if read-only**. Never display its full valu
 - Failed TLS validation is visible and not silently bypassed.
 - Each version uses its supported query/write interface, verified at registration time.
 - Deleting an in-use credential requires dependency review.
+
+## Implementation status against this design
+
+| Area | State | Source |
+| --- | --- | --- |
+| Connection profile persistence (SQLite, versioned migrations) | Implemented (P2L-001) | [`docs/METADATA_STORE.md`](METADATA_STORE.md) |
+| Envelope-encrypted credential store, server-side resolve and rotation | Implemented (P2L-002) | [`docs/SECRET_STORE.md`](SECRET_STORE.md) |
+| Server-authorized API, RBAC, sanitized errors, audit | Implemented (P2L-003, P2L-007) | [`docs/REGISTRY_API.md`](REGISTRY_API.md) |
+| Transactional enrollment: profile, binding and audit applied all-or-nothing; no orphaned binding | Implemented (P2C-002) | [`docs/METADATA_STORE.md`](METADATA_STORE.md) |
+| Read-only live capability probing with pinned-peer/SSRF controls | Implemented (P2L-004, P2L-006) | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| Browser live listing and read-only probing | Implemented (P2L-005); writes gated | [`docs/LIVE_UI.md`](LIVE_UI.md) |
+| Capability evidence per capability (not per edition) | Not implemented — capabilities are projected from the detected edition | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| InfluxDB 1.x support | Unverified — no isolated 1.x instance | [`docs/LIVE_PROBING.md`](LIVE_PROBING.md) |
+| Profile reuse by pipeline editor / mapper / synchronizer | Not implemented — those modules are Phase 4–6 | [`docs/ROADMAP.md`](ROADMAP.md) |
+| Dependency inspection, browser credential lifecycle, runtime secret injection | Not implemented | [`docs/ROADMAP.md`](ROADMAP.md) |

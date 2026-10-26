@@ -1,8 +1,8 @@
 # Persistent Control-Plane Metadata Store
 
-Status: **Implemented for profile, credential-reference and audit metadata.**
+Status: **Implemented for profile, credential-reference and audit metadata, with transactional registry writes.**
 Decision: [ADR-0002](adr/0002-metadata-store-selection.md) (Accepted — Option A, SQLite, single host).
-Task: P2L-001.
+Task: P2L-001; transactional writes and binding referential integrity added by P2C-002.
 
 This document describes the persistent metadata store that ADR-0002 selects. It
 covers the schema and versioned migrations, the repository adapter wired into
@@ -20,6 +20,13 @@ Implemented and verified:
   interfaces).
 - Profile and credential-reference durability across process restart.
 - Transactional, single-writer concurrency with a bounded busy timeout.
+- **All-or-nothing registry writes**: a multi-write operation (profile, approved
+  binding, audit events) commits together or rolls back together, so a failure
+  at any write leaves no orphaned profile, no orphaned binding and no missing
+  audit event (P2C-002).
+- **Referential integrity for bindings**: a binding may only name an existing
+  profile and an existing credential reference, and deleting a profile removes
+  the bindings that approved it (P2C-002).
 - Backup (`VACUUM INTO`) and restore, with a schema-version check.
 - A read-only `GET /api/v1/registry/status` endpoint reporting store reachability
   and schema version.
@@ -66,6 +73,7 @@ Current set:
 | 3 | `encrypted-secret-envelopes` | `secret_envelopes` (ciphertext envelopes only) |
 | 4 | `profile-endpoint` | `connection_profiles.endpoint` (server-resolved probe target) |
 | 5 | `credential-bindings` | `credential_bindings` (approved credential↔profile bindings) |
+| 6 | `credential-binding-referential-integrity` | rebuilds `credential_bindings` with foreign keys to `connection_profiles` and `credential_refs` (`ON DELETE CASCADE`) and drops pre-existing orphan rows (P2C-002) |
 
 A test builds a database at version 1, writes a row, upgrades to the current
 version, and asserts the row survives — proving later migrations are additive.
@@ -87,6 +95,10 @@ version, and asserts the row survives — proving later migrations are additive.
 - `credential_bindings` — approved credential-to-profile bindings: the credential
   reference, connection ID, endpoint and canonical scope. A probe resolves a
   credential only when a matching binding exists (P2L-007). No secret value.
+  Since version 6 the table carries foreign keys to `connection_profiles` and
+  `credential_refs` with `ON DELETE CASCADE`, so a binding cannot outlive the
+  profile it approves and a deleted profile cannot leave an orphaned binding
+  behind (P2C-002).
 
 A test enumerates every column of every table and fails if any is named like a
 secret value (`value`, `secret`, `password`, `token`, …).
@@ -98,6 +110,11 @@ secret value (`value`, `secret`, `password`, `token`, …).
 - `ProfileRepository` implements `registrycontract.ProfileStore`.
 - `CredentialRefRepository` implements `registrycontract.CredentialRefStore`.
 - `AuditRepository` implements `registrycontract.AuditSink`.
+- `CredentialBindingRepository` implements `registrycontract.CredentialBindingStore`.
+
+Every repository runs against a narrow executor interface that both the
+connection pool and a transaction satisfy, so the same implementation serves
+both paths.
 
 `backend/internal/registryservice` composes these into the Registry backend
 service. It depends only on the interfaces, so it runs against the SQLite
@@ -108,6 +125,127 @@ the service over both, demonstrating the ADR-0002 migration path.
 service. If the store cannot be opened, the process logs the failure and serves
 without a registry rather than serving against an unverified schema (fail
 closed).
+
+## Transactional registry writes (P2C-002)
+
+`Store.WithinTransaction` runs a unit of work inside one SQLite transaction and
+hands the caller a repository bundle bound to that transaction
+(`registrycontract.TransactionalStore`). The Registry service uses it for every
+multi-write operation:
+
+| Operation | Writes in one unit of work |
+| --- | --- |
+| Create a profile | profile row + `profile.create` audit event |
+| Create a profile with a credential (privileged enrollment) | profile row + binding row + `credential.bind` + `profile.create` audit events |
+| Approve a binding | binding row + `credential.bind` audit event |
+| Revoke a binding | binding removal + `credential.unbind` audit event |
+| Delete a profile | binding removals + profile row + `profile.delete` audit event |
+| Store a credential reference | reference row + `credential.reference.attach` audit event |
+| Revoke a credential (P2C-007) | dependency checks (bindings, profiles) + reference-row removal + `credential.revoke` audit event |
+| Replace a credential (P2C-008) | identity re-check (profile pointer, approved binding, endpoint and canonical scope) + envelope compare-and-swap + `credential.replace` audit event |
+| Enroll a credential (P2C-008) | ciphertext envelope + reference row + binding row + profile pointer + `credential.enroll` audit event |
+
+### Credential lifecycle fence (P2C-008)
+
+`Store.WithinRegistryTransaction` is the same immediate SQLite transaction with
+the ciphertext-envelope repository bound to it. The credential lifecycle uses it
+so a metadata decision and the envelope write commit together:
+
+- **Replacement** seals the candidate outside the transaction, then commits in
+  one short transaction that re-reads the profile, the approved binding, the
+  reference row and the current ciphertext. The swap applies only while all of
+  them still match the identity the candidate was validated against. No writer
+  transaction is held across the network validation, so validation cannot block
+  other writers, and a revocation, binding change, profile deletion or
+  enrollment that commits first makes the replacement fail closed. A
+  replacement can therefore never report success on a reference revocation has
+  already removed, and can never recreate an envelope for it.
+- **Revocation** still commits the metadata transition first, then erases the
+  envelope (P2C-007). The cleanup refuses to erase while the reference row is
+  still present, so it cannot destroy a replacement that committed while the
+  credential was still active.
+- **Enrollment** writes the envelope inside the transaction, so the envelope and
+  the reference become visible together: revocation cleanup cannot erase an
+  in-flight enrollment's material, and a failed enrollment leaves neither a
+  reference nor ciphertext behind.
+
+The fence is per-reference and per-profile-identity, not a global lock:
+unrelated credentials and profiles keep committing concurrently.
+
+The credential revocation deserves its note: the dependency checks - is any
+binding still approved for the credential, does any profile still name it? -
+run **inside** the same transaction as the reference-row removal, so a
+concurrent approval cannot interleave with a revocation. The ciphertext
+envelope itself is erased by the secret store only **after** the transaction
+commits (see [`SECRET_STORE.md`](SECRET_STORE.md)): an interruption between
+the two leaves an unreferenced, unreachable envelope, never a profile pointing
+at a deleted secret. Revoking a reference whose row is already gone is an
+idempotent completion that still removes any envelope a prior interrupted
+attempt left behind.
+
+Consequences, each covered by a test:
+
+- A failure at **any** write rolls the whole operation back. No profile, no
+  binding and no audit event of a failed operation survives, so a caller that
+  receives an error is never left with a half-applied enrollment.
+- A failed approval leaves the previous approval in place; a failed revocation
+  keeps the approval rather than silently unbinding a credential.
+- A deleted profile never leaves an orphaned binding: the service removes the
+  bindings in the same transaction, and the schema enforces it with
+  `ON DELETE CASCADE`.
+- The exact binding rule is unchanged: a binding still matches on reference,
+  connection ID, endpoint and canonical scope, and attaching a credential
+  reference still requires the administrator-only `credential.attach` permission
+  (P2L-007). Transactions change *how* the writes are applied, never *what* is
+  allowed.
+
+The in-memory test adapters have no transaction capability. The service keeps an
+explicit compensating behaviour for them: a failed write is undone by a
+registered inverse action, applied in reverse order. The SQLite path is the
+production path and relies on the real rollback.
+
+**Boundary:** the ciphertext envelope of a credential value is written by the
+ADR-0003 secret store, which owns the crypto; the metadata store owns the
+transaction. For enrollment and replacement the service commits the sealed
+envelope through `WithinRegistryTransaction` (P2C-008), so the value and the
+metadata decision are one atomic unit. Standalone `StoreCredential` still writes
+the envelope first and deletes it if the reference write fails.
+
+### Deletion policy
+
+Deleting a profile **removes** the approvals that belong to it, atomically with
+the profile removal and the `profile.delete` audit event. A binding is never
+preserved for a profile that no longer exists, so no approval can be reused
+against a later profile that reuses the same connection ID. The rule is
+enforced twice: the service removes the dependent bindings inside the
+transaction, and schema version 6 cascades the removal at the database level.
+
+### Idempotency and uniqueness
+
+| Operation | Uniqueness | Idempotency |
+| --- | --- | --- |
+| Create a profile | `connection_profiles.connection_id` is the primary key: one profile per identity | **Not** idempotent by design. A repeated create of an existing identity is refused with `duplicate-profile` (HTTP 409); it never overwrites the stored profile |
+| Approve a binding | `credential_bindings` is keyed by (credential reference, connection ID): at most one approval per pair | Idempotent: re-approving keeps one row and re-records the approval. The endpoint and scope are taken from the stored profile, so an approval cannot drift |
+| Revoke a binding | — | Idempotent: revoking an approval that is not present removes nothing and still records the `credential.unbind` audit event |
+| Revoke a credential (P2C-007) | — | Idempotent: revoking a reference whose row is already gone completes without an error and still removes any envelope a prior interrupted attempt left behind; each completion records the store-level `credential.revoke` event |
+| Delete a profile | — | Not idempotent-success: deleting an unknown identity is refused with `profile-not-found` (HTTP 404). The removal of the profile, of its bindings and of the audit event is atomic |
+| Retry after a failure | — | Safe: a failed operation leaves the store exactly as it was, so the same request can be retried without cleaning up first |
+
+### SQLite busy and constraint treatment
+
+- `busy_timeout` (default 5s) turns a competing writer into a wait instead of
+  an immediate `SQLITE_BUSY` failure, and `_txlock=immediate` takes the write
+  lock when the transaction starts, so two writers cannot deadlock by upgrading
+  a read lock.
+- A writer that cannot take the lock within the timeout fails cleanly: the
+  transaction is rolled back and no partial write survives.
+- `PRAGMA foreign_keys(1)` is enabled on every connection, so the binding
+  constraints of schema version 6 are enforced by the database, not only by the
+  service.
+- A uniqueness violation is translated into the contract's sanitized
+  `duplicate-profile` error (HTTP 409); a foreign-key violation is reported as a
+  sanitized error and rolls the transaction back. Neither leaks a SQL
+  statement or a database path to the caller.
 
 ## Restart durability
 
@@ -217,3 +355,6 @@ npm 11.21.0. New dependency pinned: `modernc.org/sqlite v1.60.1`.
 - Only Linux amd64 is verified.
 - The `:memory:` path does not survive restart and is test-only.
 - No PostgreSQL adapter exists; the interface boundary only makes one possible.
+- A credential value's ciphertext envelope is written by the secret store
+  outside the registry transaction; the service removes it if the reference
+  write that follows fails.

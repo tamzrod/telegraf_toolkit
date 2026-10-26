@@ -426,8 +426,8 @@ func TestDeleteRemovesEnvelope(t *testing.T) {
 	}
 }
 
-// failingEnvelopes wraps a real envelope store and fails Put/Rewrap to simulate
-// a mid-rotation storage failure.
+// failingEnvelopes wraps a real envelope store and fails Put/Rewrap/ReplaceIf
+// to simulate a mid-rotation or mid-swap storage failure.
 type failingEnvelopes struct {
 	envelopeStore
 }
@@ -438,6 +438,10 @@ func (f *failingEnvelopes) Put(metadatastore.Envelope) error {
 
 func (f *failingEnvelopes) Rewrap(string, string, metadatastore.Envelope) (bool, error) {
 	return false, errors.New("simulated write failure")
+}
+
+func (f *failingEnvelopes) ReplaceIf(string, string, metadatastore.Envelope) (bool, error) {
+	return false, errors.New("simulated conditional write failure")
 }
 
 func mustKeyring(t *testing.T, keys map[string][]byte, active string) *Keyring {

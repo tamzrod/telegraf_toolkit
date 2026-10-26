@@ -4,7 +4,13 @@
 
 Visual Telegraf management, configuration, canonical data mapping, and cross-version InfluxDB synchronization toolkit.
 
-> **Status:** Early planning and documentation. Features below are proposed; no operational toolkit is implemented yet.
+> **Status:** Early-stage delivery. The Phase 0 toolchain, the Phase 1 application
+> shell and the Phase 2 Database Registry **backend** are implemented and merged
+> into `main` (PRs #2–#6). The browser ships live profile listing and read-only
+> capability probing; the pipeline designer, canonical mapper, synchronizer,
+> runtime management and production packaging remain **proposed** and are not
+> implemented. See [Roadmap](docs/ROADMAP.md) for what is delivered, verified
+> and still outstanding.
 
 ## Vision
 
@@ -45,7 +51,7 @@ The initial development/test baseline is the **official Telegraf 1.40.1 release*
 
 ## Technology status
 
-Frontend direction: **React + TypeScript SPA** with a **Go backend**. Exact dependency versions are pinned when scaffolding. The control-plane metadata store is now implemented as persistent SQLite per [ADR-0002](docs/adr/0002-metadata-store-selection.md) ([`docs/METADATA_STORE.md`](docs/METADATA_STORE.md)); the secret store ([ADR-0003](docs/adr/0003-secret-store-integration.md)) is accepted but not yet implemented. Deployment packaging, remote management interface, and Telegraf integration details remain to be finalized.
+Frontend direction: **React + TypeScript SPA** with a **Go backend**. Exact dependency versions are pinned when scaffolding. The control-plane metadata store is implemented as persistent SQLite per [ADR-0002](docs/adr/0002-metadata-store-selection.md) ([`docs/METADATA_STORE.md`](docs/METADATA_STORE.md)); the envelope-encrypted secret store per [ADR-0003](docs/adr/0003-secret-store-integration.md) is implemented ([`docs/SECRET_STORE.md`](docs/SECRET_STORE.md)), together with a server-authorized Registry API, read-only live capability probing and an administrator-only credential attachment binding ([`docs/REGISTRY_API.md`](docs/REGISTRY_API.md)). Deployment packaging, the host-agent/remote management interface, and Telegraf integration details remain to be finalized.
 
 ## License
 

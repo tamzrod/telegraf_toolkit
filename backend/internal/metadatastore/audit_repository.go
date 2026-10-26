@@ -2,7 +2,6 @@ package metadatastore
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 // delete method, and each event is validated so a credential value can never be
 // written (ADR-0002 audit requirement, docs/contracts/registry.md section 5).
 type AuditRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Record validates and appends an audit event.

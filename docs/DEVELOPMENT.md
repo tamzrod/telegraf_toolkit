@@ -1,20 +1,35 @@
 # Telegraf Toolkit — Phase 0 scaffold
 
 Status: **scaffold, not a product.** This is the Phase 0 application/tooling
-skeleton. It is **not** connected to any InfluxDB, Telegraf runtime or Docker
-daemon, and it performs no historian reads or writes.
+skeleton. The scaffold health surface still reports `scaffold: true` and
+`connected: false`, and it performs no historian reads or writes. The Phase 2
+Database Registry backend now exists alongside it (persistent SQLite metadata
+store, envelope-encrypted secret store, authorized Registry API, read-only live
+probing) — see [`docs/ROADMAP.md`](ROADMAP.md) and [`docs/REGISTRY_API.md`](REGISTRY_API.md).
+The live Registry performs **read-only** probes only; it never writes to a
+historian, never manages a Telegraf runtime and never touches the Docker
+daemon.
 
 ## Layout
 
 ```text
 backend/                     Go API (module github.com/tamzrod/telegraf_toolkit/backend)
-  cmd/api/                   API entrypoint (health endpoint only)
+  cmd/api/                   API entrypoint (health + optional Registry routes)
   internal/httpapi/          HTTP surface + tests
   internal/version/          build version constant
+  internal/authz/            role/permission model + token-file authenticator
+  internal/metadatastore/    SQLite metadata store + versioned migrations (ADR-0002)
+  internal/secretstore/      envelope-encrypted secret store (ADR-0003)
+  internal/registrycontract/ profile/credential/capability contracts + validation
+  internal/registryservice/  Registry service (profiles, references, audit)
+  internal/registryapi/      authorized Registry HTTP API + binding endpoints
+  internal/liveprobe/        read-only capability prober (SSRF/DNS-pinned)
+  internal/fixtures/         test-only fixtures
 ui/                          React + TypeScript SPA (Vite)
   src/app/                   routes/shell
   src/api/                   typed API client boundary
   src/features/overview/     first feature module + tests
+  src/features/databases/    Registry module (mock + live listing/probing)
   src/types/                 shared types
 .github/workflows/ci.yml     format/lint/build/test + policy checks
 Makefile                     local commands mirroring CI
@@ -113,7 +128,9 @@ historian capability. Conventions:
 
 ## Deliberately not decided here
 
-Metadata store, secret-store integration, host-agent interface and production
-packaging remain **Proposed** in `docs/adr/0002`–`0005` and are not implemented.
-Feature-boundary stubs are used instead. See
+The metadata store (ADR-0002) and secret-store integration (ADR-0003) are
+**Accepted** and implemented — see [`docs/METADATA_STORE.md`](METADATA_STORE.md)
+and [`docs/SECRET_STORE.md`](SECRET_STORE.md). The host-agent interface
+(ADR-0004) and production packaging (ADR-0005) remain **Proposed** and are not
+implemented; feature-boundary stubs are used instead. See
 [`docs/contracts/README.md`](../docs/contracts/README.md).

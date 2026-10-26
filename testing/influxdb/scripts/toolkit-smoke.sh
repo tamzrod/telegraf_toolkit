@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Toolkit smoke test against the local scaffold API.
 #
-# Reports PASS / FAIL / NOT IMPLEMENTED separately for:
+# Reports PASS / FAIL / NOT REGISTERED separately for:
 #   - the scaffold liveness endpoint /api/v1/health
-#   - the authenticated live Registry endpoint (not implemented in this repo)
+#   - the live Registry listing endpoint, which is only registered when an
+#     authentication token file is configured (the smoke run has none)
 #
 # This does NOT contact any database and does not stand in for the InfluxDB
 # integration checks (see run-tests.sh). It only exercises the Toolkit backend
-# as it exists in source.
+# as it exists in source. The authenticated Registry surface is covered by
+# toolkit-live-registry.sh.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,16 +76,18 @@ else
   record FAIL "POST /api/v1/health rejected" "HTTP ${code}"
 fi
 
-# 3. Live Registry endpoint: the browser client calls /api/v1/registry/profiles,
-# but the backend does not implement it. Report honestly, do not fake a result.
+# 3. Live Registry listing: the endpoint exists in source since PR #6, but the
+# registry data routes are only registered when an authentication token file is
+# configured. This run has none, so the request is answered with 404. Report
+# honestly, do not fake a result.
 code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "${API_URL}/api/v1/registry/profiles" || echo "000")"
 if [ "${code}" = "404" ]; then
-  record "NOT IMPLEMENTED" "GET /api/v1/registry/profiles" "HTTP 404 - no live Registry in source"
+  record "NOT REGISTERED" "GET /api/v1/registry/profiles" "HTTP 404 - registry data routes disabled (no token file)"
 else
   record FAIL "GET /api/v1/registry/profiles" "HTTP ${code} (unexpected)"
 fi
 
 echo
 echo "----------------------------------------"
-echo "RESULT: ${PASS} passed, ${FAIL} failed, ${NI} not implemented"
+echo "RESULT: ${PASS} passed, ${FAIL} failed, ${NI} not registered"
 [ "${FAIL}" -eq 0 ]

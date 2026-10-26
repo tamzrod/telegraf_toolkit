@@ -75,6 +75,9 @@ GO_BIN=/path/to/go ./scripts/live-probe.sh
 # 6. run the end-to-end live Registry API check (task P2L-005)
 GO_BIN=/path/to/go ./scripts/toolkit-live-registry.sh
 
+# 7. run the live credential lifecycle check (task P2C-007)
+GO_BIN=/path/to/go ./scripts/credential-lifecycle.sh
+
 # ...or do everything in one go and write sanitized evidence
 GO_BIN=/path/to/go ./scripts/run-all.sh --teardown
 
@@ -123,14 +126,25 @@ InfluxDB 3 Core
 - `GET /api/v1/health` returns the documented scaffold payload
   (`scaffold=true`, `connected=false`)
 - `POST /api/v1/health` is rejected (`405`)
-- `GET /api/v1/registry/profiles` is reported **NOT IMPLEMENTED** — the browser
-  client calls this path but the backend has no live Registry endpoint. This is
-  a deliberate, honest result, not a failure.
+- `GET /api/v1/registry/profiles` is reported **NOT REGISTERED** — the live
+  Registry exists in source since PR #6, but its data routes are only registered
+  when an authentication token file is configured. This run has none, so the
+  request is answered with `404`. This is a deliberate, honest result, not a
+  failure; the authenticated Registry surface is covered by
+  `scripts/toolkit-live-registry.sh`.
 
 `scripts/live-probe.sh` runs the read-only live capability probes
 (`backend/internal/liveprobe`, task P2L-004) against the running containers. It
 performs GET requests only, never writes, and requires the isolated stack to be
 up. See [`docs/LIVE_PROBING.md`](../../docs/LIVE_PROBING.md).
+
+`scripts/credential-lifecycle.sh` (task P2C-007) runs the gated integration
+tests that exercise the full credential replacement and revocation lifecycle
+through the authorized Registry HTTP surface against both running containers.
+A replacement candidate is only accepted after a protected, read-only listing
+refuses an anonymous request and accepts the candidate; an invalid candidate is
+refused with the working credential preserved. Every request it makes against a
+deployment is a read-only GET; no historian is ever written.
 
 `scripts/toolkit-live-registry.sh` (task P2L-005) starts the Toolkit backend
 with a throwaway master key and authentication token file under `tmp/`, then
@@ -153,9 +167,10 @@ generated credential or database contents.
 
 ## Scope and limitations
 
-- This is infrastructure and testing only. It does not implement Toolkit live
-  Registry connectivity, does not accept ADR-0002/0003 and does not touch any
-  production system.
+- This is infrastructure and testing only. It does not implement the Toolkit
+  Registry backend itself (that lives in `backend/`), it accepts no ADR
+  (ADR-0002/0003 are **Accepted** and implemented; ADR-0004/0005 remain
+  **Proposed**), and it does not touch any production system.
 - Passwords/tokens here are synthetic throwaway values for disposable
   containers. Do not reuse them anywhere.
 - The redactor is a targeted pattern match, not a guarantee; treat the

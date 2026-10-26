@@ -10,22 +10,50 @@ import {
   MockDataNotice,
 } from "../../components/common/StatePanels";
 import { useRegistryProfiles } from "../../hooks/useRegistryProfiles";
-import { useLiveRegistryProfiles } from "../../hooks/useLiveRegistry";
+import {
+  useCreateLiveProfile,
+  useDeleteLiveProfile,
+  useEnrollCredential,
+  useLiveRegistryProfiles,
+  useReplaceCredential,
+  useRevokeCredential,
+} from "../../hooks/useLiveRegistry";
 import { clearSessionToken, hasSessionToken, setSessionToken } from "../../api/session";
 import { formatScope } from "../../api/registry";
 import type { CapabilityOutcome, RegistryProfile } from "../../api/registry";
 import {
   capabilityRows,
   credentialState,
+  describeApiFailure,
   outcomeLabel,
+  profileInputFromDraft,
+  validateProfileDraft,
   validateSelection,
   validateDraft,
 } from "./registryWorkflow";
+import type { ProfileDraft } from "./registryWorkflow";
 
 const OUTCOME_CLASSES: Record<CapabilityOutcome, string> = {
   supported: "bg-green-100 text-green-900",
   unsupported: "bg-gray-200 text-gray-700",
   unknown: "bg-amber-100 text-amber-900",
+};
+
+const EMPTY_DRAFT: ProfileDraft = {
+  connectionId: "",
+  displayName: "",
+  family: "influxdb",
+  majorVersion: "2",
+  endpoint: "",
+  scopeKind: "organization-bucket",
+  organization: "",
+  bucket: "",
+  database: "",
+  retentionPolicy: "",
+  queryDialects: "influxql",
+  writeProtocols: "",
+  schemaDiscovery: false,
+  note: "",
 };
 
 function CapabilityBadge({ outcome }: { outcome: CapabilityOutcome }) {
@@ -59,6 +87,11 @@ export function DatabasesPage() {
   // The live query is enabled only when the live source is selected, so mock
   // mode never issues an unauthorized request.
   const liveQuery = useLiveRegistryProfiles(useLive);
+  const createProfile = useCreateLiveProfile();
+  const deleteProfile = useDeleteLiveProfile();
+  const enrollCredential = useEnrollCredential();
+  const replaceCredential = useReplaceCredential();
+  const revokeCredential = useRevokeCredential();
 
   const active = useLive ? liveQuery : mockQuery;
   const { data, isPending, isError, refetch } = active;
@@ -67,6 +100,19 @@ export function DatabasesPage() {
   const [destinationId, setDestinationId] = useState<string>("");
   const [draftConnectionId, setDraftConnectionId] = useState("");
   const [draftDisplayName, setDraftDisplayName] = useState("");
+  const [liveDraft, setLiveDraft] = useState<ProfileDraft>(EMPTY_DRAFT);
+  const [pendingDeletion, setPendingDeletion] = useState<string>("");
+  const [notice, setNotice] = useState<string>("");
+  // The credential value is write-only: it is held in component state only
+  // until the request is sent, and it is cleared immediately afterwards.
+  const [credentialDraft, setCredentialDraft] = useState({
+    connectionId: "",
+    alias: "",
+    role: "write",
+    value: "",
+  });
+  const [credentialNotice, setCredentialNotice] = useState<string>("");
+  const [pendingRevocation, setPendingRevocation] = useState<string>("");
 
   const profiles = useMemo(() => data ?? [], [data]);
 
@@ -86,6 +132,7 @@ export function DatabasesPage() {
     displayName: draftDisplayName,
     scope: { kind: "database", database: "draft" },
   });
+  const liveDraftValidation = validateProfileDraft(liveDraft);
 
   function applyToken() {
     if (tokenInput.trim() === "") {
@@ -104,6 +151,99 @@ export function DatabasesPage() {
     clearSessionToken();
     setTokenPresent(false);
     void liveQuery.refetch();
+  }
+
+  async function submitProfile() {
+    if (!liveDraftValidation.ok) {
+      setNotice(liveDraftValidation.reason);
+      return;
+    }
+    setNotice("");
+    try {
+      const created = await createProfile.mutateAsync(
+        profileInputFromDraft(liveDraft),
+      );
+      setLiveDraft(EMPTY_DRAFT);
+      setNotice(`Created profile ${created.connection_id}.`);
+    } catch (error) {
+      setNotice(describeApiFailure(error));
+    }
+  }
+
+  async function confirmDeletion(connectionId: string) {
+    try {
+      await deleteProfile.mutateAsync({ connectionId });
+      setNotice(`Deleted profile ${connectionId}.`);
+      // A deleted profile must not stay selected on either side.
+      if (sourceId === connectionId) {
+        setSourceId("");
+      }
+      if (destinationId === connectionId) {
+        setDestinationId("");
+      }
+    } catch (error) {
+      setNotice(describeApiFailure(error));
+    } finally {
+      setPendingDeletion("");
+    }
+  }
+
+  async function submitCredential() {
+    const draft = credentialDraft;
+    if (draft.connectionId.trim() === "" || draft.value.trim() === "") {
+      setCredentialNotice("A profile and a credential value are required.");
+      return;
+    }
+    // The value is cleared before the request is awaited, so it is not held
+    // in component state while the request is in flight.
+    setCredentialDraft({ ...draft, value: "" });
+    setCredentialNotice("");
+    try {
+      const ref = await enrollCredential.mutateAsync({
+        connection_id: draft.connectionId.trim(),
+        alias: draft.alias.trim() || draft.connectionId.trim(),
+        role: draft.role,
+        value: draft.value,
+      });
+      setCredentialNotice(
+        `Enrolled credential ${ref.credential_ref_id}. The value is stored encrypted and is never shown again.`,
+      );
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    }
+  }
+
+  async function submitReplacement() {
+    const draft = credentialDraft;
+    if (draft.connectionId.trim() === "" || draft.value.trim() === "") {
+      setCredentialNotice("A profile and a replacement value are required.");
+      return;
+    }
+    setCredentialDraft({ ...draft, value: "" });
+    setCredentialNotice("");
+    try {
+      const ref = await replaceCredential.mutateAsync({
+        connection_id: draft.connectionId.trim(),
+        alias: draft.alias.trim() || draft.connectionId.trim(),
+        value: draft.value,
+      });
+      setCredentialNotice(
+        `Replaced the credential ${ref.credential_ref_id}. The previous value is no longer stored.`,
+      );
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    }
+  }
+
+  async function confirmRevocation(credentialRefId: string) {
+    try {
+      await revokeCredential.mutateAsync({ credentialRefId });
+      setCredentialNotice(`Revoked credential ${credentialRefId}.`);
+    } catch (error) {
+      setCredentialNotice(describeApiFailure(error));
+    } finally {
+      setPendingRevocation("");
+    }
   }
 
   return (
@@ -186,11 +326,182 @@ export function DatabasesPage() {
         )}
       </section>
 
+      {useLive && (
+        <section className="mt-6" aria-labelledby="credential-lifecycle">
+          <h2 id="credential-lifecycle" className="text-lg font-medium">
+            Credential lifecycle
+          </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            The credential value is <strong>write-only</strong>: it is sent once
+            over the authorized API, encrypted server-side, and never shown
+            again. It is not written to browser storage, the URL or a log.
+            Submit it only over a TLS-terminated transport. Enrolling and
+            replacing a credential require the administrator role.
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="credential-profile" className="block text-sm font-medium">
+                Connection profile
+              </label>
+              <select
+                id="credential-profile"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.connectionId}
+                onChange={(event) =>
+                  setCredentialDraft({
+                    ...credentialDraft,
+                    connectionId: event.target.value,
+                  })
+                }
+                aria-describedby="credential-status"
+              >
+                <option value="">Select a profile…</option>
+                {profiles.map((profile) => (
+                  <option key={profile.connectionId} value={profile.connectionId}>
+                    {profile.displayName} — {formatScope(profile.scope)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="credential-alias" className="block text-sm font-medium">
+                Alias
+              </label>
+              <input
+                id="credential-alias"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.alias}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, alias: event.target.value })
+                }
+                aria-describedby="credential-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="credential-role" className="block text-sm font-medium">
+                Role
+              </label>
+              <select
+                id="credential-role"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.role}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, role: event.target.value })
+                }
+                aria-describedby="credential-status"
+              >
+                <option value="read">read</option>
+                <option value="write">write</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="credential-value" className="block text-sm font-medium">
+                Credential value
+              </label>
+              <input
+                id="credential-value"
+                type="password"
+                autoComplete="off"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={credentialDraft.value}
+                onChange={(event) =>
+                  setCredentialDraft({ ...credentialDraft, value: event.target.value })
+                }
+                aria-describedby="credential-status"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-gray-500 px-3 py-1 text-sm"
+              onClick={() => void submitCredential()}
+              disabled={enrollCredential.isPending}
+            >
+              {enrollCredential.isPending ? "Enrolling…" : "Enroll credential"}
+            </button>
+            <button
+              type="button"
+              className="rounded border border-gray-500 px-3 py-1 text-sm"
+              onClick={() => void submitReplacement()}
+              disabled={replaceCredential.isPending}
+            >
+              {replaceCredential.isPending ? "Replacing…" : "Replace credential"}
+            </button>
+          </div>
+
+          <p
+            id="credential-status"
+            role="status"
+            aria-live="polite"
+            className="mt-2 rounded border border-gray-300 bg-gray-50 p-2 text-sm text-gray-800"
+          >
+            {credentialNotice !== ""
+              ? credentialNotice
+              : "No credential action has been performed in this session."}
+          </p>
+
+          {profiles.some((profile) => profile.credentialRefId) && (
+            <ul className="mt-3 space-y-2">
+              {profiles
+                .filter((profile) => profile.credentialRefId)
+                .map((profile) => (
+                  <li
+                    key={profile.connectionId}
+                    className="flex flex-wrap items-center gap-2 rounded border border-gray-300 p-2 text-sm"
+                  >
+                    <span className="text-gray-800">
+                      {profile.connectionId} — {profile.credentialRefId}
+                    </span>
+                    {pendingRevocation === profile.credentialRefId ? (
+                      <>
+                        <span className="text-gray-800">
+                          Revoke {profile.credentialRefId}?
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded border border-red-500 px-3 py-1 text-sm text-red-800"
+                          onClick={() =>
+                            void confirmRevocation(profile.credentialRefId as string)
+                          }
+                          disabled={revokeCredential.isPending}
+                        >
+                          Confirm revoke
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-gray-400 px-3 py-1 text-sm"
+                          onClick={() => setPendingRevocation("")}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="rounded border border-gray-400 px-3 py-1 text-sm"
+                        onClick={() => setPendingRevocation(profile.credentialRefId as string)}
+                      >
+                        Revoke credential
+                      </button>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {useLive ? (
         <p role="status" className="mt-6 rounded border border-blue-300 bg-blue-50 p-4 text-sm">
           <strong>Live Registry API.</strong> Profiles come from the authorized,
           persistent backend. Capabilities are probed per connection; a
           capability is shown as supported only when the probe confirmed it.
+          Creating and deleting a profile are authorized server-side operations:
+          the browser sends no credential, and a refusal is shown as a refusal.
         </p>
       ) : (
         <p role="status" className="mt-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
@@ -287,7 +598,8 @@ export function DatabasesPage() {
                             </>
                           ) : (
                             <span className="text-amber-800">
-                              No credential reference attached
+                              No credential reference attached — a probe of this
+                              profile resolves no credential
                             </span>
                           )}
                         </dd>
@@ -307,6 +619,41 @@ export function DatabasesPage() {
                         ))}
                       </ul>
                     </div>
+
+                    {useLive && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {pendingDeletion === profile.connectionId ? (
+                          <>
+                            <span className="text-sm text-gray-800">
+                              Delete {profile.connectionId}?
+                            </span>
+                            <button
+                              type="button"
+                              className="rounded border border-red-500 px-3 py-1 text-sm text-red-800"
+                              onClick={() => void confirmDeletion(profile.connectionId)}
+                              disabled={deleteProfile.isPending}
+                            >
+                              Confirm delete
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-gray-400 px-3 py-1 text-sm"
+                              onClick={() => setPendingDeletion("")}
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded border border-gray-400 px-3 py-1 text-sm"
+                            onClick={() => setPendingDeletion(profile.connectionId)}
+                          >
+                            Delete profile
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -314,6 +661,251 @@ export function DatabasesPage() {
           </>
         )}
       </section>
+
+      {useLive && (
+        <section className="mt-6" aria-labelledby="create-profile">
+          <h2 id="create-profile" className="text-lg font-medium">
+            Create a live connection profile
+          </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            The profile is created in the Registry through the authorized API. It
+            is created <strong>unbound</strong>: no credential reference and no
+            credential value is sent from the browser, and the server enforces
+            the administrator-only attachment rule regardless.
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="live-connection-id" className="block text-sm font-medium">
+                New connection ID
+              </label>
+              <input
+                id="live-connection-id"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.connectionId}
+                onChange={(event) =>
+                  setLiveDraft({ ...liveDraft, connectionId: event.target.value })
+                }
+                aria-invalid={liveDraftValidation.invalid.includes("connectionId")}
+                aria-describedby="live-create-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="live-display-name" className="block text-sm font-medium">
+                New display name
+              </label>
+              <input
+                id="live-display-name"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.displayName}
+                onChange={(event) =>
+                  setLiveDraft({ ...liveDraft, displayName: event.target.value })
+                }
+                aria-invalid={liveDraftValidation.invalid.includes("displayName")}
+                aria-describedby="live-create-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="live-endpoint" className="block text-sm font-medium">
+                Endpoint
+              </label>
+              <input
+                id="live-endpoint"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.endpoint}
+                onChange={(event) =>
+                  setLiveDraft({ ...liveDraft, endpoint: event.target.value })
+                }
+                aria-invalid={liveDraftValidation.invalid.includes("endpoint")}
+                aria-describedby="live-create-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="live-major-version" className="block text-sm font-medium">
+                Major version
+              </label>
+              <input
+                id="live-major-version"
+                inputMode="numeric"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.majorVersion}
+                onChange={(event) =>
+                  setLiveDraft({ ...liveDraft, majorVersion: event.target.value })
+                }
+                aria-invalid={liveDraftValidation.invalid.includes("majorVersion")}
+                aria-describedby="live-create-status"
+              />
+            </div>
+            <div>
+              <label htmlFor="live-scope-kind" className="block text-sm font-medium">
+                Scope kind
+              </label>
+              <select
+                id="live-scope-kind"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.scopeKind}
+                onChange={(event) =>
+                  setLiveDraft({
+                    ...liveDraft,
+                    scopeKind: event.target
+                      .value as ProfileDraft["scopeKind"],
+                  })
+                }
+                aria-describedby="live-create-status"
+              >
+                <option value="organization-bucket">Organization and bucket (2.x)</option>
+                <option value="database">Database (3.x)</option>
+                <option value="database-retention-policy">
+                  Database and retention policy (1.x)
+                </option>
+              </select>
+            </div>
+            {liveDraft.scopeKind === "organization-bucket" && (
+              <>
+                <div>
+                  <label htmlFor="live-organization" className="block text-sm font-medium">
+                    Organization
+                  </label>
+                  <input
+                    id="live-organization"
+                    className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                    value={liveDraft.organization}
+                    onChange={(event) =>
+                      setLiveDraft({ ...liveDraft, organization: event.target.value })
+                    }
+                    aria-describedby="live-create-status"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="live-bucket" className="block text-sm font-medium">
+                    Bucket
+                  </label>
+                  <input
+                    id="live-bucket"
+                    className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                    value={liveDraft.bucket}
+                    onChange={(event) =>
+                      setLiveDraft({ ...liveDraft, bucket: event.target.value })
+                    }
+                    aria-describedby="live-create-status"
+                  />
+                </div>
+              </>
+            )}
+            {liveDraft.scopeKind === "database" && (
+              <div>
+                <label htmlFor="live-database" className="block text-sm font-medium">
+                  Database
+                </label>
+                <input
+                  id="live-database"
+                  className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                  value={liveDraft.database}
+                  onChange={(event) =>
+                    setLiveDraft({ ...liveDraft, database: event.target.value })
+                  }
+                  aria-describedby="live-create-status"
+                />
+              </div>
+            )}
+            {liveDraft.scopeKind === "database-retention-policy" && (
+              <>
+                <div>
+                  <label htmlFor="live-database-rp" className="block text-sm font-medium">
+                    Database
+                  </label>
+                  <input
+                    id="live-database-rp"
+                    className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                    value={liveDraft.database}
+                    onChange={(event) =>
+                      setLiveDraft({ ...liveDraft, database: event.target.value })
+                    }
+                    aria-describedby="live-create-status"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="live-retention-policy" className="block text-sm font-medium">
+                    Retention policy
+                  </label>
+                  <input
+                    id="live-retention-policy"
+                    className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                    value={liveDraft.retentionPolicy}
+                    onChange={(event) =>
+                      setLiveDraft({
+                        ...liveDraft,
+                        retentionPolicy: event.target.value,
+                      })
+                    }
+                    aria-describedby="live-create-status"
+                  />
+                </div>
+              </>
+            )}
+            <div>
+              <label htmlFor="live-query-dialects" className="block text-sm font-medium">
+                Query dialects (comma separated)
+              </label>
+              <input
+                id="live-query-dialects"
+                className="mt-1 w-full rounded border border-gray-300 p-2 text-sm"
+                value={liveDraft.queryDialects}
+                onChange={(event) =>
+                  setLiveDraft({ ...liveDraft, queryDialects: event.target.value })
+                }
+                aria-invalid={liveDraftValidation.invalid.includes("capabilities")}
+                aria-describedby="live-create-status"
+              />
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={liveDraft.schemaDiscovery}
+                  onChange={(event) =>
+                    setLiveDraft({
+                      ...liveDraft,
+                      schemaDiscovery: event.target.checked,
+                    })
+                  }
+                  aria-describedby="live-create-status"
+                />
+                Schema discovery supported
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-gray-500 px-3 py-1 text-sm"
+              onClick={() => void submitProfile()}
+              disabled={createProfile.isPending}
+            >
+              {createProfile.isPending ? "Creating…" : "Create profile"}
+            </button>
+            {!tokenPresent && (
+              <span className="text-sm text-gray-700">
+                A session token is required; without one the API answers 401.
+              </span>
+            )}
+          </div>
+
+          <p
+            id="live-create-status"
+            role="status"
+            aria-live="polite"
+            className="mt-2 rounded border border-gray-300 bg-gray-50 p-2 text-sm text-gray-800"
+          >
+            {notice !== ""
+              ? notice
+              : liveDraftValidation.ok
+                ? liveDraftValidation.reason
+                : liveDraftValidation.reason}
+          </p>
+        </section>
+      )}
 
       <section className="mt-6" aria-labelledby="scope-selection">
         <h2 id="scope-selection" className="text-lg font-medium">
@@ -440,8 +1032,8 @@ export function DatabasesPage() {
 
       <DisabledActionGroup
         heading="databases"
-        reason="Saving a profile from the UI, credential entry and deletion require the write flows to be reviewed for this deployment; live listing and read-only capability probing are available above."
-        actions={["Save profile", "Attach credential", "Delete profile"]}
+        reason="Rotating a credential and runtime secret delivery stay disabled: a rotation needs an independently authorized synthetic write check, and runtime secret injection depends on the host-agent boundary (ADR-0004, still Proposed). Credential enrollment, replacement and revocation are available above for the administrator role."
+        actions={["Rotate credential", "Deliver credential to a runtime"]}
       />
     </section>
   );

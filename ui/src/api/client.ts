@@ -1,11 +1,19 @@
 import type { Health } from "../types/health";
 import { isHealth } from "../types/health";
 import type {
+  ApiCredentialInput,
+  ApiCredentialRef,
+  ApiCredentialReplaceInput,
   ApiProbeResult,
   ApiProfile,
+  ApiProfileInput,
   RegistryProfile,
 } from "./registry";
 import {
+  isApiCredentialInput,
+  isApiCredentialRef,
+  isApiProfile,
+  isApiProfileInput,
   isApiProfileList,
   isApiProbeResult,
   isRegistryProfileList,
@@ -91,7 +99,17 @@ export async function requestJson<T>(
     return undefined as T;
   }
 
-  const payload: unknown = await response.json();
+  // A body that is not JSON is a transport failure, not a raw parse error: the
+  // raw exception would carry the response text into the UI.
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new ApiError("response was not valid JSON", {
+      status: response.status,
+      url,
+    });
+  }
   if (!guard(payload)) {
     throw new ApiError("response did not match the expected contract", {
       status: response.status,
@@ -152,4 +170,136 @@ export async function probeCapabilities(
       deadline_ms: input.deadlineMs ?? 0,
     },
   });
+}
+
+/**
+ * Creates an **unbound** connection profile through the authorized API.
+ *
+ * The body carries no credential reference and no credential value: attaching a
+ * stored credential is an administrator-only operation that stays gated until
+ * the credential lifecycle is delivered (P2C-005). The server validates the
+ * body again and is authoritative; a rejection is reported as an `ApiError`
+ * with the status only, so a sanitized backend message never reaches the DOM.
+ */
+export async function createLiveProfile(
+  input: ApiProfileInput,
+  signal?: AbortSignal,
+): Promise<ApiProfile> {
+  if (!isApiProfileInput(input)) {
+    throw new ApiError("the profile body did not match the expected contract", {
+      status: 0,
+      url: `${API_BASE}/registry/profiles`,
+    });
+  }
+  return requestJson("/registry/profiles", isApiProfile, {
+    signal,
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Reads one connection profile from the authorized API.
+ */
+export async function fetchLiveRegistryProfile(
+  connectionId: string,
+  signal?: AbortSignal,
+): Promise<ApiProfile> {
+  return requestJson(
+    `/registry/profiles/${encodeURIComponent(connectionId)}`,
+    isApiProfile,
+    { signal },
+  );
+}
+
+/**
+ * Deletes one connection profile through the authorized API.
+ *
+ * The server removes the profile and its approved credential bindings in one
+ * transaction (P2C-002). A rejection is reported as an `ApiError` with the
+ * status only.
+ */
+export async function deleteLiveProfile(
+  connectionId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  // A delete answers 204 with no body; the guard only has to accept a body if
+  // the server ever sends one.
+  await requestJson<unknown>(
+    `/registry/profiles/${encodeURIComponent(connectionId)}`,
+    acceptsAnyBody,
+    { signal, method: "DELETE" },
+  );
+}
+
+/** Accepts any body. Used for a delete, whose success answer carries none. */
+function acceptsAnyBody(value: unknown): value is unknown {
+  void value;
+  return true;
+}
+
+/**
+ * Enrolls a credential for a profile through the authorized API.
+ *
+ * The value is **write-only**: it is submitted once and never returned. The
+ * response carries the reference only, so the browser never holds the value
+ * after the request. The enrollment requires the administrator-only
+ * `credential.write` and `credential.attach` permissions.
+ */
+export async function enrollCredential(
+  input: ApiCredentialInput,
+  signal?: AbortSignal,
+): Promise<ApiCredentialRef> {
+  if (!isApiCredentialInput(input)) {
+    throw new ApiError("the credential body did not match the expected contract", {
+      status: 0,
+      url: `${API_BASE}/registry/credentials`,
+    });
+  }
+  return requestJson("/registry/credentials", isApiCredentialRef, {
+    signal,
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Replaces the credential a profile is bound to.
+ *
+ * The server stages the new value, validates it against the profile's
+ * approved endpoint and only then swaps it in; an inconclusive validation
+ * leaves the credential that was in place usable.
+ */
+export async function replaceCredential(
+  input: ApiCredentialReplaceInput,
+  signal?: AbortSignal,
+): Promise<ApiCredentialRef> {
+  if (!isApiCredentialInput(input)) {
+    throw new ApiError("the credential body did not match the expected contract", {
+      status: 0,
+      url: `${API_BASE}/registry/credentials/replace`,
+    });
+  }
+  return requestJson("/registry/credentials/replace", isApiCredentialRef, {
+    signal,
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Revokes a stored credential.
+ *
+ * The server refuses the revocation while an approved binding still requires
+ * the credential.
+ */
+export async function revokeCredential(
+  credentialRefId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<unknown>(
+    `/registry/credentials/${encodeURIComponent(credentialRefId)}`,
+    acceptsAnyBody,
+    { signal, method: "DELETE" },
+  );
 }

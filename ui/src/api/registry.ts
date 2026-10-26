@@ -93,6 +93,19 @@ export type ApiCredentialRef = {
   mock: boolean;
 };
 
+/** Validates a credential reference payload. It never carries a value. */
+export function isApiCredentialRef(value: unknown): value is ApiCredentialRef {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.credential_ref_id === "string" &&
+    typeof value.alias === "string" &&
+    typeof value.role === "string" &&
+    typeof value.mock === "boolean"
+  );
+}
+
 export type ApiProfile = {
   connection_id: string;
   display_name: string;
@@ -106,7 +119,119 @@ export type ApiProfile = {
   note: string;
 };
 
+/**
+ * The body the browser may send to enroll a credential.
+ *
+ * The value is **write-only**: it is submitted once, encrypted server-side and
+ * never returned. The browser must clear the field immediately after the
+ * request and must never persist it in storage, the URL or a log.
+ */
+export type ApiCredentialInput = {
+  connection_id: string;
+  alias: string;
+  role: string;
+  value: string;
+};
+
+/**
+ * The body the browser may send to replace the credential a profile is bound
+ * to. It carries the same write-only value.
+ */
+export type ApiCredentialReplaceInput = {
+  connection_id: string;
+  alias: string;
+  value: string;
+};
+
+/**
+ * Validates an enrollment body before it is sent.
+ *
+ * The check is a client-side guard only: the server validates again and is
+ * authoritative. It requires the single permitted secret-bearing field and
+ * refuses any other secret-like key.
+ */
+export function isApiCredentialInput(
+  value: unknown,
+): value is ApiCredentialInput {
+  // The value is the one permitted secret-bearing field; any other secret-like
+  // key is refused.
+  if (!isRecord(value) || hasSecretLikeKeyExcept(value, ["value"])) {
+    return false;
+  }
+  return (
+    typeof value.connection_id === "string" &&
+    typeof value.alias === "string" &&
+    typeof value.role === "string" &&
+    typeof value.value === "string"
+  );
+}
+
 export type ApiCapabilityOutcomeMap = Record<string, CapabilityOutcome>;
+
+/**
+ * The body the browser may send to create a connection profile.
+ *
+ * It carries **no** credential field: a browser-created profile is unbound.
+ * Attaching a stored credential is an administrator-only operation that is
+ * gated until the credential lifecycle is delivered (P2C-005), so the browser
+ * cannot smuggle a reference or a value into the create request.
+ */
+export type ApiProfileInput = {
+  connection_id: string;
+  display_name: string;
+  family: string;
+  major_version: number;
+  endpoint: string;
+  scope: ApiScope;
+  capabilities: ApiCapabilities;
+  note: string;
+};
+
+/**
+ * Validates a create body before it is sent.
+ *
+ * The check is a client-side guard only: the server validates again and is
+ * authoritative. It refuses a body that carries a secret-like key, so a
+ * credential value can never leave the browser in a registry request.
+ */
+export function isApiProfileInput(value: unknown): value is ApiProfileInput {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  if (
+    typeof value.connection_id !== "string" ||
+    typeof value.display_name !== "string" ||
+    typeof value.family !== "string" ||
+    typeof value.major_version !== "number" ||
+    typeof value.endpoint !== "string" ||
+    typeof value.note !== "string"
+  ) {
+    return false;
+  }
+  if (!isApiScope(value.scope) || !isApiCapabilities(value.capabilities)) {
+    return false;
+  }
+  // The create body must not carry a credential reference or a credential
+  // value: a browser-created profile is unbound.
+  return !("credential_ref_id" in value) && !("credentialRefId" in value);
+}
+
+/**
+ * One bounded, read-only capability check that was actually performed.
+ *
+ * The observation is the evidence behind a capability outcome: the check that
+ * was attempted, the answer the endpoint gave and the reason for the outcome.
+ * It never carries a credential value.
+ */
+export type ApiProbeObservation = {
+  capability: string;
+  check: string;
+  method: string;
+  path: string;
+  status: number;
+  outcome: CapabilityOutcome;
+  detail: string;
+};
 
 export type ApiProbeResult = {
   connection_id: string;
@@ -114,6 +239,7 @@ export type ApiProbeResult = {
   query_dialects: ApiCapabilityOutcomeMap;
   write_protocols: ApiCapabilityOutcomeMap;
   schema_discovery: CapabilityOutcome;
+  observations: ApiProbeObservation[];
   probed_at: string;
   mock: boolean;
 };
@@ -149,18 +275,33 @@ function isOutcomeMap(value: unknown): value is Record<string, CapabilityOutcome
  * or malicious payload is refused rather than rendered.
  */
 export function hasSecretLikeKey(value: unknown): boolean {
+  return hasSecretLikeKeyExcept(value, []);
+}
+
+/**
+ * Rejects a payload that carries a secret-like key anywhere in its shape,
+ * except for the listed keys.
+ *
+ * The credential enrollment body is the one case that legitimately carries a
+ * secret-bearing field: the value is submitted under the exact key `value` and
+ * nowhere else, so any other secret-like key is still refused.
+ */
+export function hasSecretLikeKeyExcept(
+  value: unknown,
+  allowed: string[],
+): boolean {
   if (Array.isArray(value)) {
-    return value.some(hasSecretLikeKey);
+    return value.some((nested) => hasSecretLikeKeyExcept(nested, allowed));
   }
   if (!isRecord(value)) {
     return false;
   }
   return Object.entries(value).some(([key, nested]) => {
     const normalized = key.toLowerCase().replace(/-/g, "_");
-    if (SECRET_LIKE_KEYS.includes(normalized)) {
+    if (!allowed.includes(normalized) && SECRET_LIKE_KEYS.includes(normalized)) {
       return true;
     }
-    return hasSecretLikeKey(nested);
+    return hasSecretLikeKeyExcept(nested, allowed);
   });
 }
 
@@ -256,6 +397,20 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
+ * Runtime guard for the capabilities block of a live API payload.
+ */
+export function isApiCapabilities(value: unknown): value is ApiCapabilities {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    isStringArray(value.query_dialects) &&
+    isStringArray(value.write_protocols) &&
+    typeof value.schema_discovery === "boolean"
+  );
+}
+
+/**
  * Runtime guard for a live API profile. It rejects any payload carrying a
  * secret-like key, so a credential value can never reach a feature component
  * through this path.
@@ -288,6 +443,21 @@ export function isApiProfileList(value: unknown): value is ApiProfile[] {
   return Array.isArray(value) && value.every(isApiProfile);
 }
 
+function isApiObservation(value: unknown): value is ApiProbeObservation {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.capability === "string" &&
+    typeof value.check === "string" &&
+    typeof value.method === "string" &&
+    typeof value.path === "string" &&
+    typeof value.status === "number" &&
+    isOutcome(value.outcome) &&
+    typeof value.detail === "string"
+  );
+}
+
 export function isApiProbeResult(value: unknown): value is ApiProbeResult {
   if (!isRecord(value) || hasSecretLikeKey(value)) {
     return false;
@@ -298,6 +468,8 @@ export function isApiProbeResult(value: unknown): value is ApiProbeResult {
     isOutcomeMap(value.query_dialects) &&
     isOutcomeMap(value.write_protocols) &&
     isOutcome(value.schema_discovery) &&
+    Array.isArray(value.observations) &&
+    value.observations.every(isApiObservation) &&
     typeof value.probed_at === "string" &&
     typeof value.mock === "boolean"
   );

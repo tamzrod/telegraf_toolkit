@@ -1,6 +1,20 @@
 package metadatastore
 
-import "strings"
+import (
+	"context"
+	"database/sql"
+	"strings"
+)
+
+// execer is the subset of *sql.DB and *sql.Tx the repositories use. Holding
+// the narrower interface lets one repository implementation run against the
+// connection pool or inside a transaction, which is what makes an all-or-
+// nothing registry write possible (P2C-002).
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
 func boolToInt(v bool) int {
 	if v {

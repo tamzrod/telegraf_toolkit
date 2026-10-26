@@ -16,7 +16,7 @@ import (
 // registrycontract.ProfileStore, so it can replace the in-memory adapter in the
 // Registry service without the caller changing.
 type ProfileRepository struct {
-	db *sql.DB
+	db execer
 }
 
 // Put inserts a profile. A duplicate connection_id is rejected with the
@@ -57,6 +57,33 @@ func (r *ProfileRepository) Put(profile fixtures.ConnectionProfile) error {
 				fmt.Sprintf("Profile %q already exists; identities are unique.", profile.ConnectionID))
 		}
 		return fmt.Errorf("insert profile: %w", err)
+	}
+	return nil
+}
+
+// SetCredentialRef points a profile at a credential reference. It never changes
+// the profile's identity, endpoint or scope: those are the approved identity a
+// binding matches against (P2L-007).
+//
+// An empty reference detaches the profile, which is how a revoked credential is
+// removed from a profile without leaving a dangling reference behind.
+func (r *ProfileRepository) SetCredentialRef(connectionID, credentialRefID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE connection_profiles SET credential_ref_id = ? WHERE connection_id = ?`,
+		credentialRefID, connectionID)
+	if err != nil {
+		return fmt.Errorf("update profile credential reference: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update profile credential reference result: %w", err)
+	}
+	if affected == 0 {
+		return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound,
+			fmt.Sprintf("Profile %q not found.", connectionID))
 	}
 	return nil
 }

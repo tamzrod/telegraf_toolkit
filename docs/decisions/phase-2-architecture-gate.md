@@ -2,17 +2,26 @@
 
 Status: **Decision checklist — no architecture decision is made or implied by this document.**
 Task: P2-001 (Architecture decision gate and Registry contract inventory).
+Gate status: Gate 1 and Gate 2 were **closed by human acceptance on 2026-10-21**
+(ADR-0002 and ADR-0003 are **Accepted**). ADR-0004 (host-agent privilege
+boundary) and ADR-0005 (production packaging) remain **Proposed**.
 
-This is a human-readable checklist for the decisions that gate Phase 2 Database Registry work. It restates the open choices from the **Proposed** ADRs and records exactly which Phase 2 work is blocked until a human accepts a decision. Reading this document, or the contract refinement in [`docs/contracts/registry.md`](../contracts/registry.md), does not accept any ADR.
+This is a human-readable checklist for the decisions that gated Phase 2 Database Registry work. It restates the open choices from the ADRs and records exactly which Phase 2 work was blocked until a human accepted a decision. Reading this document, or the contract refinement in [`docs/contracts/registry.md`](../contracts/registry.md), does not accept any ADR.
 
 - Authority for scope and invariants: [`IDENTITY.md`](../../IDENTITY.md).
 - Domain inventory: [`docs/contracts/README.md`](../contracts/README.md).
-- Proposed (not accepted) decisions: [`ADR-0002`](../adr/0002-metadata-store-selection.md), [`ADR-0003`](../adr/0003-secret-store-integration.md).
+- Accepted decisions: [`ADR-0002`](../adr/0002-metadata-store-selection.md) and [`ADR-0003`](../adr/0003-secret-store-integration.md) (both accepted 2026-10-21, both implemented).
+- Still **Proposed** (not accepted): [`ADR-0004`](../adr/0004-host-agent-privilege-boundary.md), [`ADR-0005`](../adr/0005-initial-production-packaging.md).
 - Registry design intent: [`docs/DATABASE_REGISTRY.md`](../DATABASE_REGISTRY.md).
 
-## Gate 1 — Metadata store (ADR-0002, Proposed)
+## Gate 1 — Metadata store (ADR-0002, **Accepted** 2026-10-21)
 
-**What is undecided:** which store persists connection-profile metadata, logical scopes, capability-probe results, credential *references*, canonical schemas, mapping profiles, runtime revisions, sync jobs/blocks, verification states and audit events.
+**Outcome:** the human accepted the single-host embedded SQLite path (option A).
+ADR-0002 is **Accepted** and the persistence boundary is implemented in
+`backend/internal/metadatastore` ([`docs/METADATA_STORE.md`](../METADATA_STORE.md)).
+The options below are kept as the decision record.
+
+**What was undecided:** which store persists connection-profile metadata, logical scopes, capability-probe results, credential *references*, canonical schemas, mapping profiles, runtime revisions, sync jobs/blocks, verification states and audit events.
 
 | Option | Summary | Blocks |
 | --- | --- | --- |
@@ -28,9 +37,15 @@ This is a human-readable checklist for the decisions that gate Phase 2 Database 
 - [ ] Accept A, B, or the staged A→B path as the target.
 - [ ] State whether multi-host management is in scope for the next phase (biases toward B).
 
-## Gate 2 — Secret store and key custody (ADR-0003, Proposed)
+## Gate 2 — Secret store and key custody (ADR-0003, **Accepted** 2026-10-21)
 
-**What is undecided:** how credential values and runtime secrets are stored, referenced, resolved and rotated, and how encryption keys are custodied separately from ciphertext.
+**Outcome:** the human accepted application-level envelope encryption with
+externally supplied keys (option A behind a `SecretStore` abstraction).
+ADR-0003 is **Accepted** and the secret store is implemented in
+`backend/internal/secretstore` ([`docs/SECRET_STORE.md`](../SECRET_STORE.md)).
+The options below are kept as the decision record.
+
+**What was undecided:** how credential values and runtime secrets are stored, referenced, resolved and rotated, and how encryption keys are custodied separately from ciphertext.
 
 | Option | Summary | Blocks |
 | --- | --- | --- |
@@ -47,7 +62,7 @@ This is a human-readable checklist for the decisions that gate Phase 2 Database 
 - [ ] Accept the key-custody and rotation procedure.
 - [ ] State whether external secret-manager integration is required now or deferred.
 
-## What is permitted while both gates remain unresolved
+## What was permitted while both gates remained unresolved (historical)
 
 Permitted, because it commits to no unresolved architecture:
 
@@ -64,7 +79,7 @@ Not permitted, because it presupposes an unaccepted decision:
 - Choosing an encryption-key custody mechanism.
 - Any live InfluxDB read/write, historian write/delete, Telegraf or Docker control.
 
-## Exact Phase 2 work blocked by an unaccepted decision
+## Exact Phase 2 work blocked by an unaccepted decision (at the time)
 
 | Work | Blocked by | Nature of the block |
 | --- | --- | --- |
@@ -76,8 +91,16 @@ Not permitted, because it presupposes an unaccepted decision:
 
 Work **not** blocked (interface/mock only): contract declarations, in-memory mock adapters, isolated capability fixtures, endpoint/TLS/SSRF validation logic, sanitized-error handling, audit *event shape* validation and demo UI.
 
+**Current status:** every row above was unblocked by the 2026-10-21 acceptance of
+ADR-0002 and ADR-0003. The persistence boundary (P2L-001), the envelope-encrypted
+secret store (P2L-002), the authorized Registry API (P2L-003), read-only live
+probing (P2L-004) and the P2L-006/P2L-007 security hardenings were implemented
+and merged via PR #6. Runtime secret injection and config delivery remain
+unimplemented and now depend on the still-Proposed ADR-0004 host-agent privilege
+boundary, not on ADR-0002/0003.
+
 ## Stop conditions for agents
 
 - If a task's objective requires one of the blocked items above, stop that part and report the dependency rather than accepting an ADR or guessing a mechanism.
-- Do not mark ADR-0002 or ADR-0003 as Accepted. Acceptance is human-owned.
-- Do not treat this checklist, the ADR recommendations or any fixture as an accepted decision.
+- ADR-0002 and ADR-0003 are **Accepted** by human decision and are implemented; do not treat them as open.
+- ADR-0004 and ADR-0005 remain **Proposed**. Do not mark them Accepted, and do not treat this checklist, the ADR recommendations or any fixture as an accepted decision.

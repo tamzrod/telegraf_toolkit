@@ -1,9 +1,9 @@
 # Registry contract refinement (Phase 2)
 
-Status: **Interface contracts declared and mocked; ADR-0002 metadata persistence now implemented.**
-Task: P2-001 (Architecture decision gate and Registry contract inventory); persistence added by P2L-001.
+Status: **Implemented for the Registry slice — interface contracts, persistence, secret store, authorized API, live probing and administrator-only credential binding (merged via PR #6).**
+Task: P2-001 (Architecture decision gate and Registry contract inventory); persistence added by P2L-001, secret store by P2L-002, authorized API by P2L-003, live probing by P2L-004, probe hardening by P2L-006, credential binding by P2L-007.
 
-This document narrows the Database Registry slice of the parent inventory into interface-level contracts. It does not define a wire format, REST route or authentication mechanism. [ADR-0002](../adr/0002-metadata-store-selection.md) (metadata store) and [ADR-0003](../adr/0003-secret-store-integration.md) (secret store) were **accepted by the human on 2026-10-21**; ADR-0002 persistence is implemented in `backend/internal/metadatastore` (see [`docs/METADATA_STORE.md`](../METADATA_STORE.md)). ADR-0003 secret handling remains unimplemented pending its authorized task.
+This document narrows the Database Registry slice of the parent inventory into interface-level contracts. It does not define a wire format, REST route or authentication mechanism. [ADR-0002](../adr/0002-metadata-store-selection.md) (metadata store) and [ADR-0003](../adr/0003-secret-store-integration.md) (secret store) were **accepted by the human on 2026-10-21** and are now implemented: ADR-0002 persistence in `backend/internal/metadatastore` ([`docs/METADATA_STORE.md`](../METADATA_STORE.md)) and ADR-0003 envelope encryption in `backend/internal/secretstore` ([`docs/SECRET_STORE.md`](../SECRET_STORE.md)). The contracts are served by the authorized Registry API (`backend/internal/registryapi`, [`docs/REGISTRY_API.md`](../REGISTRY_API.md)), read-only live probing (`backend/internal/liveprobe`, [`docs/LIVE_PROBING.md`](../LIVE_PROBING.md)) and an administrator-only credential attachment binding. Current truthfulness notes: authentication is **static file-provisioned bearer tokens** (no issuance, expiry, rotation or OIDC/OAuth); capability outcomes are **projected from the detected edition**, not observed per capability, and write capability is not proven by a write; **InfluxDB 1.x is unverified**. ADR-0004 and ADR-0005 remain **Proposed**.
 
 Coverage in this refinement: **profile identity and scope**, **probed capabilities**, **credential references**, **sanitized errors** and **audit semantics**. Each section states what is fixed now (an invariant) versus what stays open until a decision is accepted.
 
@@ -80,7 +80,11 @@ ProbedCapabilities
 - Capability matrix schema and the version/edition support matrix (ADR-E, not yet proposed).
 - Probe result freshness/TTL and re-probe triggers (storage depends on ADR-0002).
 - Final persistence/representation of `unsupported` versus `unknown` (storage depends on ADR-0002).
-- Live probing, which needs real scoped credentials ([ADR-0003](../adr/0003-secret-store-integration.md)).
+- Per-capability evidence: the live prober identifies the edition from real
+  responses and then **projects** the capability vocabulary from that edition
+  (see [`docs/LIVE_PROBING.md`](../LIVE_PROBING.md)). Observations that would
+  justify each capability individually, and any proof of a write protocol, are
+  not implemented.
 
 **Probe outcome vocabulary (interface)**
 
@@ -219,6 +223,6 @@ AuditEvent
 ## Verification evidence
 
 - Coverage: profile identity/scope, probed capabilities, credential references, sanitized errors and audit semantics are each fixed/interface/open separated.
-- ADR-0002 (SQLite metadata store) is **Accepted and implemented** for profile, credential-reference and audit persistence; see [`docs/METADATA_STORE.md`](../METADATA_STORE.md) and the P2L-001 evidence. ADR-0003 (secret store) is **Accepted** but its value-handling implementation is a later authorized task; no secret value is stored or resolved by this refinement.
+- ADR-0002 (SQLite metadata store) is **Accepted and implemented** for profile, credential-reference and audit persistence; see [`docs/METADATA_STORE.md`](../METADATA_STORE.md) and the P2L-001 evidence. ADR-0003 (secret store) is **Accepted and implemented** by the envelope-encrypted secret store (`backend/internal/secretstore`, P2L-002); values are stored and resolved server-side only, and the browser never receives one. The authorized API (P2L-003/P2L-007), live probing (P2L-004/P2L-006) and the browser live view (P2L-005) were merged via PR #6 on 2026-10-21.
 - No credentials, tokens or secret values appear in this document.
 - Runtime tests: interface-level tests accompany the backend declarations; persistence tests accompany `backend/internal/metadatastore`; see the archived task evidence.
