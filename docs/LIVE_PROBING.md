@@ -31,6 +31,18 @@ absent. A **write protocol** is never proven, because a read-only probe does not
 write. Both cases are reported as `unknown` with the observation attached, never
 as `supported` or `unsupported`.
 
+> **Correction under review (P3-001, 2026-10-26).** The statement above — that
+> the verified editions serve a query endpoint only for POST — is **not accurate
+> for every route**. A read-only GET survey of the pinned containers found that
+> InfluxDB 2 OSS v2.9.1 answers the 1.x-compatibility `GET /query` (with the DBRP
+> database name) and InfluxDB 3 Core v3.12.1 answers `GET /api/v3/query_influxql`
+> and `GET /api/v3/query_sql`, returning real metadata. The catalogue checks
+> different paths (`/api/v3/query/sql`, `/api/v3/query/influxql`), which return
+> 404, so its `unknown` outcome is a path defect rather than proof that the
+> endpoint is POST-only. The capability model is unchanged until the catalogue is
+> corrected under explicit authority; see
+> [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
+
 ## Read-only guarantee
 
 A probe issues **GET requests only**. It never writes, deletes, updates or
@@ -425,10 +437,11 @@ loopback GET.
 - InfluxDB 1.x is unverified (no isolated instance).
 - The capability checks are a small, explicit catalogue, not a full
   compatibility matrix (ADR-E is not yet proposed).
-- **A GET-only probe cannot prove a query dialect.** The verified editions serve
-  a query endpoint only for POST, so the dialects stay `unknown`. A read-only
-  *query* check (a POST carrying a read query) would be able to prove them, but
-  the probe route is GET-only by contract and a method change needs explicit
+- **A GET-only probe cannot prove a query dialect as catalogued.** The dialects
+  stay `unknown` in the capability model. P3-001 measured that the pinned
+  editions answer *other* GET metadata query routes, so the catalogue and this
+  conclusion are under correction (see the P3-001 note above); changing the
+  catalogue changes published capability outcomes and needs explicit
   authorization.
 - **A write protocol is never proven by this route.** `line-protocol` stays
   `unknown` until an independently authorized synthetic write check exists.

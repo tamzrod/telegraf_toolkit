@@ -1,6 +1,8 @@
 # Canonical Registry and Taglist Mapper
 
-Status: **Design proposal**.
+Status: **Design proposal — not implemented.** The measurement-level read path
+is at an open human gate (P3-001); see
+[`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Terminology
 InfluxDB has **measurements**, **fields** (measured values), and **tags** (indexed metadata). The UI may call its browsing panel a *Taglist*, but must distinguish the three types.

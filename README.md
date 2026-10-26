@@ -5,12 +5,15 @@
 Visual Telegraf management, configuration, canonical data mapping, and cross-version InfluxDB synchronization toolkit.
 
 > **Status:** Early-stage delivery. The Phase 0 toolchain, the Phase 1 application
-> shell and the Phase 2 Database Registry **backend** are implemented and merged
-> into `main` (PRs #2–#6). The browser ships live profile listing and read-only
-> capability probing; the pipeline designer, canonical mapper, synchronizer,
-> runtime management and production packaging remain **proposed** and are not
-> implemented. See [Roadmap](docs/ROADMAP.md) for what is delivered, verified
-> and still outstanding.
+> shell and the Phase 2 Database Registry — including the administrator-only
+> credential lifecycle — are implemented and merged into `main` (PRs #2–#7).
+> The browser ships live profile listing, read-only capability probing, profile
+> create/delete and the write-only credential lifecycle. Phase 3 documentation
+> reconciliation has started at an **open schema-discovery architecture gate**;
+> the canonical mapper, pipeline designer, synchronizer, runtime management and
+> production packaging remain **proposed** and are not implemented. See
+> [Roadmap](docs/ROADMAP.md) and the
+> [Phase 3 gate record](docs/decisions/phase-3-schema-discovery-gate.md).
 
 ## Vision
 

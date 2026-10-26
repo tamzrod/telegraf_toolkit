@@ -12,6 +12,7 @@ ICC is a lightweight context cache. Start with `ICC/context/project.md`; follow 
 - Live Registry UI integration — `docs/LIVE_UI.md`, `ui/src/features/databases/`, `ui/src/hooks/useLiveRegistry.ts`
 - Phase 2 registry interface contracts and decision gate — `docs/contracts/registry.md`, `docs/decisions/phase-2-architecture-gate.md`, `docs/decisions/phase-2-integration-handoff.md`
 - Phase 3 Canonical Mapper entry contract — `docs/contracts/canonical-mapper.md`
+- Phase 3 schema-discovery architecture gate (open, human decision) — `docs/decisions/phase-3-schema-discovery-gate.md`
 - Dual-database canonical mapping — `docs/CANONICAL_MAPPING.md`
 - Telegraf runtimes and configuration — `docs/FRONTEND_ARCHITECTURE.md`, `docs/adr/0001-official-telegraf-and-version-pinning.md`
 - Historical reconciliation — `docs/SYNCHRONIZATION.md`
