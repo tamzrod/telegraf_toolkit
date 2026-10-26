@@ -1,7 +1,7 @@
 # Authorized Registry API
 
 Status: **Implemented (server-authorized, metadata and references only; multi-row writes are transactional).**
-Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API), P2L-006 (probe hardening), P2L-007 (credential binding), P2C-002 (transactional enrollment).
+Tasks: P2L-001 (persistence), P2L-002 (secret store), P2L-003 (authorized API), P2L-006 (probe hardening), P2L-007 (credential binding), P2C-002 (transactional enrollment), P3-002 (authorized schema discovery).
 Merged into `main` via PR #6 on 2026-10-21 (merge commit `0ba4827`); the transactional guarantees above are added by P2C-002.
 
 This document describes the authorized Registry HTTP surface. Authorization is
@@ -44,12 +44,17 @@ Roles follow [`DATABASE_REGISTRY.md`](DATABASE_REGISTRY.md). Permissions are
 additive and least-privilege: a principal holds only what its roles grant, and an
 unknown role grants nothing.
 
-| Role | profile.read | profile.write | profile.probe | credential.read | credential.write | credential.attach | audit.read | credential.resolve |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| viewer | ✓ | | | | | | | |
-| operator | ✓ | | ✓ | ✓ | | | | |
-| configurator | ✓ | ✓ | ✓ | ✓ | | | | |
-| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | profile.read | profile.write | profile.probe | schema.read | credential.read | credential.write | credential.attach | audit.read | credential.resolve |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| viewer | ✓ | | | | | | | | |
+| operator | ✓ | | ✓ | ✓ | ✓ | | | | |
+| configurator | ✓ | ✓ | ✓ | ✓ | ✓ | | | | |
+| administrator | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+`schema.read` is deliberately distinct from `profile.probe`: the read is a
+different operation with a different data exposure, so it can be granted or
+revoked independently even though the operator, configurator and administrator
+roles hold both today. The viewer role holds neither.
 
 Denial is the default. An anonymous principal is unauthenticated (401); a
 principal lacking the required permission is forbidden (403).
@@ -69,12 +74,102 @@ principal lacking the required permission is forbidden (403).
 | GET | `/api/v1/registry/audit` | audit.read | List sanitized audit events |
 | GET | `/api/v1/registry/status` | none (status only) | Store reachability, schema version, secret-store flag |
 | POST | `/api/v1/registry/probe` | profile.probe | Read-only capability probe; body is a connection profile ID only (endpoint and credential resolved server-side). The response carries the three-valued outcomes **and** the `observations` that back them (check, method, path, status, outcome, reason) |
+| GET | `/api/v1/registry/schema/measurements` | schema.read | Bounded, GET-only metadata read of the profile's observed measurement names |
+| GET | `/api/v1/registry/schema/fields` | schema.read | Bounded field-key read for one observed measurement (`measurement` query parameter) |
+| GET | `/api/v1/registry/schema/tags` | schema.read | Bounded tag-key read for one observed measurement (`measurement` query parameter) |
 | GET | `/api/v1/registry/credential-bindings` | credential.attach | List approved bindings (no values) |
 | POST | `/api/v1/registry/credential-bindings` | credential.attach | Approve a binding for a profile identity |
 | DELETE | `/api/v1/registry/credential-bindings/{reference}/{connection}` | credential.attach | Revoke an approval |
 
 Responses carry a `credential_ref_id`, never a value. The `credentials` route
 returns alias, role, fingerprint and timestamps only.
+
+## Authorized schema discovery (P3-002)
+
+The Registry exposes a bounded, read-only metadata read for the selected
+profile's **actual** schema. It is a separate surface from the capability probe
+and does not change the probe's conclusions.
+
+- **Profile-only inputs.** The route fixes the kind. The caller supplies
+  `connection_id`, plus `measurement` for field/tag reads. The endpoint, logical
+  scope and credential come from the stored profile; a caller-supplied URL,
+  credential reference, query, deadline or limit is refused with 400. An
+  unknown or repeated query parameter is refused rather than ignored.
+- **Fixed statement allowlist.** The server executes only
+  `SHOW MEASUREMENTS`, `SHOW FIELD KEYS FROM <measurement>` and
+  `SHOW TAG KEYS FROM <measurement>` over GET. There is no caller-supplied
+  statement, no POST query route, no `SELECT … INTO`, no DDL, no deletion and
+  no write. The allowlist, not the HTTP method, is the write barrier.
+- **Membership before interpolation.** A field/tag read first observes the
+  measurement list and requires an exact membership match; the identifier is
+  also escaped. A non-member returns 404 `measurement-not-found`; a control
+  character or over-long name returns 400. A malformed attempt never reaches a
+  statement.
+- **Per-edition adapter.** The edition is identified from an observed `/health`
+  response, never from the profile label. InfluxDB 2 resolves the bucket and its
+  DBRP database with read-only `GET /api/v2/buckets` and `GET /api/v2/dbrps`
+  (it never creates a mapping) and queries `GET /query`; InfluxDB 3 queries
+  `GET /api/v3/query_influxql`. A scope that does not match the observed
+  edition is refused as unknown without issuing a statement.
+- **Bounds.** 15 s total deadline, 5 s per request, 8-request budget, 1 000-row
+  cap, 1 MiB response-byte cap and context cancellation. The response carries an
+  explicit `truncated` flag; a short list is never silently implied.
+- **Honest outcomes.** `supported` only for a 200 with the expected shape.
+  401/403, 404, 405, timeout, server error, transport failure or an unexpected
+  body stays `unknown`; a 404 on a query route is not `unsupported`. A
+  database authentication refusal is not an empty schema.
+- **Credential behaviour.** A configured credential is resolved server-side only
+  after its approved binding is re-verified for the exact profile, endpoint and
+  scope. A missing, invalid or revoked configured credential fails closed with
+  no anonymous fallback. A profile with no configured credential is read
+  anonymously only where the deployment permits it.
+- **Identity for invalidation.** Every response repeats `connection_id`, the
+  canonical `scope` and the observed `edition`, so a client can reject a stale
+  answer when the selection or the profile's scope changes.
+- **Redacted audit.** Each read records one event: actor, action
+  `schema.read.<kind>`, the profile target identity and the outcome. No rows,
+  metadata values or credentials are recorded.
+- **InfluxDB 1.x.** A database/retention-policy scope returns `unknown` with an
+  explicit `schema-1x-unverified` observation and makes no request. InfluxDB 1.x
+  remains unverified.
+
+Response shape:
+
+```json
+{
+  "connection_id": "plant-a",
+  "scope": "acme/historian",
+  "edition": "influxdb-2.x-oss",
+  "kind": "fields",
+  "measurement": "sensor",
+  "outcome": "supported",
+  "measurements": [],
+  "fields": [{"name": "value", "type": "float"}],
+  "tags": [],
+  "observations": [
+    {
+      "check": "schema-v2-measurements",
+      "method": "GET",
+      "path": "/query?db=…&q=SHOW+MEASUREMENTS",
+      "status": 200,
+      "outcome": "supported",
+      "edition": "influxdb-2.x-oss",
+      "detail": "the endpoint returned the expected metadata"
+    }
+  ],
+  "truncated": false,
+  "requests": 5,
+  "read_at": "2026-10-26T12:00:00Z",
+  "mock": false
+}
+```
+
+`measurements`, `fields` and `tags` are always present (empty arrays when the
+observed list is empty) so an observed empty schema is distinguishable from a
+missing field. An observation for a step that made no request (for example the
+InfluxDB 1.x unverified state) carries `status: 0` and `method: "none"`, so it
+cannot be read as an attempted GET. No response carries a credential, a
+credential-bearing URL or sample data.
 
 ## Credential lifecycle (P2C-005)
 

@@ -896,6 +896,24 @@ func (s *Service) RecordProbe(ctx context.Context, actor, edition string) error 
 	return recordAudit(s.audit, actor, "profile.probe", registrycontract.TargetProfile, edition, registrycontract.OutcomeSucceeded)
 }
 
+// RecordSchemaRead records an authorized schema read attributed to the acting
+// principal. The event references the profile by identity and the metadata
+// kind by its fixed name; it never carries observed rows, metadata values or a
+// credential. The read completed within its bounds, so the audited action
+// succeeded; whether the deployment supported or left the metadata unknown is
+// carried by the response, not by this security event.
+func (s *Service) RecordSchemaRead(ctx context.Context, actor, connectionID, kind string) error {
+	if actor == "" {
+		actor = "system"
+	}
+	action := "schema.read"
+	switch kind {
+	case "measurements", "fields", "tags":
+		action += "." + kind
+	}
+	return recordAudit(s.audit, actor, action, registrycontract.TargetProfile, connectionID, registrycontract.OutcomeSucceeded)
+}
+
 // recordAudit appends a sanitized audit event to the service's own sink. It is
 // used for the transitions that are not part of a unit of work, such as a
 // rolled-back enrollment.

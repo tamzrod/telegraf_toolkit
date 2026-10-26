@@ -54,6 +54,10 @@ const (
 	// validated, so nothing was replaced and the credential that is in place
 	// is whatever the winning attempt left.
 	CodeCredentialReplaceConflict ErrorCode = "credential-replace-conflict"
+	// CodeMeasurementNotFound reports that a requested measurement is not
+	// present in the observed measurement list of the profile's scope. It is
+	// a not-found selector, not a capability claim.
+	CodeMeasurementNotFound ErrorCode = "measurement-not-found"
 )
 
 // secretMarkers are substrings that must never appear in a sanitized error.

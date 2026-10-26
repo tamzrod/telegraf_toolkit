@@ -183,13 +183,16 @@ The bounded contract the Canonical Mapper starts from - the source and
 destination identity, the scope of the first increment, what the Registry can
 prove today, the unknown states the mapper must model and the boundaries it
 inherits - is recorded in
-[`docs/contracts/canonical-mapper.md`](canonical-mapper.md). It implements
-nothing and claims no capability the Registry has not observed.
+[`docs/contracts/canonical-mapper.md`](canonical-mapper.md). The contract itself
+implements nothing and claims no capability the Registry has not observed.
 
-**Gate status (P3-001, 2026-10-26):** the measurement-level read path is
+**Gate status (P3-001/P3-002, 2026-10-26):** the measurement-level read path is
 **approved** (Option A1, GET-only fixed `SHOW` statements under `schema.read`) in
 [`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md)
-§11. No mapper implementation has started and no new capability is claimed.
+§11 and **implemented by P3-002** as
+`GET /api/v1/registry/schema/{measurements,fields,tags}`, verified against the
+pinned InfluxDB 2 OSS v2.9.1 and 3 Core v3.12.1 containers. The mapper itself
+has not been implemented and InfluxDB 1.x remains unverified.
 
 ## Cross-cutting contract rules
 

@@ -1,7 +1,9 @@
 # Canonical Registry and Taglist Mapper
 
-Status: **Design proposal — not implemented.** The measurement-level read path
-is approved (Option A1, P3-001) and not implemented; see
+Status: **Design proposal — not implemented.** The measurement-level metadata
+read path is implemented (Option A1, P3-002) behind `schema.read` for the pinned
+InfluxDB 2 OSS and 3 Core editions; the mapper UI, mapping drafts and export are
+not implemented, and InfluxDB 1.x remains unverified. See
 [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Terminology

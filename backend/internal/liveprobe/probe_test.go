@@ -167,8 +167,8 @@ func influxDB2Fixture(t *testing.T) *httptest.Server {
 }
 
 // influxDB3Fixture serves the read-only answers the real InfluxDB 3 Core
-// deployment gives: a plain-text health body, a databases listing and "not
-// found" for the query paths a GET cannot reach.
+// deployment gives: a plain-text health body, a databases listing, and the
+// measured GET query routes with their real response shapes.
 func influxDB3Fixture(t *testing.T, token string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +191,20 @@ func influxDB3Fixture(t *testing.T, token string) *httptest.Server {
 			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`[{"iox::database":"_internal"}]`))
+		case "/api/v3/query_influxql":
+			if r.URL.Query().Get("q") != "SHOW DATABASES" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"iox::database":"_internal","deleted":false}]`))
+		case "/api/v3/query_sql":
+			if r.URL.Query().Get("db") == "" || r.URL.Query().Get("q") != "SELECT 1" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"Int64(1)":1}]`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("Not found"))
@@ -260,13 +274,13 @@ func TestProbeAgainstInfluxDB3FixtureWithAuth(t *testing.T) {
 	if result.Edition != "influxdb-3.x-core" {
 		t.Fatalf("edition = %q, want influxdb-3.x-core", result.Edition)
 	}
-	// The query paths are not served for GET, which does not prove that the
-	// dialect is absent: the capability stays unknown.
-	if result.QueryDialects["sql"] != registrycontract.OutcomeUnknown {
-		t.Fatalf("sql = %v, want unknown (the path is not served for GET)", result.QueryDialects["sql"])
+	// The corrected, measured GET routes answer with the expected shapes, so
+	// both dialects are observed. The probe still issues GET only.
+	if result.QueryDialects["sql"] != registrycontract.OutcomeSupported {
+		t.Fatalf("sql = %v, want supported (the measured SQL route answered)", result.QueryDialects["sql"])
 	}
-	if result.QueryDialects["influxql"] != registrycontract.OutcomeUnknown {
-		t.Fatalf("influxql = %v, want unknown (the path is not served for GET)", result.QueryDialects["influxql"])
+	if result.QueryDialects["influxql"] != registrycontract.OutcomeSupported {
+		t.Fatalf("influxql = %v, want supported (the measured InfluxQL route answered)", result.QueryDialects["influxql"])
 	}
 	// The databases listing was observed, so schema discovery is supported.
 	if result.SchemaDiscovery != registrycontract.OutcomeSupported {
@@ -385,5 +399,42 @@ func TestResultCarriesNoSecretValue(t *testing.T) {
 	// connection ID and edition only.
 	if result.ConnectionID != "no-secret" || result.Edition == "" {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+// TestCatalogueUsesMeasuredV3QueryRoutes pins the corrected endpoints so the
+// published path defect cannot silently return. The 2.x InfluxQL check is
+// deliberately unchanged: /api/v2/query refuses GET, so that dialect stays
+// unknown rather than being inferred.
+func TestCatalogueUsesMeasuredV3QueryRoutes(t *testing.T) {
+	want := map[string]string{
+		"influxql-v3-query": "/api/v3/query_influxql?q=SHOW%20DATABASES",
+		"sql-v3-query":      "/api/v3/query_sql?db=_internal&q=SELECT%201",
+		"influxql-v2-query": "/api/v2/query?q=SELECT%201",
+	}
+	seen := map[string]bool{}
+	for _, check := range capabilityChecks {
+		path, ok := want[check.id]
+		if !ok {
+			continue
+		}
+		seen[check.id] = true
+		if check.path != path {
+			t.Errorf("%s path = %q, want the measured route %q", check.id, check.path, path)
+		}
+	}
+	for id := range want {
+		if !seen[id] {
+			t.Errorf("catalogue is missing the %s check", id)
+		}
+	}
+	// The old, mismatched 3.x paths must not come back.
+	for _, check := range capabilityChecks {
+		if strings.Contains(check.path, "/api/v3/query/sql") || strings.Contains(check.path, "/api/v3/query/influxql") {
+			t.Errorf("%s still uses a mismatched 3.x path: %q", check.id, check.path)
+		}
+		if strings.Contains(check.id, "-v3-query") && strings.Contains(check.path, "query=") {
+			t.Errorf("%s still uses the wrong query parameter: %q", check.id, check.path)
+		}
 	}
 }

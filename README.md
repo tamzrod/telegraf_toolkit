@@ -9,10 +9,12 @@ Visual Telegraf management, configuration, canonical data mapping, and cross-ver
 > credential lifecycle — are implemented and merged into `main` (PRs #2–#7).
 > The browser ships live profile listing, read-only capability probing, profile
 > create/delete and the write-only credential lifecycle. Phase 3 documentation
-> reconciliation is complete at an approved schema-discovery architecture
-> (**Option A1**, GET-only fixed metadata statements), not yet implemented;
-> the canonical mapper, pipeline designer, synchronizer, runtime management and
-> production packaging remain **proposed** and are not implemented. See
+> reconciliation is complete and the approved schema-discovery read path
+> (**Option A1**, GET-only fixed metadata statements under `schema.read`) is
+> implemented (P3-002) and verified against the isolated InfluxDB 2/3
+> containers; the canonical mapper UI, pipeline designer, synchronizer, runtime
+> management, production packaging and InfluxDB 1.x coverage remain
+> **proposed/unverified** and are not implemented. See
 > [Roadmap](docs/ROADMAP.md) and the
 > [Phase 3 gate record](docs/decisions/phase-3-schema-discovery-gate.md).
 

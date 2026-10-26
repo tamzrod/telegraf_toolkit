@@ -77,6 +77,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/registry/audit", a.handleAudit)
 	if a.prober != nil {
 		mux.HandleFunc("/api/v1/registry/probe", a.handleProbe)
+		// The approved read path (P3-002) is a GET-only metadata read. It is
+		// profile-only: the browser supplies a stored connection identity and a
+		// measurement name, never a URL, credential or query.
+		mux.HandleFunc("/api/v1/registry/schema/measurements", a.handleSchema)
+		mux.HandleFunc("/api/v1/registry/schema/fields", a.handleSchema)
+		mux.HandleFunc("/api/v1/registry/schema/tags", a.handleSchema)
 	}
 }
 
@@ -551,6 +557,26 @@ type probeResponse struct {
 	Mock            bool                                     `json:"mock"`
 }
 
+// schemaResponse is the sanitized result of one authorized metadata read. It
+// carries the profile identity and canonical scope the read used, so a client
+// can reject a stale answer after the selection or the profile scope changes.
+type schemaResponse struct {
+	ConnectionID string                        `json:"connection_id"`
+	Scope        string                        `json:"scope"`
+	Edition      string                        `json:"edition"`
+	Kind         string                        `json:"kind"`
+	Measurement  string                        `json:"measurement,omitempty"`
+	Outcome      registrycontract.ProbeOutcome `json:"outcome"`
+	Measurements []string                      `json:"measurements"`
+	Fields       []liveprobe.SchemaField       `json:"fields"`
+	Tags         []string                      `json:"tags"`
+	Observations []liveprobe.SchemaObservation `json:"observations"`
+	Truncated    bool                          `json:"truncated"`
+	Requests     int                           `json:"requests"`
+	ReadAt       string                        `json:"read_at"`
+	Mock         bool                          `json:"mock"`
+}
+
 // handleProbe performs a consented, read-only capability probe. It requires the
 // profile.probe permission and the endpoint policy configured on the API.
 //
@@ -661,6 +687,160 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSchema serves the approved bounded, read-only schema read.
+//
+// Every input is constrained: the route fixes the kind, a stored profile
+// supplies the endpoint, scope and credential, and only connection_id plus (for
+// fields/tags) a measurement name are accepted. There is no caller-supplied
+// query, URL, credential, deadline or limit. Authorization is checked before any
+// profile is read, and both the credential binding and the profile scope are
+// re-verified server-side.
+func (a *API) handleSchema(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	if !a.authorize(w, principal, authz.PermSchemaRead) {
+		return
+	}
+	if a.prober == nil {
+		writeError(w, http.StatusNotFound, "not-found", "Schema discovery is not enabled.")
+		return
+	}
+
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/registry/schema/")
+	var kind liveprobe.SchemaKind
+	switch suffix {
+	case "measurements":
+		kind = liveprobe.SchemaMeasurements
+	case "fields":
+		kind = liveprobe.SchemaFields
+	case "tags":
+		kind = liveprobe.SchemaTags
+	default:
+		writeError(w, http.StatusNotFound, "not-found", "No schema read was requested.")
+		return
+	}
+
+	// Strict parameter handling: an unknown or repeated parameter is refused
+	// rather than ignored, so a query cannot be smuggled through a route that
+	// does not have one.
+	query := r.URL.Query()
+	for key, values := range query {
+		if key != "connection_id" && key != "measurement" {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "The schema read accepts only connection_id and measurement.")
+			return
+		}
+		if len(values) != 1 {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A schema read parameter must appear exactly once.")
+			return
+		}
+	}
+	connectionID := strings.TrimSpace(query.Get("connection_id"))
+	if connectionID == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A schema read requires a connection profile ID.")
+		return
+	}
+	measurement, hasMeasurement := query["measurement"]
+	if kind == liveprobe.SchemaMeasurements {
+		if hasMeasurement {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A measurement listing does not take a measurement name.")
+			return
+		}
+	} else if !hasMeasurement || strings.TrimSpace(string(measurement[0])) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A field or tag read requires a measurement name.")
+		return
+	}
+
+	// Resolve the profile server-side. Only its own endpoint, scope and
+	// credential reference are used.
+	profile, found, err := a.service.GetProfile(r.Context(), connectionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The profile could not be read.")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, string(registrycontract.CodeProfileNotFound), "No profile matches the requested identity.")
+		return
+	}
+	if err := registrycontract.ValidateProfileEndpoint(profile.Endpoint); err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+	// Re-verify the approved binding at read time: a profile whose identity was
+	// altered out of band (endpoint or scope) cannot resolve its credential.
+	if err := a.service.VerifyProfileCredentialBinding(r.Context(), profile); err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+
+	// A configured credential must resolve; a revoked or invalid reference
+	// fails closed. Anonymous database access is only possible when the profile
+	// intentionally has no configured credential.
+	var credential liveprobe.Credential
+	if strings.TrimSpace(profile.CredentialRefID) != "" {
+		value, err := a.service.ResolveCredential(r.Context(), profile.CredentialRefID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		credential = credentialFor(value)
+	}
+
+	var selectedMeasurement string
+	if hasMeasurement {
+		selectedMeasurement = measurement[0]
+	}
+	result, err := a.prober.ReadSchema(r.Context(), liveprobe.SchemaRequest{
+		ConnectionID: profile.ConnectionID,
+		Endpoint:     profile.Endpoint,
+		Scope: liveprobe.SchemaScope{
+			Kind:            string(profile.Scope.Kind),
+			Organization:    profile.Scope.Organization,
+			Bucket:          profile.Scope.Bucket,
+			Database:        profile.Scope.Database,
+			RetentionPolicy: profile.Scope.RetentionPolicy,
+		},
+		Kind:        kind,
+		Measurement: selectedMeasurement,
+		Policy:      a.probePolicy,
+		Credential:  credential,
+		Deadline:    liveprobe.DefaultSchemaDeadline,
+		MaxRequests: liveprobe.DefaultSchemaMaxRequests,
+		MaxRows:     liveprobe.DefaultSchemaMaxRows,
+	})
+	if err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+
+	if err := a.service.RecordSchemaRead(r.Context(), principal.ID, profile.ConnectionID, string(kind)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The schema read result could not be recorded.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, schemaResponse{
+		ConnectionID: result.ConnectionID,
+		Scope:        result.Scope,
+		Edition:      result.Edition,
+		Kind:         string(result.Kind),
+		Measurement:  result.Measurement,
+		Outcome:      result.Outcome,
+		Measurements: result.Measurements,
+		Fields:       result.Fields,
+		Tags:         result.Tags,
+		Observations: result.Observations,
+		Truncated:    result.Truncated,
+		Requests:     result.Requests,
+		ReadAt:       result.ReadAt.Format("2006-01-02T15:04:05Z07:00"),
+		Mock:         false,
+	})
+}
+
 // credentialFor infers the HTTP authorization scheme for a resolved credential.
 // InfluxDB 3 uses a Bearer token; InfluxDB 2 uses a Token. The scheme is chosen
 // without inspecting the value's contents beyond a length heuristic, and the
@@ -695,7 +875,7 @@ func writeSanitizedError(w http.ResponseWriter, err error) {
 // statusForCode maps a contract error code to an HTTP status.
 func statusForCode(code registrycontract.ErrorCode) int {
 	switch code {
-	case registrycontract.CodeProfileNotFound, registrycontract.CodeReferenceNotFound:
+	case registrycontract.CodeProfileNotFound, registrycontract.CodeReferenceNotFound, registrycontract.CodeMeasurementNotFound:
 		return http.StatusNotFound
 	case registrycontract.CodeDuplicateProfile:
 		return http.StatusConflict

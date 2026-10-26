@@ -78,6 +78,9 @@ GO_BIN=/path/to/go ./scripts/toolkit-live-registry.sh
 # 7. run the live credential lifecycle check (task P2C-007)
 GO_BIN=/path/to/go ./scripts/credential-lifecycle.sh
 
+# 8. run the authorized GET-only schema-discovery check (task P3-002)
+GO_BIN=/path/to/go ./scripts/schema-discovery.sh
+
 # ...or do everything in one go and write sanitized evidence
 GO_BIN=/path/to/go ./scripts/run-all.sh --teardown
 
@@ -145,6 +148,15 @@ A replacement candidate is only accepted after a protected, read-only listing
 refuses an anonymous request and accepts the candidate; an invalid candidate is
 refused with the working credential preserved. Every request it makes against a
 deployment is a read-only GET; no historian is ever written.
+
+`scripts/schema-discovery.sh` (task P3-002) runs the gated integration tests
+that read measurement, field-key and tag-key metadata through the authorized
+Registry HTTP surface against both running containers. Every deployment request
+is a GET from the fixed `SHOW MEASUREMENTS` / `SHOW FIELD KEYS` /
+`SHOW TAG KEYS` allowlist; the read path never writes. The check asserts the
+reported edition and scope, an injection attempt and an absent measurement are
+refused with 404, and a viewer is denied with 403. It requires the stack to be
+up and `run-tests.sh` to have seeded the synthetic data.
 
 `scripts/toolkit-live-registry.sh` (task P2L-005) starts the Toolkit backend
 with a throwaway master key and authentication token file under `tmp/`, then

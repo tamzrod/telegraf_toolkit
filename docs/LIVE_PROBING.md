@@ -42,6 +42,10 @@ as `supported` or `unsupported`.
 > endpoint is POST-only. The capability model is unchanged until the approved
 > catalogue correction lands under P3-002; see
 > [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
+>
+> **Correction landed (P3-002, 2026-10-26).** The approved catalogue correction
+> below is implemented and verified. The historical note above and the P2C-003
+> matrix are preserved unchanged; the correction is appended, not rewritten.
 
 ## Read-only guarantee
 
@@ -380,6 +384,87 @@ probe: only the listing capability could be **observed**; every query dialect
 stayed **unknown** because the verified editions serve a query endpoint only for
 POST, and the write protocol stayed **unknown** because the probe never writes.
 
+### Correction to the P2C-003 catalogue and conclusions (P3-002, 2026-10-26)
+
+**Authority:** the human approval in
+[`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md)
+§11.2. The historical measurements and rows above are **not** rewritten; this
+section records the correction and the re-measurement that supports it.
+
+The P2C-003 catalogue checked InfluxDB 3 query paths that do not exist
+(`/api/v3/query/influxql`, `/api/v3/query/sql`) with the wrong parameter
+(`query`), observed 404, and concluded that the dialects were `unknown`. A
+read-only GET survey of the same pinned, isolated containers (InfluxDB 2 OSS
+v2.9.1 and InfluxDB 3 Core v3.12.1) found the serving routes:
+
+| GET request | Status | Observed |
+| --- | --- | --- |
+| `/api/v2/query?q=SHOW%20MEASUREMENTS` (2 OSS) | 405 | `allow: OPTIONS, POST` — unchanged |
+| `/query?db=ttk-test-bucket&q=SHOW%20MEASUREMENTS` (2 OSS, 1.x-compat) | 200 | `environment`, `sensor` |
+| `/api/v3/query_influxql?q=SHOW%20DATABASES` (3 Core) | 200 | `[{"iox::database":"_internal",…}]` |
+| `/api/v3/query_sql?db=_internal&q=SELECT%201` (3 Core) | 200 | `[{"Int64(1)":1}]` |
+| `/api/v3/query/influxql?…` (3 Core, slash form) | 404 | `Not found` |
+| `/api/v3/query/sql?…` (3 Core, slash form) | 404 | `Not found` |
+
+**Catalogue change (P3-002):**
+
+| Check | Previous path | Corrected path | Reason |
+| --- | --- | --- | --- |
+| `influxql-v3-query` | `/api/v3/query/influxql?query=SELECT%201` | `/api/v3/query_influxql?q=SHOW%20DATABASES` | The measured route uses an underscore and `q`; `SELECT 1` is not valid InfluxQL on 3 Core, while `SHOW DATABASES` needs no profile scope. The expected body is an `iox::database` row |
+| `sql-v3-query` | `/api/v3/query/sql?query=SELECT%201` | `/api/v3/query_sql?db=_internal&q=SELECT%201` | The measured route uses an underscore and `q`; the endpoint requires a `db` even for `SELECT 1`, so the read-only check uses the built-in `_internal` database and expects `Int64(1)` |
+| `influxql-v2-query` | `/api/v2/query?q=SELECT%201` | unchanged | The 2 OSS endpoint still refuses GET (405); the dialect stays `unknown` and is not inferred |
+| `sql-v2-query` | `/api/v2/query/sql?query=SELECT%201` | unchanged | Still returns the UI page on 2 OSS and is not reached on 3 Core once SQL is observed; no support is claimed |
+
+**Derived outcomes after the correction** (observed, not inferred from a
+version label):
+
+- **InfluxDB 3 Core:** `influxql` and `sql` are **supported** because the
+  corrected GET routes returned the expected bodies. The probe still issues
+  GET only; a 401/403, 404, 405, timeout, server error or unexpected body
+  remains `unknown`.
+- **InfluxDB 2 OSS:** `influxql` remains `unknown` (the API route refuses GET)
+  and `sql` remains `unknown`. The 1.x-compatibility `GET /query` is used by
+  the authorized schema read, not by the capability probe.
+- The write protocol remains `unknown`; no check writes.
+
+The correction is pinned by
+`TestCatalogueUsesMeasuredV3QueryRoutes` and the updated synthetic 3.x fixture
+in `backend/internal/liveprobe/probe_test.go`.
+
+### Authorized schema discovery (P3-002, 2026-10-26)
+
+The approved Option A1 read path is a separate, bounded, GET-only surface. It is
+**not** the capability probe and does not change the probe's role: it executes a
+fixed statement allowlist and returns the observed metadata.
+
+| Property | Implemented behaviour |
+| --- | --- |
+| Routes | `GET /api/v1/registry/schema/measurements`, `…/schema/fields`, `…/schema/tags` |
+| Permission | `schema.read`, distinct from `profile.probe`; viewer is denied (403) |
+| Inputs | `connection_id`, plus `measurement` for fields/tags. No URL, credential, query, deadline or limit is accepted; an unknown or repeated parameter is refused (400) |
+| Statements | Only `SHOW MEASUREMENTS`, `SHOW FIELD KEYS FROM <measurement>`, `SHOW TAG KEYS FROM <measurement>`. No caller statement, POST, `SELECT … INTO`, DDL, deletion or write |
+| Measurement validation | The name must be a member of the observed measurement list before a field/tag statement runs; it is also escaped as an identifier. A non-member is 404 `measurement-not-found`; a control character or over-long name is 400 |
+| Edition resolution | From the observed `/health` response, never from the profile label. 2.x resolves the bucket and its DBRP database with read-only `GET /api/v2/buckets` and `GET /api/v2/dbrps` (never creating a mapping), then uses `GET /query`. 3.x uses `GET /api/v3/query_influxql?db=…&q=…&format=json` |
+| Bounds | 15 s total deadline (per-request 5 s), 8-request budget, 1 000-row cap, 1 MiB response-byte cap, context cancellation. Truncation is an explicit `truncated` flag, never a silent short list |
+| Outcomes | `supported` only for a 200 with the expected shape; 401/403, 404, 405, 408/504, 5xx, transport failure, timeout and malformed bodies stay `unknown`. A 404 on a query route is **not** `unsupported` |
+| InfluxDB 1.x | Scope `database + retention policy` returns `unknown` with a `schema-1x-unverified` observation and makes **no** request |
+| Identity | Every response carries `connection_id`, the canonical `scope` and the observed `edition`, so a selection or scope change invalidates the client's view |
+| Credentials | Resolved server-side only for the profile's own approved binding. A configured but invalid/revoked credential fails closed (no anonymous fallback); a credential-free profile is read anonymously only where the deployment permits it. A database 401/403 is `unknown`, not an empty schema |
+| Audit | One redacted event per read: action `schema.read.<kind>`, target profile identity, actor and outcome. No rows, values or credential |
+| Observations | Each step cites `check`, `method`, `path`, `status`, `edition`, `outcome` and a sanitized `detail`. A step that made no request (an unverified 1.x scope, or an exhausted budget) carries `status: 0` and `method: none`, so it is not mistaken for an attempted GET |
+
+**Verification:** `backend/internal/liveprobe/schema_test.go`,
+`backend/internal/liveprobe/schema_security_test.go` and
+`backend/internal/registryapi/schema_test.go` cover the allowlist, injection and
+`SELECT … INTO` attempts, membership, denied credential, timeout, oversized
+response, redirect, TLS failure, cancellation, unknown edition, missing
+binding, revoked credential, SSRF policy, 1.x, authorization, audit and
+concurrency (with `-race`). The gated integration test
+(`TestIntegrationSchemaDiscoveryAgainstInfluxDB2/3`) passed against the real
+isolated containers through the authorized HTTP surface, reading
+`environment`/`sensor`, their field keys and tag keys with the expected edition
+and scope; no deployment writes were made by the read path.
+
 ### Protected authorization verification against the real containers (P2C-007, recorded 2026-10-21)
 
 `Prober.VerifyCredential` was exercised against the same digest-pinned,
@@ -437,12 +522,13 @@ loopback GET.
 - InfluxDB 1.x is unverified (no isolated instance).
 - The capability checks are a small, explicit catalogue, not a full
   compatibility matrix (ADR-E is not yet proposed).
-- **A GET-only probe cannot prove a query dialect as catalogued.** The dialects
-  stay `unknown` in the capability model. P3-001 measured that the pinned
-  editions answer *other* GET metadata query routes, so the catalogue and this
-  conclusion are under correction — approved on 2026-10-26 and queued under
-  P3-002 (see the P3-001 note above). Historical observations are preserved, not
-  rewritten.
+- **A GET-only probe cannot prove a query dialect as catalogued.** ~~The
+  dialects stay `unknown` in the capability model.~~ **Update (P3-002,
+  2026-10-26):** the approved catalogue correction is implemented. On the pinned
+  InfluxDB 3 Core, `influxql` and `sql` are now observed as `supported` through
+  the corrected GET routes; on InfluxDB 2 OSS both stay `unknown` because the
+  API query route still refuses GET. Historical observations above are
+  preserved, not rewritten.
 - **A write protocol is never proven by this route.** `line-protocol` stays
   `unknown` until an independently authorized synthetic write check exists.
 - The schema-discovery evidence is a **namespace-level listing** (buckets on 2.x,
