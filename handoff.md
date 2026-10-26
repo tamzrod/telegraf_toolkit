@@ -8,6 +8,8 @@ For the present checkpoint, CURRENT is **P3-004**. Implement editable typed mapp
 
 **Human approval is NOT required for each micro-task, for task acceptance after passing its prescribed criteria, for archival, or for pointer advancement.** Stop only for a genuinely new architecture/security authorization, unsafe operation, or failed mandatory verification. Never create, approve or merge a PR; never write to a historian or deploy. The word "queued" in packet boilerplate means awaiting designation as CURRENT, not awaiting repeated approval.
 
+This directive is the standing instruction for resumed CWAL execution at P3-004. The CURRENT task packet's initial queued wording is a template state, superseded by both CURRENT pointers. Successful task acceptance does not require a separate approval when all prescribed checks pass. Record any verification gap honestly and stop at an actual new decision gate.
+
 Read this directive before the historical status narrative below. Do not reply with only a status summary to an `operation cwal` command.
 
 
