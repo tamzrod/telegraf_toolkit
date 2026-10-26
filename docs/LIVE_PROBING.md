@@ -31,7 +31,7 @@ absent. A **write protocol** is never proven, because a read-only probe does not
 write. Both cases are reported as `unknown` with the observation attached, never
 as `supported` or `unsupported`.
 
-> **Correction under review (P3-001, 2026-10-26).** The statement above — that
+> **Correction approved (P3-001, 2026-10-26).** The statement above — that
 > the verified editions serve a query endpoint only for POST — is **not accurate
 > for every route**. A read-only GET survey of the pinned containers found that
 > InfluxDB 2 OSS v2.9.1 answers the 1.x-compatibility `GET /query` (with the DBRP
@@ -39,8 +39,8 @@ as `supported` or `unsupported`.
 > and `GET /api/v3/query_sql`, returning real metadata. The catalogue checks
 > different paths (`/api/v3/query/sql`, `/api/v3/query/influxql`), which return
 > 404, so its `unknown` outcome is a path defect rather than proof that the
-> endpoint is POST-only. The capability model is unchanged until the catalogue is
-> corrected under explicit authority; see
+> endpoint is POST-only. The capability model is unchanged until the approved
+> catalogue correction lands under P3-002; see
 > [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Read-only guarantee
@@ -440,9 +440,9 @@ loopback GET.
 - **A GET-only probe cannot prove a query dialect as catalogued.** The dialects
   stay `unknown` in the capability model. P3-001 measured that the pinned
   editions answer *other* GET metadata query routes, so the catalogue and this
-  conclusion are under correction (see the P3-001 note above); changing the
-  catalogue changes published capability outcomes and needs explicit
-  authorization.
+  conclusion are under correction — approved on 2026-10-26 and queued under
+  P3-002 (see the P3-001 note above). Historical observations are preserved, not
+  rewritten.
 - **A write protocol is never proven by this route.** `line-protocol` stays
   `unknown` until an independently authorized synthetic write check exists.
 - The schema-discovery evidence is a **namespace-level listing** (buckets on 2.x,

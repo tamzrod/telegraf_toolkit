@@ -1,14 +1,20 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `phase-3/canonical-mapper`
-**CURRENT:** `P3-001-roadmap-and-discovery-gate.md`
-**Human-authorized queue:** P3-001 → P3-002 → P3-003 → P3-004 → P3-005 → P3-006.
+**CURRENT:** `P3-002-authorized-schema-discovery.md`
+**Human-authorized queue:** P3-002 → P3-003 → P3-004 → P3-005 → P3-006.
 
-P3-001 is the sole active execution target; P3-002–006 are authorized and **queued, not concurrently executable**. Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
+P3-002 is the sole active execution target; P3-003–006 are authorized and **queued, not concurrently executable**. Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
 
 Phase 3 consumes the Phase 2 Registry; preserve exact profile/binding/scope and pinned-peer/TLS/SSRF controls. P3-001 must document the safe schema-discovery API decision and **must not silently authorize a new query method or Proposed ADR**. No real historian writes, deployment, production endpoints or agent-created PR. Stop TASK_BLOCKED for missing required authority or evidence. On completion clear queue and report WORK_PACKAGE_READY.
 
 
-## Approved gate — next Operation CWAL
+## Approved gate — decided 2026-10-26; P3-002 is CURRENT
 
-On 2026-10-26 the human approved P3-001's Option A1, P2C-003 catalogue/evidence correction, dedicated `schema.read`, and bounded fixed GET `SHOW` statements, including deployment-dependent DB authentication without silent fallback from invalid/revoked credentials. **Do not ask for this approval again.** Follow `docs/decisions/phase-3-schema-discovery-gate.md` §11 and `handoff.md` Resume instruction. CURRENT remains **P3-001** until verification, acceptance, archival and remote confirmation; do not start P3-002 early. No agent PR actions.
+P3-001 was verified, archived and both pointers advanced on 2026-10-26. The
+human approved Option A1, the P2C-003 catalogue/evidence correction, a dedicated
+`schema.read`, and bounded fixed GET `SHOW` statements, including
+deployment-dependent database authentication without silent fallback from
+invalid or revoked credentials. **Do not ask for this approval again.** Follow
+`docs/decisions/phase-3-schema-discovery-gate.md` §11 and `handoff.md`. CURRENT
+is **P3-002**; do not start P3-003 early. No agent PR actions.

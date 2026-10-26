@@ -1,7 +1,7 @@
 # Canonical Registry and Taglist Mapper
 
 Status: **Design proposal — not implemented.** The measurement-level read path
-is at an open human gate (P3-001); see
+is approved (Option A1, P3-001) and not implemented; see
 [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Terminology

@@ -1,6 +1,6 @@
 # Phase 3 Canonical Mapper — entry contract
 
-Status: **Entry contract — no implementation. The measurement-level read path is at an open human gate (P3-001).**
+Status: **Entry contract — no implementation. The measurement-level read path is approved (Option A1, 2026-10-26) and not implemented.**
 Task: P2C-006 (Phase 2 integration acceptance and Phase 3 handoff); reconciled by P3-001.
 Depends on: the Phase 2 Registry (P2L-001–P2L-007, P2C-001–P2C-008).
 
@@ -58,8 +58,8 @@ not claim more:
 | A credential that is **approved** for a profile, bound to its exact reference, connection ID, endpoint and canonical scope | available | P2L-007, P2C-002 |
 | The **edition** of a deployment, identified from a read-only response | available | P2C-003 (real InfluxDB 2 OSS and 3 Core) |
 | A **namespace-level listing** (buckets on 2.x, databases on 3.x) | available | P2C-003 (real containers) |
-| A **measurement-level** schema listing (measurements, field keys, tag keys) | **not available from the Registry** | The Registry exposes only a namespace listing, so its schema-discovery evidence is namespace-level. P3-001 measured that the pinned editions do answer fixed GET metadata statements, but no Registry read path exposes them — see §8 and the [gate record](../decisions/phase-3-schema-discovery-gate.md) |
-| A **query dialect** (InfluxQL, Flux, SQL) proven to work | **unknown in the capability model** | The Registry probe records `unknown`; P3-001 measured that the pinned editions answer *different* GET query routes, so the catalogue's POST-only conclusion is under correction (§8) |
+| A **measurement-level** schema listing (measurements, field keys, tag keys) | **approved, not implemented** | P3-002 will add a backend-authorized GET-only read of fixed `SHOW` statements under `schema.read`; no Registry route serves it yet — see §8 |
+| A **query dialect** (InfluxQL, Flux, SQL) proven to work | **unknown in the capability model** | The probe records `unknown`; the approved P2C-003 path/evidence correction is queued under P3-002 (§8) |
 | A **write** protocol | **unknown** | A read-only probe never writes; no authorized synthetic write check exists |
 | InfluxDB 1.x | **unverified** | No isolated 1.x instance exists |
 
@@ -103,9 +103,9 @@ hidden: a draft that cannot be validated says why.
 A Phase 3 task may start when it states:
 
 1. Which **read-only** API surface it adds (or reuses) for the source and the
-   destination metadata, and the exact permission it requires. **This is the
-   open P3-001 gate decision** (§8); no Phase 3 implementation task may start
-   until the human approves it.
+   destination metadata, and the exact permission it requires. **Decided by the
+   P3-001 gate** (§8): GET-only fixed `SHOW` metadata statements under a
+   dedicated `schema.read` permission.
 2. How the **unknown** states of section 4 are surfaced in the UI, and that
    none of them is rendered as support.
 3. That the mapper writes **no** historian data and creates no schema.
@@ -116,13 +116,10 @@ A Phase 3 task may start when it states:
 
 ## 7. Explicitly not decided here
 
-- The read path for a measurement-level schema listing. P3-001 established that
-  no query-free listing exists on the pinned editions and that both answer fixed
-  GET metadata statements; the choice between a bounded metadata-read API, a
-  general query capability, or staying query-free is an **open human gate** in
-  [`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md).
-  A query path changes the probe's evidence and therefore the P2C-003
-  conclusion, so it is not decided here.
+- The read path for a measurement-level schema listing is **decided and
+  approved** (Option A1, 2026-10-26): a bounded backend metadata read executing
+  only fixed GET `SHOW MEASUREMENTS` / `SHOW FIELD KEYS` / `SHOW TAG KEYS`,
+  behind `schema.read`. Implementation is P3-002; see §8.
 - How a canonical schema is versioned, shared and approved
   ([`docs/CANONICAL_MAPPING.md`](../CANONICAL_MAPPING.md) leaves this open).
 - The dependency-inspection view (which pipelines and jobs use a profile).
@@ -130,18 +127,24 @@ A Phase 3 task may start when it states:
   role-based only.
 - Runtime secret delivery and the host-agent boundary (ADR-0004, **Proposed**).
 
-## 8. Gate status (P3-001, 2026-10-26)
+## 8. Decision (approved, not implemented)
 
-The measurement-level read path is **not decided**. A read-only GET survey of the
-pinned isolated editions found that (a) neither edition exposes a query-free
-measurement listing, (b) both answer fixed GET metadata statements
-(`GET /query` on 2 OSS with the DBRP database name; `GET /api/v3/query_influxql`
-on 3 Core), and (c) the probe's published "query endpoints are POST-only"
-conclusion is contradicted by those routes. Selecting a read path therefore
-opens a query-execution surface and requires correcting published evidence, so
-P3-001 stopped at the gate.
+The measurement-level read path is **decided and approved**, not implemented.
+The human approved Option A1 on 2026-10-26
+([`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md)
+§11): a backend-authorized, GET-only metadata read that executes only fixed
+`SHOW MEASUREMENTS`, `SHOW FIELD KEYS FROM <validated measurement>` and
+`SHOW TAG KEYS FROM <validated measurement>` statements, under a dedicated
+`schema.read` permission, with bounded timeouts, caps, truncation, cancellation,
+redacted audit and the inherited pinned-peer/TLS/SSRF and credential controls.
+Caller-supplied queries, POST query routes, `SELECT ... INTO`, DDL and all
+writes are prohibited. A profile with no configured credential may be read
+without database credentials only where the deployment permits it; a configured
+credential needs an approved binding and fails closed without anonymous
+fallback.
 
-No entry-checklist item above is satisfied for measurement-level discovery.
-P3-002–P3-006 remain queued until the human decision recorded in
-[`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md)
-§9.
+The P2C-003 v3 catalogue path/evidence correction is also approved and queued
+under P3-002, preserving the historical observations.
+
+No entry-checklist item above is satisfied yet for measurement-level discovery:
+P3-002 implements it and must produce the tests listed in the gate record §8.

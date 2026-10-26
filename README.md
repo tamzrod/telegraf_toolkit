@@ -9,7 +9,8 @@ Visual Telegraf management, configuration, canonical data mapping, and cross-ver
 > credential lifecycle — are implemented and merged into `main` (PRs #2–#7).
 > The browser ships live profile listing, read-only capability probing, profile
 > create/delete and the write-only credential lifecycle. Phase 3 documentation
-> reconciliation has started at an **open schema-discovery architecture gate**;
+> reconciliation is complete at an approved schema-discovery architecture
+> (**Option A1**, GET-only fixed metadata statements), not yet implemented;
 > the canonical mapper, pipeline designer, synchronizer, runtime management and
 > production packaging remain **proposed** and are not implemented. See
 > [Roadmap](docs/ROADMAP.md) and the

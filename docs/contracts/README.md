@@ -186,10 +186,10 @@ inherits - is recorded in
 [`docs/contracts/canonical-mapper.md`](canonical-mapper.md). It implements
 nothing and claims no capability the Registry has not observed.
 
-**Gate status (P3-001, 2026-10-26):** the measurement-level read path is an open
-human decision recorded in
-[`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md).
-No mapper implementation has started and no new capability is claimed.
+**Gate status (P3-001, 2026-10-26):** the measurement-level read path is
+**approved** (Option A1, GET-only fixed `SHOW` statements under `schema.read`) in
+[`docs/decisions/phase-3-schema-discovery-gate.md`](../decisions/phase-3-schema-discovery-gate.md)
+§11. No mapper implementation has started and no new capability is claimed.
 
 ## Cross-cutting contract rules
 

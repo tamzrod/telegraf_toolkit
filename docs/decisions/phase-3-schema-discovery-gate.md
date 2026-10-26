@@ -1,6 +1,6 @@
 # Phase 3 schema-discovery architecture gate
 
-Status: **HUMAN APPROVAL RECORDED (2026-10-26); P3-001 verification/acceptance pending.**
+Status: **DECIDED — Option A1 approved by the human on 2026-10-26 (§11). Implementation has not started; this is not an ADR.**
 Task: P3-001 (roadmap reconciliation and schema-discovery architecture gate).
 Branch: `phase-3/canonical-mapper`.
 Recorded: 2026-10-26.
@@ -8,9 +8,10 @@ Related: [`docs/contracts/canonical-mapper.md`](../contracts/canonical-mapper.md
 §3 and §7, [`docs/LIVE_PROBING.md`](../LIVE_PROBING.md),
 [`docs/ROADMAP.md`](../ROADMAP.md).
 
-> This record documents a decision. It does **not** accept one. No ADR is
-> accepted, no new read path is implemented, and no capability claim is raised
-> by this document. P3-002 may not start until the approval state in §9 changes.
+> This record documents a decision. The human approved Option A1 on 2026-10-26
+> (§11); the pending state in §9 is retained as history and is superseded. No ADR
+> is accepted, no read path is implemented, and no capability claim is raised by
+> this document.
 
 ## 1. Why this gate exists
 
@@ -232,8 +233,9 @@ human decision before P3-002 may start:
 4. **Confirm the statement catalogue and bounds** in §5, including the
    `truncated` contract and the refusal to accept a caller-supplied statement.
 
-Until then, P3-001 is not accepted and is not archived; P3-002–P3-006 remain
-queued and must not start.
+~~Until then, P3-001 is not accepted and is not archived; P3-002–P3-006 remain
+queued and must not start.~~ Superseded by §11: P3-002 may start once P3-001 is
+accepted and archived.
 
 ## 10. Explicitly not decided here
 
