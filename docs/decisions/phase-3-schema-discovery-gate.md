@@ -1,6 +1,6 @@
 # Phase 3 schema-discovery architecture gate
 
-Status: **GATE OPEN — human decision required. P3-001 is `TASK_BLOCKED`.**
+Status: **HUMAN APPROVAL RECORDED (2026-10-26); P3-001 verification/acceptance pending.**
 Task: P3-001 (roadmap reconciliation and schema-discovery architecture gate).
 Branch: `phase-3/canonical-mapper`.
 Recorded: 2026-10-26.
@@ -219,7 +219,7 @@ API that executes a fixed allowlist of GET metadata statements, with no POST
 introduced, reusing the profile-only endpoint, approved binding and
 pinned-peer/TLS/SSRF controls.
 
-**Approval state: PENDING — `TASK_BLOCKED`.** The following require an explicit
+**Original approval state: PENDING — superseded by the human approval below.** The following require an explicit
 human decision before P3-002 may start:
 
 1. **Open a metadata query-execution read path at all** (even GET-only,
@@ -244,3 +244,19 @@ queued and must not start.
 - Production packaging (ADR-0005, Proposed).
 - Any InfluxDB 1.x or Cloud support claim.
 - Any write, deployment or synchronization capability.
+
+
+## 11. Human approval and binding execution decision (2026-10-26)
+
+**APPROVED by the human.** This section supersedes the pending approval language in §9, without altering historical measurements or claiming implementation.
+
+1. **Option A1 approved:** introduce a backend-authorized, GET-only measurement metadata read API. Only fixed `SHOW MEASUREMENTS`, `SHOW FIELD KEYS FROM <validated measurement>`, and `SHOW TAG KEYS FROM <validated measurement>` statements may execute. No caller-supplied query, arbitrary SQL/InfluxQL passthrough, POST query route, `SELECT ... INTO`, DDL, deletion, writes, sample point retrieval, deployment or synchronization.
+2. **P2C-003 correction approved:** correct mismatched InfluxDB 3 query endpoint catalogue paths and derived capability conclusions with new tests. Preserve original test evidence/history and append a clearly marked correction. Never silently rewrite historical observations or claim untested dialects/editions.
+3. **Dedicated permission approved:** implement `schema.read`, distinct from `profile.probe`, with server-side deny-by-default authorization tests.
+4. **Bounds and safety approved:** fixed statement allowlist, measurement identifier validation/escaping, per-request timeouts, total budgets, caps on rows/measurements/response size, explicit `truncated` state, cancellation, safe errors and redacted audit. Preserve server-resolved registered profile endpoint/scope, pinned-peer/TLS/SSRF and credential protection.
+
+**Database authentication follows deployment configuration.** An authorized Toolkit user with `schema.read` may attempt an unauthenticated database read only when the selected profile intentionally has *no configured credential* and the database permits it. A configured credential must have an approved binding for exact profile/endpoint/scope. Invalid, denied, expired or revoked configured credentials must fail closed without anonymous fallback. Toolkit authorization is never optional. Database authentication refusal is not an empty schema.
+
+**Evidence boundary:** the tested query-free endpoints returned 404 in pinned 2 OSS 2.9.1 / 3 Core 3.12.1; do not generalize this to all endpoints/editions/deployments.
+
+**Execution:** The architecture gate is no longer awaiting approval, but P3-001 is **not accepted or archived**. Resume `operation cwal` at CURRENT=P3-001: reconcile documentation, correct approved catalogue/evidence in the appropriate scoped task, perform prescribed checks, and advance pointers only after verified acceptance, archive, commit/push and remote-SHA confirmation. Then proceed with the preauthorized P3-002–P3-006 queue sequentially. Stop only for genuinely new gates. No agent PR actions, no production historian writes, and no acceptance of Proposed ADR-0004/0005.
