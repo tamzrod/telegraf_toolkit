@@ -471,6 +471,14 @@ func (o *observingSecretStore) ReplaceIfCurrent(ctx context.Context, credentialR
 	return o.inner.ReplaceIfCurrent(ctx, credentialRefID, currentEnvelope, alias, role, value)
 }
 
+func (o *observingSecretStore) PrepareReplacement(ctx context.Context, credentialRefID, alias string, role registrycontract.Role, value string) (secretstore.SealedCredential, error) {
+	return o.inner.PrepareReplacement(ctx, credentialRefID, alias, role, value)
+}
+
+func (o *observingSecretStore) PrepareEnrollment(ctx context.Context, alias string, role registrycontract.Role, value string) (secretstore.SealedCredential, error) {
+	return o.inner.PrepareEnrollment(ctx, alias, role, value)
+}
+
 func (o *observingSecretStore) Resolve(ctx context.Context, credentialRefID string) (string, error) {
 	return o.inner.Resolve(ctx, credentialRefID)
 }

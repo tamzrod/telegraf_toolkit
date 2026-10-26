@@ -152,6 +152,26 @@ credential-lifecycle concern documented in [`DATABASE_REGISTRY.md`](DATABASE_REG
 the store supports it by storing a new reference and deleting the old one only
 after the new one is validated.
 
+### Lifecycle fence (P2C-008)
+
+The store exposes two write-free sealing helpers for the atomic lifecycle:
+
+- `PrepareReplacement` seals a candidate for an existing reference, verifies the
+  ciphertext opens back to the input, and returns it without writing.
+- `PrepareEnrollment` does the same under a fresh, collision-resistant
+  reference ID.
+
+The Registry service commits the sealed envelope inside the same short SQLite
+transaction that re-checks the credential's identity (active reference, approved
+binding, profile endpoint and scope) and the observed ciphertext. That is what
+makes `ReplaceIfCurrent` insufficient on its own: the ciphertext
+compare-and-swap serializes envelope writers, but only the identity re-check
+inside the same transaction prevents a swap from landing on a reference that
+revocation already removed. Envelope cleanup after a revocation likewise
+refuses while the reference row exists, so a successfully committed replacement
+is never destroyed. No writer transaction is held across network validation, and
+the plaintext still never leaves the server.
+
 ## Key separation
 
 - Ciphertext envelopes live in the metadata database (`secret_envelopes`).

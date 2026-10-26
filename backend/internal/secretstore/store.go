@@ -90,6 +90,67 @@ func New(opts Options) (*Store, error) {
 // ActiveKeyID reports the key ID new envelopes are wrapped with.
 func (s *Store) ActiveKeyID() string { return s.keyring.ActiveKeyID() }
 
+// SealedCredential is a credential value sealed for an atomic lifecycle commit.
+// Nothing has been written: the caller persists Ref together with KeyID and
+// Envelope, or persists none of them. Envelope is authenticated ciphertext,
+// never a plaintext value.
+type SealedCredential struct {
+	Ref      registrycontract.CredentialRef
+	KeyID    string
+	Envelope string
+}
+
+// PrepareReplacement seals a candidate value for an existing reference without
+// writing it. The replacement lifecycle commits the sealed envelope inside the
+// same SQLite transaction that re-checks the active reference, so the swap
+// cannot land on a reference that revocation has already removed (P2C-008).
+func (s *Store) PrepareReplacement(ctx context.Context, credentialRefID, alias string, role registrycontract.Role, value string) (SealedCredential, error) {
+	if err := validateRole(role); err != nil {
+		return SealedCredential{}, err
+	}
+	if value == "" {
+		return SealedCredential{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeInvalidProfile, "A credential value is required.")
+	}
+	if strings.TrimSpace(credentialRefID) == "" {
+		return SealedCredential{}, registrycontract.NewSanitizedError(
+			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
+	}
+	enc, err := s.seal(credentialRefID, []byte(value))
+	if err != nil {
+		return SealedCredential{}, err
+	}
+	opened, err := s.open(enc.encoded, credentialRefID)
+	if err != nil || string(opened) != value {
+		if err == nil {
+			err = ErrEnvelopeAuthFailed
+		}
+		return SealedCredential{}, err
+	}
+	return SealedCredential{
+		Ref: registrycontract.CredentialRef{
+			CredentialRefID: credentialRefID,
+			Alias:           alias,
+			Role:            role,
+			Fingerprint:     fingerprint([]byte(value)),
+			LastRotated:     s.now(),
+			Mock:            false,
+		},
+		KeyID:    enc.keyID,
+		Envelope: enc.encoded,
+	}, nil
+}
+
+// PrepareEnrollment seals a new credential under a fresh reference ID without
+// writing it. Enrollment commits the envelope and the reference row together.
+func (s *Store) PrepareEnrollment(ctx context.Context, alias string, role registrycontract.Role, value string) (SealedCredential, error) {
+	id, err := s.newReferenceID()
+	if err != nil {
+		return SealedCredential{}, err
+	}
+	return s.PrepareReplacement(ctx, id, alias, role, value)
+}
+
 // Store implements registrycontract.SecretWriter. It accepts a write-only
 // value, encrypts it into an envelope, persists the envelope and returns an
 // opaque reference. The value is never logged, echoed or returned; the returned

@@ -15,11 +15,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/fixtures"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/secretstore"
 )
 
 // StoreStatus describes the metadata store's reachability and schema version.
@@ -48,6 +50,14 @@ type SecretStore interface {
 	// returns applied=false when a concurrent replacement changed the value
 	// first, in which case nothing was written and nothing was overwritten.
 	ReplaceIfCurrent(ctx context.Context, credentialRefID, currentEnvelope, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, bool, error)
+	// PrepareReplacement seals a candidate for an existing reference without
+	// writing it. The service commits that sealed envelope inside the lifecycle
+	// transaction (P2C-008).
+	PrepareReplacement(ctx context.Context, credentialRefID, alias string, role registrycontract.Role, value string) (secretstore.SealedCredential, error)
+	// PrepareEnrollment seals a new credential under a fresh reference without
+	// writing it, so enrollment can commit the envelope and the reference
+	// together.
+	PrepareEnrollment(ctx context.Context, alias string, role registrycontract.Role, value string) (secretstore.SealedCredential, error)
 	Resolve(ctx context.Context, credentialRefID string) (string, error)
 	Rotate(ctx context.Context, fromKeyID string) (int, error)
 	Delete(ctx context.Context, credentialRefID string) error
@@ -72,6 +82,11 @@ type Service struct {
 	store        *metadatastore.Store
 	secrets      SecretStore
 	transactions registrycontract.TransactionalStore
+	// lifecycleHook is a test seam. It is nil in production. A hook must not
+	// perform registry writes while a lifecycle transaction is open: the
+	// in-commit phase runs inside that transaction.
+	hookMu        sync.Mutex
+	lifecycleHook func(phase string) error
 }
 
 // New builds a service over the given repositories. The store may be nil when
@@ -543,9 +558,12 @@ func (s *Service) PutCredentialRef(ctx context.Context, ref registrycontract.Cre
 // from the request, so an approval can only ever be created for the profile's
 // own identity (P2L-007).
 //
-// The reference, the binding and the profile's pointer to the reference are
-// applied as one unit of work. If that unit of work fails, the envelope is
-// removed again, so a failed enrollment leaves no secret material behind.
+// With a metadata store (the production path) the ciphertext envelope, the
+// reference, the binding, the profile's pointer and the audit event are one
+// immediate transaction (P2C-008): they become visible together, so revocation
+// cleanup cannot erase an in-flight enrollment's envelope and a failed
+// enrollment leaves no secret material behind. Without a store the in-memory
+// path keeps the compensating behaviour.
 func (s *Service) EnrollCredential(ctx context.Context, actor, connectionID, alias string, role registrycontract.Role, value string) (registrycontract.CredentialRef, error) {
 	if s.secrets == nil {
 		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
@@ -554,6 +572,12 @@ func (s *Service) EnrollCredential(ctx context.Context, actor, connectionID, ali
 	if strings.TrimSpace(value) == "" {
 		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
 			registrycontract.CodeSecretMaterial, "A credential value is required.")
+	}
+	// Production enrollment commits the envelope and the reference together so
+	// revocation cleanup cannot delete an in-flight credential, and a failed
+	// enrollment cannot leave a reference without its envelope (P2C-008).
+	if s.store != nil {
+		return s.enrollCredentialFenced(ctx, actor, connectionID, alias, role, value)
 	}
 	profile, found, err := s.profiles.Get(connectionID)
 	if err != nil {
@@ -607,13 +631,17 @@ func (s *Service) EnrollCredential(ctx context.Context, actor, connectionID, ali
 //     against the profile's approved endpoint. An inconclusive or failed
 //     validation fails closed: the staged material is removed and the
 //     credential that was in place stays usable.
-//  4. **Swap.** The value behind the *original* reference is replaced by a
-//     conditional update keyed on the observed ciphertext. If a concurrent
-//     replacement changed the credential first, the swap applies nothing and
-//     reports a conflict (credential-replace-conflict, 409): the credential
-//     that is in place is whatever the winning attempt left. The reference ID,
-//     the profile and the binding are untouched, so the approval stays valid
-//     and no unrelated profile is interrupted.
+//  4. **Swap.** After validation, one short immediate SQLite transaction
+//     re-checks the observed identity — the same active reference, the same
+//     approved binding, and the same endpoint and scope — and swaps the
+//     envelope only while that identity and the observed ciphertext are still
+//     current. No writer transaction is held across the network validation.
+//     A concurrent replacement, revocation, binding change, profile deletion
+//     or enrollment that changes that identity causes this attempt to apply
+//     nothing and report a conflict (credential-replace-conflict, 409). The
+//     swap cannot report success on a reference revocation has already
+//     removed, and it cannot recreate an envelope for that reference
+//     (P2C-008).
 //  5. **Revoke.** This attempt's staged material - and only this attempt's -
 //     is removed, whatever the outcome.
 //
@@ -689,24 +717,27 @@ func (s *Service) ReplaceCredential(ctx context.Context, actor, connectionID, al
 		}
 	}
 
-	// Swap: a conditional update keyed on the observed ciphertext. A racing
-	// replacement that already swapped causes this attempt to apply nothing.
-	replaced, applied, err := s.secrets.ReplaceIfCurrent(ctx, profile.CredentialRefID, current, alias, existing.Role, value)
+	// Commit outside the validation window. The fence re-checks the identity
+	// this attempt validated against and swaps the envelope in one short
+	// writer transaction. It does not run while the validator is in flight.
+	if err := s.fireHook(lifecycleReplaceBeforeCommit); err != nil {
+		return registrycontract.CredentialRef{}, err
+	}
+	replaced, err := s.commitReplacement(ctx, actor, alias, existing.Role, value, replacementSnapshot{
+		CredentialRefID: profile.CredentialRefID,
+		ConnectionID:    profile.ConnectionID,
+		Endpoint:        profile.Endpoint,
+		Scope:           registrycontract.CanonicalScope(profile.Scope),
+		Envelope:        current,
+	})
 	if err != nil {
 		return registrycontract.CredentialRef{}, err
 	}
-	if !applied {
-		// A concurrent replacement changed the credential first. Fail closed:
-		// nothing was written here and nothing was overwritten; the credential
-		// that is in place is whatever the winning attempt left.
-		_ = s.recordAudit(ctx, actor, "credential.replace.conflict", registrycontract.TargetCredentialRef, profile.CredentialRefID, registrycontract.OutcomeFailed)
-		return registrycontract.CredentialRef{}, registrycontract.NewSanitizedError(
-			registrycontract.CodeCredentialReplaceConflict,
-			"The credential changed while the replacement was being validated; nothing was replaced.")
-	}
-
-	if err := s.recordAudit(ctx, actor, "credential.replace", registrycontract.TargetCredentialRef, profile.CredentialRefID, registrycontract.OutcomeSucceeded); err != nil {
-		return registrycontract.CredentialRef{}, err
+	if err := s.fireHook(lifecycleReplaceAfterCommit); err != nil {
+		// The swap is already durable. Staged cleanup still runs. The hook
+		// error is reported so a test can observe the boundary; production
+		// leaves the hook unset.
+		return replaced, err
 	}
 	return replaced, nil
 }
@@ -731,9 +762,22 @@ func (s *Service) ReplaceCredential(ctx context.Context, actor, connectionID, al
 // The metadata transition commits **before** the secret material is erased, so
 // an interruption between the two leaves an unreferenced, unreachable envelope
 // - never a profile pointing at a deleted secret, and never a working secret
-// erased while a dependent still exists. A retry completes the envelope
-// cleanup: revoking a reference whose metadata is already removed is an
-// idempotent no-op that still removes any material a prior attempt left behind.
+// erased while a dependent still exists.
+//
+// Revocation retry semantics (P2C-008):
+//   - A failure inside the metadata unit of work rolls the reference removal
+//     back and does not erase the envelope. Retrying sees the original credential.
+//   - After the metadata unit of work commits, envelope cleanup runs only while
+//     the reference row is still absent. Cleanup therefore cannot destroy a
+//     credential whose reference is still active, including a replacement that
+//     committed before revocation. A replacement cannot commit after the
+//     reference is gone: its swap is in the same transaction as the re-check.
+//   - If cleanup fails, the reference stays revoked and the leftover envelope
+//     is unreferenced (no profile, no binding, no reference row). Retrying is
+//     an idempotent completion: the metadata unit of work is a no-op when the
+//     row is already gone, and cleanup removes the leftover envelope.
+//   - Revoking a reference that never existed is the same completion: no error,
+//     and any envelope stored under that ID is removed.
 func (s *Service) RevokeCredential(ctx context.Context, actor, credentialRefID string) error {
 	if s.secrets == nil {
 		return registrycontract.NewSanitizedError(
@@ -742,6 +786,9 @@ func (s *Service) RevokeCredential(ctx context.Context, actor, credentialRefID s
 	if strings.TrimSpace(credentialRefID) == "" {
 		return registrycontract.NewSanitizedError(
 			registrycontract.CodeReferenceNotFound, "A credential reference is required.")
+	}
+	if err := s.fireHook(lifecycleRevokeBeforeCommit); err != nil {
+		return err
 	}
 
 	// The unit of work removes the reference metadata only after the
@@ -801,13 +848,15 @@ func (s *Service) RevokeCredential(ctx context.Context, actor, credentialRefID s
 		return err
 	}
 
-	// The metadata transition is durable. Only now is the secret material
-	// erased. An interruption here leaves an envelope that no reference, no
-	// binding and no profile can reach; the retry above removes it.
-	if err := s.secrets.Delete(ctx, credentialRefID); err != nil {
+	// The metadata transition is durable. Envelope cleanup is a separate step
+	// so a crash between the two leaves an unreferenced envelope rather than a
+	// profile pointing at a deleted secret. The cleanup itself refuses to
+	// delete while the reference row is present, so it cannot destroy a
+	// credential a replacement successfully committed.
+	if err := s.fireHook(lifecycleRevokeAfterCommit); err != nil {
 		return fmt.Errorf("remove the revoked credential's material: %w (the revocation is committed; retrying completes the cleanup)", err)
 	}
-	return nil
+	return s.eraseRevokedEnvelope(ctx, credentialRefID)
 }
 
 // setProfileCredentialRef points a profile at a credential reference and

@@ -1,19 +1,49 @@
-# Telegraf Toolkit — Operation CWAL handoff
+# Telegraf Toolkit — CWAL handoff
 
 ## CURRENT OPERATION
-**Designated branch:** `phase-2/registry-completion`
-**Current authorized task:** `workflow/active_work/P2C-008-pre-pr-lifecycle-race.md`
-**Authorized queue:** P2C-008 only.
+**Workflow:** Phase 2 Registry completion — pre-PR credential lifecycle race hardening.
+**Designated branch:** `phase-2/registry-completion`.
+**Current human-authorized task:** none — the authorized queue is empty; `WORK_PACKAGE_READY`.
+**Authorized sequence:** P2C-008 (complete).
 
-## Status
-P2C-001–P2C-007 are complete and archived. P2C-008 remains **ACTIVE / NOT COMPLETE**. The deletion of obsolete `backend/internal/registryservice/race_hardening_test.go` at commit `784f291635b897acea2035fe085625364d09ac46` was a maintenance checkpoint **within** P2C-008, not proof that lifecycle race hardening or CI acceptance has passed. The deleted tests must be replaced with tests against the current service API, not omitted.
+## Human authorization
+The P2C-008 workstream — the pre-PR HIGH audit correction fencing credential
+replacement, enrollment and revocation against metadata races — was explicitly
+authorized for Operation CWAL execution. It is complete, verified, archived and
+confirmed on the remote branch. No further task is authorized; planning, ICC,
+handoff and archives never authorize new work.
 
-## Execution
-Switch to this branch if necessary, pull using fast-forward only, and execute Operation CWAL for the sole current task as specified in `workflow/active_work/P2C-008-pre-pr-lifecycle-race.md` and `workflow/active_work/README.md`.
+## Current task
+None. P2C-008 (pre-PR replacement-versus-revocation lifecycle race hardening) is
+complete, verified and archived. The queue is empty; the agent reports
+`WORK_PACKAGE_READY` and stops.
 
-Required scope: close replacement-versus-revocation and binding/profile mutation races, preserve authorization/SSRF/TLS protections, add deterministic concurrency and fault tests against current interfaces, and run supported Linux race/build/check plus isolated synthetic InfluxDB 2/3 tests. Document actual executed results and skipped checks.
+## Completed tasks
+- P2C-001 (roadmap, contract and architecture reconciliation with merged PR #6
+  and P2L-001–007) — verified and archived.
+- P2C-002 (transactional Registry enrollment, bindings and audit; migration
+  version 6 adds binding referential integrity) — verified and archived.
+- P2C-003 (observation-based capability probes with a measured evidence matrix
+  from the real isolated InfluxDB 2/3 containers) — verified and archived.
+- P2C-004 (browser create/delete of unbound profiles with confirmation,
+  validation and visible permission states) — verified and archived.
+- P2C-005 (administrator-only write-only credential enrolment, stage → validate
+  → swap → revoke replacement, safe revocation) — verified and archived.
+- P2C-006 (integrated acceptance against the real isolated containers, Phase 2
+  checklist reconciliation, Phase 3 entry contract) — verified and archived.
+- P2C-007 (pre-PR credential lifecycle security hardening: replacement
+  validation must prove protected authorization; per-attempt staging with a
+  compare-and-swap swap; refuse-and-preserve revocation with the secret erased
+  only after the metadata transition commits) — verified and archived.
+- P2C-008 (pre-PR lifecycle race hardening: replacement, enrollment and
+  revocation commit through one SQLite lifecycle transaction that re-checks the
+  active reference, approved binding and profile endpoint/scope before the
+  envelope write; revocation cleanup refuses while the reference exists and
+  retrying an interrupted revocation is an idempotent completion) — verified and
+  archived.
 
-If all acceptance criteria pass: archive the task with `git mv`, update both handoff pointers to queue empty, commit/push/verify remote HEAD, and report `WORK_PACKAGE_READY`. Otherwise stop with `TASK_BLOCKED` and evidence.
+## Restrictions and stop conditions
+ADR-0002 and ADR-0003 are Accepted. ADR-0004/0005 remain Proposed. No production historians/credentials, uncontrolled probes, historian writes, Telegraf/Docker runtime management, or PR create/review/merge. Preserve P2L-006 pinned-peer TLS/SSRF controls and P2L-007 administrator-only credential attachment/binding at every step. If implementation requires unresolved architecture, privileged access, unsafe operation, or mandatory live tests unavailable, report `TASK_BLOCKED` with evidence and stop without skipping the task.
 
-## Restrictions
-No production endpoints, historian writes, unapproved architecture or privilege changes, agent-created PR, or merge. Human retains PR control.
+## Verification and final checkpoint
+Follow each task's verification criteria, `make check`, applicable Go race tests and isolated InfluxDB 2/3 integration tests. Record actual executed outcomes, not assumptions. Use only synthetic test credentials and loopback test policy in isolated harness. The final task has been archived; `workflow/active_work/` contains README only, both pointers show an empty queue, and the branch checkpoint is pushed and independently verified. Report `WORK_PACKAGE_READY` and stop. Human owns all PR actions.

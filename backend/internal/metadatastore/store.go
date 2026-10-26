@@ -188,6 +188,41 @@ func (s *Store) WithinTransaction(ctx context.Context, fn func(registrycontract.
 	return nil
 }
 
+// WithinRegistryTransaction runs fn inside one immediate SQLite transaction and
+// binds both the registry repositories and the ciphertext-envelope repository
+// to that transaction.
+//
+// Credential lifecycle commits use it so a replacement swap, an enrollment, or
+// an envelope cleanup cannot interleave with a metadata revocation: the
+// identity re-check and the envelope write commit together or roll back
+// together (P2C-008). The caller must not perform network I/O inside fn. The
+// DSN sets _txlock=immediate, so the write lock is taken when the transaction
+// starts.
+func (s *Store) WithinRegistryTransaction(ctx context.Context, fn func(repos registrycontract.Repositories, envelopes *SecretEnvelopeRepository) error) error {
+	if fn == nil {
+		return errors.New("transaction body is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin registry transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	repositories := registrycontract.Repositories{
+		Profiles:   &ProfileRepository{db: tx},
+		References: &CredentialRefRepository{db: tx},
+		Bindings:   &CredentialBindingRepository{db: tx},
+		Audit:      &AuditRepository{db: tx},
+	}
+	if err := fn(repositories, &SecretEnvelopeRepository{db: tx}); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit registry transaction: %w", err)
+	}
+	return nil
+}
+
 // Backup writes a transactionally consistent copy of the database to dest using
 // SQLite's VACUUM INTO, which reads a stable snapshot rather than copying files
 // under a live writer. dest must not already exist.

@@ -142,6 +142,35 @@ multi-write operation:
 | Delete a profile | binding removals + profile row + `profile.delete` audit event |
 | Store a credential reference | reference row + `credential.reference.attach` audit event |
 | Revoke a credential (P2C-007) | dependency checks (bindings, profiles) + reference-row removal + `credential.revoke` audit event |
+| Replace a credential (P2C-008) | identity re-check (profile pointer, approved binding, endpoint and canonical scope) + envelope compare-and-swap + `credential.replace` audit event |
+| Enroll a credential (P2C-008) | ciphertext envelope + reference row + binding row + profile pointer + `credential.enroll` audit event |
+
+### Credential lifecycle fence (P2C-008)
+
+`Store.WithinRegistryTransaction` is the same immediate SQLite transaction with
+the ciphertext-envelope repository bound to it. The credential lifecycle uses it
+so a metadata decision and the envelope write commit together:
+
+- **Replacement** seals the candidate outside the transaction, then commits in
+  one short transaction that re-reads the profile, the approved binding, the
+  reference row and the current ciphertext. The swap applies only while all of
+  them still match the identity the candidate was validated against. No writer
+  transaction is held across the network validation, so validation cannot block
+  other writers, and a revocation, binding change, profile deletion or
+  enrollment that commits first makes the replacement fail closed. A
+  replacement can therefore never report success on a reference revocation has
+  already removed, and can never recreate an envelope for it.
+- **Revocation** still commits the metadata transition first, then erases the
+  envelope (P2C-007). The cleanup refuses to erase while the reference row is
+  still present, so it cannot destroy a replacement that committed while the
+  credential was still active.
+- **Enrollment** writes the envelope inside the transaction, so the envelope and
+  the reference become visible together: revocation cleanup cannot erase an
+  in-flight enrollment's material, and a failed enrollment leaves neither a
+  reference nor ciphertext behind.
+
+The fence is per-reference and per-profile-identity, not a global lock:
+unrelated credentials and profiles keep committing concurrently.
 
 The credential revocation deserves its note: the dependency checks - is any
 binding still approved for the credential, does any profile still name it? -
@@ -176,10 +205,11 @@ registered inverse action, applied in reverse order. The SQLite path is the
 production path and relies on the real rollback.
 
 **Boundary:** the ciphertext envelope of a credential value is written by the
-ADR-0003 secret store, which owns that write. If the reference write that
-follows fails, the service deletes the envelope it just wrote, so no
-unreferenced ciphertext is left behind. Moving the envelope write itself into
-the same transaction belongs to the credential lifecycle work.
+ADR-0003 secret store, which owns the crypto; the metadata store owns the
+transaction. For enrollment and replacement the service commits the sealed
+envelope through `WithinRegistryTransaction` (P2C-008), so the value and the
+metadata decision are one atomic unit. Standalone `StoreCredential` still writes
+the envelope first and deletes it if the reference write fails.
 
 ### Deletion policy
 
