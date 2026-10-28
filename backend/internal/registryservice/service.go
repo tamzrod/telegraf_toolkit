@@ -1316,7 +1316,7 @@ func (s *Service) RollbackCanonicalSchema(ctx context.Context, actor, logicalKey
 			return err
 		}
 		if repos.RevisionHistory != nil {
-			_ = repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
 				HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), newRev.SchemaID),
 				ResourceType: "canonical_schema",
 				ResourceID:   newRev.SchemaID,
@@ -1326,7 +1326,9 @@ func (s *Service) RollbackCanonicalSchema(ctx context.Context, actor, logicalKey
 				Actor:        actor,
 				At:           nowUTC(),
 				DetailJSON:   fmt.Sprintf("{\"from\":%d,\"to\":%d}", fromRevision, toRevision),
-			})
+			}); err != nil {
+				return err
+			}
 		}
 		created = newRev
 		return recordAudit(repos.Audit, actor, "canonical.schema.rollback", registrycontract.TargetCanonicalSchema, newRev.SchemaID, registrycontract.OutcomeSucceeded)
@@ -1366,7 +1368,7 @@ func (s *Service) RollbackMappingProfile(ctx context.Context, actor, logicalKey 
 			return err
 		}
 		if repos.RevisionHistory != nil {
-			_ = repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
 				HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), newRev.ProfileID),
 				ResourceType: "mapping_profile",
 				ResourceID:   newRev.ProfileID,
@@ -1376,7 +1378,9 @@ func (s *Service) RollbackMappingProfile(ctx context.Context, actor, logicalKey 
 				Actor:        actor,
 				At:           nowUTC(),
 				DetailJSON:   fmt.Sprintf("{\"from\":%d,\"to\":%d}", fromRevision, toRevision),
-			})
+			}); err != nil {
+				return err
+			}
 		}
 		created = newRev
 		return recordAudit(repos.Audit, actor, "mapping.profile.rollback", registrycontract.TargetMappingProfile, newRev.ProfileID, registrycontract.OutcomeSucceeded)

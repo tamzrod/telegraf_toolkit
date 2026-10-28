@@ -21,3 +21,7 @@ Correct findings F-01–F-05 from the independent final pre-PR audit at commit `
 
 ## Prohibitions
 No force-push, PR creation/approval/merge, changes to `main`, production historian access or writes, deployment, synchronization runtime, secret exposure, unrelated changes or unauthorized ADR decisions.
+
+
+## P3-008 remediation (2026-10-28)
+- Addressed F-01/F-02/F-03/F-05 with enforced immutability, transactional rollback audit/history, committed evidence.

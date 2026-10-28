@@ -30,3 +30,10 @@ The P3-007 commit introduced no test-file changes. Add focused Go repository/ser
 
 ## Boundaries
 No PR creation, approval or merge; no main change, force-push, production historian access/write, deployment, synchronization runtime changes, secret disclosure or self-approved new architecture. Human owns PR.
+
+
+## P3-008 remediation (2026-10-28)
+- F-01: Strict approved immutability enforced at repository boundary (all protected columns).
+- F-02: Rollback history/audit errors propagated; transactional operations.
+- F-03: Committed docs/PRE_PR_EVIDENCE_P3_PHASE.md with per-edition evidence/limitations.
+- F-05: Verified (make check, go test ./..., go test -race ./...).

@@ -28,3 +28,7 @@ Execute only CURRENT. On verified acceptance, archive with `git mv` into `archiv
 - Enforced immutability, atomic history/audit for canonical/mapping operations.
 - Updated docs/ROADMAP.md, docs/CANONICAL_MAPPING.md, docs/contracts/canonical-mapper.md to reflect completed Phase 3 state.
 - make check and go test -race ./... passed.
+
+
+## P3-008 remediation (2026-10-28)
+- Applied strict approved immutability and atomic rollback history/audit; added committed per-edition evidence doc.

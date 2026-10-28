@@ -31,3 +31,10 @@ Execute only CURRENT. On verified acceptance, archive with `git mv` into `archiv
 - Enforced approved revision immutability at SQLite repository boundaries (content changes to approved revisions rejected).
 - Made put/approve operations atomic with revision history and audit records via existing transaction infrastructure; history/audit errors are not discarded.
 - No changes to original acceptance requirements.
+
+
+## P3-008 remediation (2026-10-28)
+- F-01: Enforced complete approved-revision immutability at SQLite boundary for canonical schemas and mapping profiles (all protected columns; state/identity/content/version/hash/approver/creator/metadata/timestamps); approved→draft/retired and unauthorized overwrites rejected.
+- F-02: Rollback history/audit record errors now propagated (transaction rolls back). Put/approve/rollback use transactional repositories with atomic history/audit.
+- F-03: Committed sanitized per-edition evidence in docs/PRE_PR_EVIDENCE_P3_PHASE.md with commands/results/limitations/skips; appended notes to archives without rewriting original criteria.
+- F-05: Invariants enforced and verified via tests (make check, go test ./..., go test -race ./...).
