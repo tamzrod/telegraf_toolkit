@@ -1,11 +1,8 @@
-# Telegraf Toolkit — Operation CWAL handoff
+# HANDOFF — Operation CWAL
 
-## OPERATION CWAL — EXECUTION DIRECTIVE
-
-**Branch:** `phase-3/canonical-mapper`
-**CURRENT:** `workflow/active_work/P3-010-sql-atomic-approved-immutability.md`
-**State:** HUMAN-APPROVED ACTIVE; execute on `operation cwal`.
-
-P3-001–P3-009 remain archived. Independent review of P3-009 found that old approved-revision SELECT checks followed by unconditional SQLite UPSERTs did not atomically enforce immutability. The human approved P3-010 as a bounded final correction. On invocation, sync the local branch, execute P3-010's SQL-level guarded writes, draft-to-approved transition, deterministic concurrent regression tests and accurate evidence update. Run mandatory verification. If all pass, archive P3-010, clear both pointers, commit, push normally and confirm exact remote SHA; report PRE_PR_REAUDIT_READY. Otherwise report TASK_BLOCKED and retain CURRENT.
-
-No PR action, force push, changes to main, production historian access/write, deployment or new architecture authorization.
+**STATE:** IDLE
+**BRANCH:** phase-3/canonical-mapper
+**CURRENT:** (none)
+**LAST_CHECKPOINT:** 28f602f — docs(cwal): activate P3-010 in current pointers (remediated)
+**ARCHIVE:** P3-001–P3-010 archived
+**NOTES:** PRE_PR_REAUDIT_READY. P3-010 completed: SQL-guarded approved-revision immutability (draft edits constrained to draft rows, approval via guarded UPDATE with affected-rows, transactional safety), added deterministic concurrent approval-vs-edit regression tests, verified backend tests pass (make/check equivalent: go test ./... and go test -race ./...).
