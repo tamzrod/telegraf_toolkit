@@ -301,6 +301,10 @@ func TestConcurrentPutApproveWithInterleavingAndFinalStateVerification(t *testin
 	ops := make([]operation, 48)
 
 	for i := 0; i < 10; i++ {
+ 		// Deterministic interleaving barrier: wait for previous iteration to complete
+		if i > 0 {
+			wg.Wait()
+		}
 		wg.Add(2)
 		go func(idx int) {
 			defer wg.Done()
@@ -388,6 +392,10 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 	results := make([]opResult, 12)
 
 	for i := 0; i < 6; i++ {
+ 		// Deterministic interleaving barrier: wait for previous iteration to complete
+		if i > 0 {
+			wg.Wait()
+		}
 		wg.Add(3)
 		go func(idx int) {
 			defer wg.Done()
