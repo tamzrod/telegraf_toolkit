@@ -1,6 +1,18 @@
 # Telegraf Toolkit — Operation CWAL handoff
 
-## CURRENT OPERATION
+## OPERATION CWAL — EXECUTION DIRECTIVE (binding)
+
+When the operator enters `operation cwal`, **perform the current authorized task immediately**. This is an execution command, not a request to restate status, ask if work should begin, or ask for another approval. The existing human authorization of P3-001 through P3-006 is sufficient for each packet once it becomes CURRENT in BOTH pointers.
+
+For the present checkpoint, CURRENT is **P3-005** which is **TASK_BLOCKED** at the unresolved schema-versioning/approval architecture gate. **Do not implement P3-005.** The required human decision is: approve a versioning and approval model for separately versioned canonical schemas with revision history, or re-scope P3-005 to a non-approval persistence design. P3-004 is complete and archived. Continue to P3-006 only after P3-005 is unblocked by explicit human decision. On completed P3-006 report WORK_PACKAGE_READY. If blocked, report a specific TASK_BLOCKED reason with evidence and leave pointers unchanged.
+
+**Human approval is NOT required for each micro-task, for task acceptance after passing its prescribed criteria, for archival, or for pointer advancement.** Stop only for a genuinely new architecture/security authorization, unsafe operation, or failed mandatory verification. Never create, approve or merge a PR; never write to a historian or deploy. The word "queued" in packet boilerplate means awaiting designation as CURRENT, not awaiting repeated approval.
+
+This directive reflects the reconciled state: P3-004 executed and archived, P3-005 blocked pending architecture decision. The CURRENT task packet's initial queued wording is a template state, superseded by both CURRENT pointers. Successful task acceptance does not require a separate approval when all prescribed checks pass. Record any verification gap honestly and stop at an actual new decision gate.
+
+Read this directive before the historical status narrative below. Do not reply with only a status summary to an `operation cwal` command.
+
+
 **Branch:** `phase-3/canonical-mapper`
 **Current human-authorized task:** `workflow/active_work/P3-005-canonical-schema-versioning.md` — **TASK_BLOCKED** at an architecture decision gate (not started)
 **Authorized sequence:** P3-001 → P3-002 → P3-003 → P3-004 → P3-005 → P3-006.

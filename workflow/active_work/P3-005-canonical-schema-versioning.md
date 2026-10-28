@@ -1,6 +1,6 @@
 # P3-005 — Portable canonical schema and mapping profile persistence
 
-> **State: HUMAN-AUTHORIZED ACTIVE WORK — queued**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
+> **State: HUMAN-AUTHORIZED QUEUED (automatically executable once CURRENT)**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
 
 ## Purpose
 Implement separate versioned canonical schemas and source-specific mapping profiles, explicit approval/version states and revision history; import/export safe JSON devoid of credentials and endpoints. Preserve atomic storage/audit/security; plan schema migrations as required.

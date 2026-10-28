@@ -1,6 +1,6 @@
 # P3-006 — Phase 3 integrated acceptance and Phase 4 handoff
 
-> **State: HUMAN-AUTHORIZED ACTIVE WORK — queued**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
+> **State: HUMAN-AUTHORIZED QUEUED (automatically executable once CURRENT)**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
 
 ## Purpose
 Run complete isolated source/destination mapping journeys for both InfluxDB 2 OSS and 3 Core; verify read-only schema discovery, explicit selection, drafts, validation, version/save/import/export/rollback and permission denial. Reconcile roadmap honestly; document Phase 4 mapping compilation handoff and Phase 3 open limitations.
