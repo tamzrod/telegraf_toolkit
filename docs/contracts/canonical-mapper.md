@@ -310,3 +310,8 @@ are recorded.
 - Evidence and limitations: `workflow/active_work` archive for P3-004
   (`archive/active-work/P3-004-mapping-drafts-and-validation.md`).
 
+
+
+## P3-005 architecture decision (human-approved 2026-10-28; implementation pending)
+
+The previously open canonical-schema versioning/approval model is approved for P3-005: canonical schemas and source-specific mapping profiles are separate versioned resources; approved revisions are immutable; drafts and approval states and revision history are explicit; rollback creates a new revision rather than rewriting old history. Persistence uses the existing SQLite transactional metadata-store pattern with audit and role checks. Portable JSON import/export is deterministic and versioned, with no credentials, tokens, credential references, or endpoints; only safe connection/scope identities. This decision does **not** mean P3-005 is implemented or accepted, and authorizes no historian writes, sync or deployment. Refer to `workflow/active_work/P3-005-canonical-schema-versioning.md` and `handoff.md` for the execution boundaries. Earlier open-decision wording in section 7 describes the historical state and is superseded for this question only.
