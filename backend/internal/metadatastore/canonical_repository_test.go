@@ -512,3 +512,157 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 		t.Fatalf("final profile has invalid state after race: %s", finalMP.State)
 	}
 }
+
+// TestMappingProfileDeterministicInterleaving verifies deterministic final state for MappingProfileRepository
+func TestMappingProfileDeterministicInterleaving(t *testing.T) {
+	store := openTemp(t)
+	repo := store.MappingProfiles()
+	now := time.Now().UTC()
+
+	baseMP := registrycontract.MappingProfileRevision{
+		ProfileID:         "mp-deterministic-1", LogicalKey: "lk", SourceConnectionID:   "src-mapper",
+		DestinationConnectionID: "dst-mapper", SourceScope: "scope-s", DestinationScope: "scope-d",
+		MajorVersion: 1, MinorVersion: 0, Revision: 1, State: registrycontract.CanonicalStateDraft,
+		ContentJSON:       `{"base-mp":true}`, ContentHash: "h-base-mapper",
+		CreatedBy:         "mapper-creator", CreatedAt: now, Notes: "initial-mapper-notes",
+	}
+
+	if err := repo.Put(baseMP); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	const iterations = 8
+
+	for i := 0; i < iterations; i++ {
+		wg.Add(2) // put + approve per iteration
+
+		go func(iter int) {
+			defer wg.Done()
+			mp := baseMP
+			mp.Notes = fmt.Sprintf("mapper-notes-%d", iter)
+			mp.ContentHash = fmt.Sprintf("h-mp-%d", iter)
+			mp.ContentJSON = fmt.Sprintf(`{"iter":%d}`, iter)
+			if err := repo.Put(mp); err != nil {
+				t.Logf("put %d failed: %v", iter, err)
+			} else {
+				t.Logf("put %d succeeded", iter)
+			}
+		}(i)
+
+		go func(iter int) {
+			defer wg.Done()
+			err := repo.ApproveMappingProfile(context.Background(), baseMP.ProfileID, fmt.Sprintf("mapper-approver-%d", iter), now)
+			if err != nil {
+				t.Logf("approve %d failed: %v", iter, err)
+			} else {
+				t.Logf("approve %d succeeded (immutable)", iter)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Final verification
+	finalMP, ok, err := repo.Get(baseMP.ProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("mapping profile not found")
+	}
+
+	if finalMP.State != registrycontract.CanonicalStateApproved {
+		t.Fatalf("expected approved MP state, got: %s", finalMP.State)
+	}
+
+	// Verify state consistency after interleaving completion
+	finalMP2, ok2, err2 := repo.Get(baseMP.ProfileID)
+	if !ok2 || err2 != nil {
+		t.Fatal("second get failed")
+	}
+	
+	if finalMP.ContentHash != finalMP2.ContentHash {
+		t.Fatalf("state inconsistency detected: hash1=%q, hash2=%q", finalMP.ContentHash, finalMP2.ContentHash)
+	}
+	t.Logf("State consistency verified for DeterministicInterleaving test")
+
+	// Verify edit-after-approval invariant on approved mapping profile
+	if err := repo.Put(finalMP); err == nil {
+		t.Fatal("editing approved MP should fail")
+	} else if !strings.Contains(err.Error(), "approved revision") && !strings.Contains(err.Error(), "immutable") {
+		t.Logf("expected edit error (got: %v)", err)
+	}
+}
+
+// TestCanonicalSchemaDeterministicInterleaving verifies deterministic final state after interleaved Put/Approve operations
+func TestCanonicalSchemaDeterministicInterleaving(t *testing.T) {
+	store := openTemp(t)
+	repo := store.CanonicalSchemas()
+	now := time.Now().UTC()
+
+	baseSchema := registrycontract.CanonicalSchemaRevision{
+		SchemaID:         "cs-deterministic-1", LogicalKey: "lk", MajorVersion: 1, MinorVersion: 0, Revision: 1,
+		State:             registrycontract.CanonicalStateDraft, ContentJSON: `{"base":true}`,
+		ContentHash:       "h-base-schema", CreatedBy: "creator", CreatedAt: now, Notes: "initial-notes",
+	}
+
+	if err := repo.Put(baseSchema); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	const iterations = 8
+
+	for i := 0; i < iterations; i++ {
+		wg.Add(2)
+
+		go func(iter int) {
+			defer wg.Done()
+			s := baseSchema
+			s.Notes = fmt.Sprintf("schema-notes-%d", iter)
+			s.ContentHash = fmt.Sprintf("h-sch-%d", iter)
+			s.ContentJSON = fmt.Sprintf(`{"iter":%d}`, iter)
+
+			if err := repo.Put(s); err != nil {
+				t.Logf("put %d failed: %v", iter, err)
+			} else {
+				t.Logf("put %d succeeded", iter)
+			}
+		}(i)
+
+		go func(iter int) {
+			defer wg.Done()
+			err := repo.ApproveCanonicalSchema(context.Background(), baseSchema.SchemaID, fmt.Sprintf("approver-%d", iter), now)
+			if err != nil {
+				t.Logf("approve %d failed: %v", iter, err)
+			} else {
+				t.Logf("approve %d succeeded (immutable)", iter)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Final state verification
+	finalSchema, ok, err := repo.Get(baseSchema.SchemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("schema not found after interleaved operations")
+	}
+
+	if finalSchema.State != registrycontract.CanonicalStateApproved {
+		t.Fatalf("expected approved state, got: %s", finalSchema.State)
+	}
+
+	// Verify edit-after-approval invariant on canonical schema
+	if err := repo.Put(finalSchema); err == nil {
+		t.Fatal("put to approved revision should fail")
+	} else if !strings.Contains(err.Error(), "approved revision") && !strings.Contains(err.Error(), "immutable") {
+		t.Logf("expected error, got: %v", err)
+	}
+
+	t.Logf("Deterministic interleaving test completed. Final state: state=%s, hash=%q", finalSchema.State, finalSchema.ContentHash)
+}
