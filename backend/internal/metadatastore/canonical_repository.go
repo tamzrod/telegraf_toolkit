@@ -321,9 +321,6 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 	defer cancel()
 
 	tx, err := r.beginTx(ctx)
-	if err != nil {
-		tx = nil
-	}
 	if tx != nil {
 		// If here, beginTx succeeded with a valid transaction
 		defer tx.Rollback()
