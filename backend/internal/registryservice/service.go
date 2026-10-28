@@ -1067,11 +1067,20 @@ func (s *Service) ApproveCanonicalSchema(ctx context.Context, actor, schemaID st
 			if schema.State == registrycontract.CanonicalStateApproved {
 				return nil
 			}
-			schema.State = registrycontract.CanonicalStateApproved
-			schema.ApprovedBy = actor
-			schema.ApprovedAt = nowUTC()
-			if err := repos.CanonicalSchemas.Put(schema); err != nil {
-				return err
+			// Use atomic guarded transition
+			if csr, ok := repos.CanonicalSchemas.(interface {
+				ApproveCanonicalSchema(context.Context, string, string, time.Time) error
+			}); ok {
+				if err := csr.ApproveCanonicalSchema(ctx, schemaID, actor, nowUTC()); err != nil {
+					return err
+				}
+			} else {
+				schema.State = registrycontract.CanonicalStateApproved
+				schema.ApprovedBy = actor
+				schema.ApprovedAt = nowUTC()
+				if err := repos.CanonicalSchemas.Put(schema); err != nil {
+					return err
+				}
 			}
 			if repos.RevisionHistory != nil {
 				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
@@ -1101,11 +1110,19 @@ func (s *Service) ApproveCanonicalSchema(ctx context.Context, actor, schemaID st
 	if schema.State == registrycontract.CanonicalStateApproved {
 		return nil
 	}
-	schema.State = registrycontract.CanonicalStateApproved
-	schema.ApprovedBy = actor
-	schema.ApprovedAt = nowUTC()
-	if err := s.canonicalSchemas.Put(schema); err != nil {
-		return err
+	if csr, ok := s.canonicalSchemas.(interface {
+		ApproveCanonicalSchema(context.Context, string, string, time.Time) error
+	}); ok {
+		if err := csr.ApproveCanonicalSchema(ctx, schemaID, actor, nowUTC()); err != nil {
+			return err
+		}
+	} else {
+		schema.State = registrycontract.CanonicalStateApproved
+		schema.ApprovedBy = actor
+		schema.ApprovedAt = nowUTC()
+		if err := s.canonicalSchemas.Put(schema); err != nil {
+			return err
+		}
 	}
 	if s.revisionHistory != nil {
 		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{
@@ -1228,11 +1245,19 @@ func (s *Service) ApproveMappingProfile(ctx context.Context, actor, profileID st
 			if profile.State == registrycontract.CanonicalStateApproved {
 				return nil
 			}
-			profile.State = registrycontract.CanonicalStateApproved
-			profile.ApprovedBy = actor
-			profile.ApprovedAt = nowUTC()
-			if err := repos.MappingProfiles.Put(profile); err != nil {
-				return err
+			if mpr, ok := repos.MappingProfiles.(interface {
+				ApproveMappingProfile(context.Context, string, string, time.Time) error
+			}); ok {
+				if err := mpr.ApproveMappingProfile(ctx, profileID, actor, nowUTC()); err != nil {
+					return err
+				}
+			} else {
+				profile.State = registrycontract.CanonicalStateApproved
+				profile.ApprovedBy = actor
+				profile.ApprovedAt = nowUTC()
+				if err := repos.MappingProfiles.Put(profile); err != nil {
+					return err
+				}
 			}
 			if repos.RevisionHistory != nil {
 				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
@@ -1262,11 +1287,19 @@ func (s *Service) ApproveMappingProfile(ctx context.Context, actor, profileID st
 	if profile.State == registrycontract.CanonicalStateApproved {
 		return nil
 	}
-	profile.State = registrycontract.CanonicalStateApproved
-	profile.ApprovedBy = actor
-	profile.ApprovedAt = nowUTC()
-	if err := s.mappingProfiles.Put(profile); err != nil {
-		return err
+	if mpr, ok := s.mappingProfiles.(interface {
+		ApproveMappingProfile(context.Context, string, string, time.Time) error
+	}); ok {
+		if err := mpr.ApproveMappingProfile(ctx, profileID, actor, nowUTC()); err != nil {
+			return err
+		}
+	} else {
+		profile.State = registrycontract.CanonicalStateApproved
+		profile.ApprovedBy = actor
+		profile.ApprovedAt = nowUTC()
+		if err := s.mappingProfiles.Put(profile); err != nil {
+			return err
+		}
 	}
 	if s.revisionHistory != nil {
 		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{

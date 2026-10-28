@@ -16,6 +16,16 @@ type CanonicalSchemaRepository struct {
 	db execer
 }
 
+func (r *CanonicalSchemaRepository) beginTx(ctx context.Context) (*sql.Tx, error) {
+	type txer interface {
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	}
+	if t, ok := r.db.(txer); ok {
+		return t.BeginTx(ctx, nil)
+	}
+	return nil, fmt.Errorf("transactions not supported")
+}
+
 func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaRevision) error {
 	if strings.TrimSpace(schema.SchemaID) == "" || strings.TrimSpace(schema.LogicalKey) == "" {
 		return registrycontract.NewSanitizedError(registrycontract.CodeInvalidProfile, "A canonical schema requires an id and logical key.")
@@ -29,71 +39,128 @@ func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaR
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Enforce complete immutability of approved revisions at the SQLite boundary.
-	var (
-		existingState    string
-		existingLogical  string
-		existingMajor    int
-		existingMinor    int
-		existingRevision int
-		existingContent  string
-		existingHash     string
-		existingCreated  string
-		existingApproved string
-		existingCreator  string
-		existingApprover string
-		existingNotes    string
-	)
-	err := r.db.QueryRowContext(ctx, `SELECT state, logical_key, major_version, minor_version, revision, content_json, content_hash, created_by, created_at, approved_by, approved_at, notes FROM canonical_schemas WHERE schema_id = ?`,
-		schema.SchemaID).Scan(&existingState, &existingLogical, &existingMajor, &existingMinor, &existingRevision, &existingContent, &existingHash, &existingCreator, &existingCreated, &existingApprover, &existingApproved, &existingNotes)
+	tx, err := r.beginTx(ctx)
+	if err != nil {
+		// fallback to non-tx path if not possible
+		tx = nil
+	}
+	if tx != nil {
+		defer tx.Rollback()
+		// Try to update if draft
+		res, err := tx.ExecContext(ctx, `
+			UPDATE canonical_schemas SET
+				logical_key = ?, major_version = ?, minor_version = ?, revision = ?,
+				state = ?, content_json = ?, content_hash = ?, created_by = ?, created_at = ?,
+				approved_by = ?, approved_at = ?, notes = ?
+			WHERE schema_id = ? AND state = 'draft'`,
+			schema.LogicalKey, schema.MajorVersion, schema.MinorVersion, schema.Revision,
+			string(schema.State), schema.ContentJSON, schema.ContentHash, schema.CreatedBy,
+			formatTime(schema.CreatedAt), schema.ApprovedBy, formatTime(schema.ApprovedAt), schema.Notes,
+			schema.SchemaID,
+		)
+		if err != nil {
+			return fmt.Errorf("update canonical schema: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			if string(schema.State) == string(registrycontract.CanonicalStateApproved) {
+				tx.Rollback()
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "use approval transition for approved state")
+			}
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("commit canonical schema: %w", err)
+			}
+			return nil
+		}
+		// Check if exists and approved
+		var existingState string
+		err = tx.QueryRowContext(ctx, `SELECT state FROM canonical_schemas WHERE schema_id = ?`, schema.SchemaID).Scan(&existingState)
+		if err == nil {
+			if existingState == string(registrycontract.CanonicalStateApproved) {
+				tx.Rollback()
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
+			}
+			tx.Rollback()
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			tx.Rollback()
+			return fmt.Errorf("read existing canonical schema: %w", err)
+		}
+		// insert new
+		if string(schema.State) == string(registrycontract.CanonicalStateApproved) {
+			tx.Rollback()
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot insert approved revision")
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO canonical_schemas (
+				schema_id, logical_key, major_version, minor_version, revision,
+				state, content_json, content_hash, created_by, created_at,
+				approved_by, approved_at, notes
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			schema.SchemaID, schema.LogicalKey, schema.MajorVersion, schema.MinorVersion, schema.Revision,
+			string(schema.State), schema.ContentJSON, schema.ContentHash, schema.CreatedBy,
+			formatTime(schema.CreatedAt), schema.ApprovedBy, formatTime(schema.ApprovedAt), schema.Notes,
+		)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("insert canonical schema: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit canonical schema: %w", err)
+		}
+		return nil
+	}
+
+	// Non-tx fallback
+	var existingState string
+	err = r.db.QueryRowContext(ctx, `SELECT state FROM canonical_schemas WHERE schema_id = ?`, schema.SchemaID).Scan(&existingState)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read existing canonical schema: %w", err)
 	}
-	if err == nil && existingState == string(registrycontract.CanonicalStateApproved) {
-		// Approved revisions are immutable. Do not allow state regression or metadata/content changes.
-		if string(schema.State) != existingState {
+	if err == nil {
+		if existingState == string(registrycontract.CanonicalStateApproved) {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
 		}
-		if schema.LogicalKey != existingLogical || schema.MajorVersion != existingMajor || schema.MinorVersion != existingMinor || schema.Revision != existingRevision {
+		if string(schema.State) == string(registrycontract.CanonicalStateApproved) {
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "use approval transition for approved state")
+		}
+		res, err := r.db.ExecContext(ctx, `
+			UPDATE canonical_schemas SET
+				logical_key = ?, major_version = ?, minor_version = ?, revision = ?,
+				state = ?, content_json = ?, content_hash = ?, created_by = ?, created_at = ?,
+				approved_by = ?, approved_at = ?, notes = ?
+			WHERE schema_id = ? AND state = 'draft'`,
+			schema.LogicalKey, schema.MajorVersion, schema.MinorVersion, schema.Revision,
+			string(schema.State), schema.ContentJSON, schema.ContentHash, schema.CreatedBy,
+			formatTime(schema.CreatedAt), schema.ApprovedBy, formatTime(schema.ApprovedAt), schema.Notes,
+			schema.SchemaID,
+		)
+		if err != nil {
+			return fmt.Errorf("update canonical schema: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
 		}
-		if schema.ContentJSON != existingContent || schema.ContentHash != existingHash {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
-		}
-		if schema.CreatedBy != existingCreator || schema.ApprovedBy != existingApprover || schema.Notes != existingNotes {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
-		}
-		// Timestamps must remain consistent
-		if formatTime(schema.CreatedAt) != existingCreated || formatTime(schema.ApprovedAt) != existingApproved {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
-		}
+		return nil
 	}
 
+	if string(schema.State) == string(registrycontract.CanonicalStateApproved) {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot insert approved revision")
+	}
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO canonical_schemas (
 			schema_id, logical_key, major_version, minor_version, revision,
 			state, content_json, content_hash, created_by, created_at,
 			approved_by, approved_at, notes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(schema_id) DO UPDATE SET
-			logical_key = excluded.logical_key,
-			major_version = excluded.major_version,
-			minor_version = excluded.minor_version,
-			revision = excluded.revision,
-			state = excluded.state,
-			content_json = excluded.content_json,
-			content_hash = excluded.content_hash,
-			created_by = excluded.created_by,
-			created_at = excluded.created_at,
-			approved_by = excluded.approved_by,
-			approved_at = excluded.approved_at,
-			notes = excluded.notes`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		schema.SchemaID, schema.LogicalKey, schema.MajorVersion, schema.MinorVersion, schema.Revision,
 		string(schema.State), schema.ContentJSON, schema.ContentHash, schema.CreatedBy,
 		formatTime(schema.CreatedAt), schema.ApprovedBy, formatTime(schema.ApprovedAt), schema.Notes,
 	)
 	if err != nil {
-		return fmt.Errorf("upsert canonical schema: %w", err)
+		return fmt.Errorf("insert canonical schema: %w", err)
 	}
 	return nil
 }
@@ -229,6 +296,16 @@ type MappingProfileRepository struct {
 	db execer
 }
 
+func (r *MappingProfileRepository) beginTx(ctx context.Context) (*sql.Tx, error) {
+	type txer interface {
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	}
+	if t, ok := r.db.(txer); ok {
+		return t.BeginTx(ctx, nil)
+	}
+	return nil, fmt.Errorf("transactions not supported")
+}
+
 func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRevision) error {
 	if strings.TrimSpace(profile.ProfileID) == "" || strings.TrimSpace(profile.LogicalKey) == "" {
 		return registrycontract.NewSanitizedError(registrycontract.CodeInvalidProfile, "A mapping profile requires an id and logical key.")
@@ -242,81 +319,124 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var (
-		existingState    string
-		existingLogical  string
-		existingCanonLog string
-		existingCanonRev int
-		existingSrcConn  string
-		existingDstConn  string
-		existingSrcScope string
-		existingDstScope string
-		existingMajor    int
-		existingMinor    int
-		existingRevision int
-		existingContent  string
-		existingHash     string
-		existingCreator  string
-		existingApprover string
-		existingCreated  string
-		existingApproved string
-		existingNotes    string
-	)
-	err := r.db.QueryRowContext(ctx, `SELECT state, logical_key, canonical_logical_key, canonical_revision, source_connection_id, destination_connection_id, source_scope, destination_scope, major_version, minor_version, revision, content_json, content_hash, created_by, approved_by, created_at, approved_at, notes FROM mapping_profiles WHERE profile_id = ?`,
-		profile.ProfileID).Scan(&existingState, &existingLogical, &existingCanonLog, &existingCanonRev, &existingSrcConn, &existingDstConn, &existingSrcScope, &existingDstScope, &existingMajor, &existingMinor, &existingRevision, &existingContent, &existingHash, &existingCreator, &existingApprover, &existingCreated, &existingApproved, &existingNotes)
+	tx, err := r.beginTx(ctx)
+	if err != nil {
+		tx = nil
+	}
+	if tx != nil {
+		defer tx.Rollback()
+		res, err := tx.ExecContext(ctx, `
+			UPDATE mapping_profiles SET
+				logical_key = ?, canonical_logical_key = ?, canonical_revision = ?,
+				source_connection_id = ?, destination_connection_id = ?, source_scope = ?, destination_scope = ?,
+				major_version = ?, minor_version = ?, revision = ?, state = ?, content_json = ?, content_hash = ?,
+				created_by = ?, created_at = ?, approved_by = ?, approved_at = ?, notes = ?
+			WHERE profile_id = ? AND state = 'draft'`,
+			profile.LogicalKey, profile.CanonicalLogicalKey, profile.CanonicalRevision,
+			profile.SourceConnectionID, profile.DestinationConnectionID, profile.SourceScope, profile.DestinationScope,
+			profile.MajorVersion, profile.MinorVersion, profile.Revision, string(profile.State),
+			profile.ContentJSON, profile.ContentHash, profile.CreatedBy, formatTime(profile.CreatedAt),
+			profile.ApprovedBy, formatTime(profile.ApprovedAt), profile.Notes,
+			profile.ProfileID,
+		)
+		if err != nil {
+			return fmt.Errorf("update mapping profile: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			if string(profile.State) == string(registrycontract.CanonicalStateApproved) {
+				tx.Rollback()
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "use approval transition for approved state")
+			}
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("commit mapping profile: %w", err)
+			}
+			return nil
+		}
+		var existingState string
+		err = tx.QueryRowContext(ctx, `SELECT state FROM mapping_profiles WHERE profile_id = ?`, profile.ProfileID).Scan(&existingState)
+		if err == nil {
+			tx.Rollback()
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			tx.Rollback()
+			return fmt.Errorf("read existing mapping profile: %w", err)
+		}
+		if string(profile.State) == string(registrycontract.CanonicalStateApproved) {
+			tx.Rollback()
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot insert approved revision")
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO mapping_profiles (
+				profile_id, logical_key, canonical_logical_key, canonical_revision,
+				source_connection_id, destination_connection_id, source_scope, destination_scope,
+				major_version, minor_version, revision, state, content_json, content_hash,
+				created_by, created_at, approved_by, approved_at, notes
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			profile.ProfileID, profile.LogicalKey, profile.CanonicalLogicalKey, profile.CanonicalRevision,
+			profile.SourceConnectionID, profile.DestinationConnectionID, profile.SourceScope, profile.DestinationScope,
+			profile.MajorVersion, profile.MinorVersion, profile.Revision, string(profile.State),
+			profile.ContentJSON, profile.ContentHash, profile.CreatedBy, formatTime(profile.CreatedAt),
+			profile.ApprovedBy, formatTime(profile.ApprovedAt), profile.Notes,
+		)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("insert mapping profile: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit mapping profile: %w", err)
+		}
+		return nil
+	}
+
+	// fallback
+	var existingState string
+	err = r.db.QueryRowContext(ctx, `SELECT state FROM mapping_profiles WHERE profile_id = ?`, profile.ProfileID).Scan(&existingState)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read existing mapping profile: %w", err)
 	}
-	if err == nil && existingState == string(registrycontract.CanonicalStateApproved) {
-		if string(profile.State) != existingState {
+	if err == nil {
+		if existingState == string(registrycontract.CanonicalStateApproved) {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
 		}
-		if profile.LogicalKey != existingLogical || profile.CanonicalLogicalKey != existingCanonLog || profile.CanonicalRevision != existingCanonRev {
+		if string(profile.State) == string(registrycontract.CanonicalStateApproved) {
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "use approval transition for approved state")
+		}
+		res, err := r.db.ExecContext(ctx, `
+			UPDATE mapping_profiles SET
+				logical_key = ?, canonical_logical_key = ?, canonical_revision = ?,
+				source_connection_id = ?, destination_connection_id = ?, source_scope = ?, destination_scope = ?,
+				major_version = ?, minor_version = ?, revision = ?, state = ?, content_json = ?, content_hash = ?,
+				created_by = ?, created_at = ?, approved_by = ?, approved_at = ?, notes = ?
+			WHERE profile_id = ? AND state = 'draft'`,
+			profile.LogicalKey, profile.CanonicalLogicalKey, profile.CanonicalRevision,
+			profile.SourceConnectionID, profile.DestinationConnectionID, profile.SourceScope, profile.DestinationScope,
+			profile.MajorVersion, profile.MinorVersion, profile.Revision, string(profile.State),
+			profile.ContentJSON, profile.ContentHash, profile.CreatedBy, formatTime(profile.CreatedAt),
+			profile.ApprovedBy, formatTime(profile.ApprovedAt), profile.Notes,
+			profile.ProfileID,
+		)
+		if err != nil {
+			return fmt.Errorf("update mapping profile: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
 		}
-		if profile.SourceConnectionID != existingSrcConn || profile.DestinationConnectionID != existingDstConn || profile.SourceScope != existingSrcScope || profile.DestinationScope != existingDstScope {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
-		}
-		if profile.MajorVersion != existingMajor || profile.MinorVersion != existingMinor || profile.Revision != existingRevision {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
-		}
-		if profile.ContentJSON != existingContent || profile.ContentHash != existingHash {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
-		}
-		if profile.CreatedBy != existingCreator || profile.ApprovedBy != existingApprover || profile.Notes != existingNotes {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
-		}
-		if formatTime(profile.CreatedAt) != existingCreated || formatTime(profile.ApprovedAt) != existingApproved {
-			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
-		}
+		return nil
 	}
 
+	if string(profile.State) == string(registrycontract.CanonicalStateApproved) {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot insert approved revision")
+	}
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO mapping_profiles (
 			profile_id, logical_key, canonical_logical_key, canonical_revision,
 			source_connection_id, destination_connection_id, source_scope, destination_scope,
 			major_version, minor_version, revision, state, content_json, content_hash,
 			created_by, created_at, approved_by, approved_at, notes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(profile_id) DO UPDATE SET
-			logical_key = excluded.logical_key,
-			canonical_logical_key = excluded.canonical_logical_key,
-			canonical_revision = excluded.canonical_revision,
-			source_connection_id = excluded.source_connection_id,
-			destination_connection_id = excluded.destination_connection_id,
-			source_scope = excluded.source_scope,
-			destination_scope = excluded.destination_scope,
-			major_version = excluded.major_version,
-			minor_version = excluded.minor_version,
-			revision = excluded.revision,
-			state = excluded.state,
-			content_json = excluded.content_json,
-			content_hash = excluded.content_hash,
-			created_by = excluded.created_by,
-			created_at = excluded.created_at,
-			approved_by = excluded.approved_by,
-			approved_at = excluded.approved_at,
-			notes = excluded.notes`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		profile.ProfileID, profile.LogicalKey, profile.CanonicalLogicalKey, profile.CanonicalRevision,
 		profile.SourceConnectionID, profile.DestinationConnectionID, profile.SourceScope, profile.DestinationScope,
 		profile.MajorVersion, profile.MinorVersion, profile.Revision, string(profile.State),
@@ -324,7 +444,7 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 		profile.ApprovedBy, formatTime(profile.ApprovedAt), profile.Notes,
 	)
 	if err != nil {
-		return fmt.Errorf("upsert mapping profile: %w", err)
+		return fmt.Errorf("insert mapping profile: %w", err)
 	}
 	return nil
 }
@@ -546,13 +666,9 @@ func scanHistory(rows *sql.Rows) ([]registrycontract.RevisionHistoryEntry, error
 }
 
 func validateSafeJSONNoSecrets(raw string) error {
-	// basic redaction check using same secret markers
 	blob := strings.ToLower(raw)
 	for _, marker := range []string{"password", "token", "apikey", "api_key", "secret", "bearer ", "://", "@", "authorization"} {
-		// allow simple patterns but we must not have credentials/URLs/tokens as per spec
-		// spec says no secrets/tokens/credential refs/endpoints in export/import JSON
 		if marker == "://" || marker == "@" {
-			// endpoints/URLs with creds
 			if strings.Contains(blob, marker) {
 				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "Content must not contain secrets, tokens, credential references or endpoints.")
 			}
@@ -561,6 +677,46 @@ func validateSafeJSONNoSecrets(raw string) error {
 		if strings.Contains(blob, marker) {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "Content must not contain secrets, tokens, credential references or endpoints.")
 		}
+	}
+	return nil
+}
+
+// ApproveCanonicalSchema atomically transitions a draft revision to approved
+func (r *CanonicalSchemaRepository) ApproveCanonicalSchema(ctx context.Context, schemaID, actor string, approvedAt time.Time) error {
+	ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	res, err := r.db.ExecContext(ctx2, `
+		UPDATE canonical_schemas 
+		SET state = 'approved', approved_by = ?, approved_at = ?
+		WHERE schema_id = ? AND state = 'draft'`,
+		actor, formatTime(approvedAt), schemaID,
+	)
+	if err != nil {
+		return fmt.Errorf("approve canonical schema: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot approve: not found or not in draft state")
+	}
+	return nil
+}
+
+// ApproveMappingProfile atomically transitions a draft mapping profile to approved.
+func (r *MappingProfileRepository) ApproveMappingProfile(ctx context.Context, profileID, actor string, approvedAt time.Time) error {
+	ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	res, err := r.db.ExecContext(ctx2, `
+		UPDATE mapping_profiles 
+		SET state = 'approved', approved_by = ?, approved_at = ?
+		WHERE profile_id = ? AND state = 'draft'`,
+		actor, formatTime(approvedAt), profileID,
+	)
+	if err != nil {
+		return fmt.Errorf("approve mapping profile: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "cannot approve: not found or not in draft state")
 	}
 	return nil
 }
