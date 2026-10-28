@@ -44,10 +44,6 @@ func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaR
 		// BeginTx failed - propagate error to caller instead of silent fallback
 		return fmt.Errorf("BeginTx failed: %w", err)
 	}
-	if err != nil {
-		// BeginTx failed - propagate error to caller instead of silent fallback
-		return fmt.Errorf("BeginTx failed: %w", err)
-	}
 	if tx != nil {
 		// If here, beginTx succeeded with a valid transaction
 		defer tx.Rollback()
