@@ -4,7 +4,7 @@
 
 When the operator enters `operation cwal`, **perform the current authorized task immediately**. This is an execution command, not a request to restate status, ask if work should begin, or ask for another approval. The existing human authorization of P3-001 through P3-006 is sufficient for each packet once it becomes CURRENT in BOTH pointers.
 
-For the present checkpoint, CURRENT is **P3-005** which is **TASK_BLOCKED** at the unresolved schema-versioning/approval architecture gate. **Do not implement P3-005.** The required human decision is: approve a versioning and approval model for separately versioned canonical schemas with revision history, or re-scope P3-005 to a non-approval persistence design. P3-004 is complete and archived. Continue to P3-006 only after P3-005 is unblocked by explicit human decision. On completed P3-006 report WORK_PACKAGE_READY. If blocked, report a specific TASK_BLOCKED reason with evidence and leave pointers unchanged.
+For the present checkpoint, CURRENT is **P3-005** and its versioning/approval architecture was **explicitly approved by the human on 2026-10-28**. Execute P3-005 on `operation cwal` without another approval request: separately versioned canonical schemas and source-specific mapping profiles; immutable approved revisions; explicit draft/approval states and revision history; rollback by creating a new revision rather than mutating history; SQLite transactional metadata persistence using existing security/audit conventions; deterministic versioned JSON import/export without credentials, tokens or endpoints. Verify scope/connection identity, schema compatibility, RBAC, concurrency, migrations, redaction, tests and acceptance per the packet. This approval does not authorize historian writes, deployments, sync, or new unrelated architecture. P3-004 is complete and archived. Continue to P3-006 only after P3-005 is unblocked by explicit human decision. On completed P3-006 report WORK_PACKAGE_READY. If blocked, report a specific TASK_BLOCKED reason with evidence and leave pointers unchanged.
 
 **Human approval is NOT required for each micro-task, for task acceptance after passing its prescribed criteria, for archival, or for pointer advancement.** Stop only for a genuinely new architecture/security authorization, unsafe operation, or failed mandatory verification. Never create, approve or merge a PR; never write to a historian or deploy. The word "queued" in packet boilerplate means awaiting designation as CURRENT, not awaiting repeated approval.
 
@@ -14,14 +14,14 @@ Read this directive before the historical status narrative below. Do not reply w
 
 
 **Branch:** `phase-3/canonical-mapper`
-**Current human-authorized task:** `workflow/active_work/P3-005-canonical-schema-versioning.md` — **TASK_BLOCKED** at an architecture decision gate (not started)
+**Current human-authorized task:** `workflow/active_work/P3-005-canonical-schema-versioning.md` — architecture approved; implementation pending
 **Authorized sequence:** P3-001 → P3-002 → P3-003 → P3-004 → P3-005 → P3-006.
 
 ## Base and context
 Branch created from merged `main` at `bba5a676c40cdbb5a3af87177ddfa979e59b5fdb` (PR #7 merged). Phase 2 Registry is substantially delivered; exit remains partial because downstream Registry consumption and query/write capability verification remain incomplete. P2C-001–P2C-008 are archived. Phase 3 entry contract: `docs/contracts/canonical-mapper.md`.
 
 ## Current task
-P3-005 — portable canonical schema and mapping profile persistence is **TASK_BLOCKED** (see the status block below). P3-004 is complete and archived. Do not begin P3-005 without a new explicit human decision on its approval and versioning model.
+P3-005 — portable canonical schema and mapping profile persistence is **authorized to proceed** under the human-approved versioning model (2026-10-28). P3-004 is complete and archived. See the approval record below; do not misread the historical blocked-state section as current.
 
 ## Task status — P3-004 COMPLETE and ARCHIVED; CURRENT is P3-005, TASK_BLOCKED (2026-10-28)
 
