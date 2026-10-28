@@ -36,6 +36,7 @@ import {
   validateMapperSelection,
 } from "./canonicalWorkflow";
 import { mockSchemaPreview } from "./mockSchemaPreview";
+import { MappingDraftEditor } from "./MappingDraftEditor";
 
 const OUTCOME_CLASSES: Record<CapabilityOutcome, string> = {
   supported: "bg-green-100 text-green-900",
@@ -592,7 +593,7 @@ export function CanonicalMapperPage() {
       <PageHeader
         id="canonical-mapper-heading"
         title="Canonical Mapper"
-        scope="Read-only schema browsing for an explicit source and destination profile; mapping and writes remain unimplemented."
+        scope="Read-only schema browsing and local mapping drafts for an explicit source and destination profile; persistence, export and writes remain unimplemented."
         status="partial"
       />
 
@@ -836,6 +837,15 @@ export function CanonicalMapperPage() {
         </section>
       )}
 
+      {selection.ok && source && destination && (
+        <MappingDraftEditor
+          key={`draft:${profileIdentity(source)}|${profileIdentity(destination)}|${useLive ? "live" : "mock"}`}
+          source={source}
+          destination={destination}
+          live={useLive}
+        />
+      )}
+
       <section className="mt-6" aria-labelledby="canonical-bounds">
         <h2 id="canonical-bounds" className="text-lg font-medium">
           Read-only bounds
@@ -869,8 +879,8 @@ export function CanonicalMapperPage() {
 
       <DisabledActionGroup
         heading="canonical-mapper"
-        reason="Mapping drafts, canonical-schema versioning, validation and export are not implemented in P3-003. Schema browsing is read-only."
-        actions={["Save mapping", "Validate mapping", "Export profile"]}
+        reason="Saving, canonical-schema versioning and profile export are not implemented (P3-005). Drafts are local to this page; schema browsing is read-only."
+        actions={["Save mapping", "Export profile"]}
       />
     </section>
   );

@@ -1,6 +1,6 @@
 # Phase 3 Canonical Mapper — entry contract
 
-Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26) and consumed by the read-only Canonical Mapper schema browser (P3-003) for the pinned InfluxDB 2 OSS and 3 Core editions; mapping drafts/export are not implemented and InfluxDB 1.x remains unverified.**
+Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26); the read-only schema browser (P3-003) and the local, in-memory mapping draft with validation (P3-004, 2026-10-28) are implemented for the pinned InfluxDB 2 OSS and 3 Core editions. Draft persistence, versioning and export are not implemented (P3-005) and InfluxDB 1.x remains unverified.**
 Task: P2C-006 (Phase 2 integration acceptance and Phase 3 handoff); reconciled by P3-001; read path delivered by P3-002; schema browser delivered by P3-003.
 Depends on: the Phase 2 Registry (P2L-001–P2L-007, P2C-001–P2C-008).
 
@@ -293,3 +293,20 @@ preview, save/import/export or deployment exists. InfluxDB 1.x remains
 unverified and is never contacted for schema metadata. No real-browser or
 screen-reader session was performed; jsdom component tests plus an explicit gap
 are recorded.
+
+## 10. Implementation (P3-004, 2026-10-28)
+
+- A **local draft** over one source and one destination measurement, held in
+  page memory only (not saved, exported or executed). It records profile
+  identities and canonical scope, never endpoints or credentials.
+- **Validation** is deterministic and never coerces silently: type changes need
+  an explicit unit transform; unknown, unloaded, stale or unobserved schema is an
+  error for the dependent rule, never a pass; unknown destinations are warnings.
+- **Plan preview** is text only, shown only for a draft with no errors, and
+  renders names and values quoted as data. No query, sample read or write is
+  built or issued.
+- Destination names use a strict identifier form; filter values are data with
+  length and control-character bounds.
+- Evidence and limitations: `workflow/active_work` archive for P3-004
+  (`archive/active-work/P3-004-mapping-drafts-and-validation.md`).
+

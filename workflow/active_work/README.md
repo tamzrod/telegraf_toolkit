@@ -1,15 +1,15 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `phase-3/canonical-mapper`
-**CURRENT:** `P3-004-mapping-drafts-and-validation.md`
-**Human-authorized queue:** P3-004 → P3-005 → P3-006.
+**CURRENT:** `P3-005-canonical-schema-versioning.md` — **TASK_BLOCKED** (architecture decision gate; not started)
+**Human-authorized queue:** P3-005 → P3-006 (P3-005 is blocked pending a human decision on its approval and versioning model).
 
-P3-004 is the sole active execution target; P3-005–006 are authorized and **queued, not concurrently executable**. P3-002 and P3-003 are implemented, verified and archived (`archive/active-work/P3-002-authorized-schema-discovery.md`, `archive/active-work/P3-003-mapper-selection-and-schema-browser.md`). Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
+P3-005 is designated but **TASK_BLOCKED** at an unresolved architecture decision, and P3-006 must not run before it. P3-001 through P3-004 are implemented, verified and archived (`archive/active-work/P3-002-authorized-schema-discovery.md`, `archive/active-work/P3-003-mapper-selection-and-schema-browser.md`, `archive/active-work/P3-004-mapping-drafts-and-validation.md`). Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
 
 Phase 3 consumes the Phase 2 Registry; preserve exact profile/binding/scope and pinned-peer/TLS/SSRF controls. P3-001 documented the safe schema-discovery API decision and **must not be read as silently authorizing a new query method or Proposed ADR**. No real historian writes, deployment, production endpoints or agent-created PR. Stop TASK_BLOCKED for missing required authority or evidence. On completion clear queue and report WORK_PACKAGE_READY.
 
 
-## Approved gate — decided 2026-10-26; P3-004 is CURRENT
+## Approved gate — decided 2026-10-26; P3-004 complete, P3-005 blocked
 
 P3-001 was verified and archived on 2026-10-26. The human approved Option A1,
 the P2C-003 catalogue/evidence correction, a dedicated `schema.read`, and bounded
@@ -22,5 +22,5 @@ P3-002 and P3-003 are likewise verified, archived and checkpointed: the schema
 read is implemented, the P2C-003 catalogue correction is applied, and the
 read-only Canonical Mapper schema browser consumes that read with explicit
 distinct profiles, honest states, labeled mock mode and race-safe cancellation.
-InfluxDB 1.x remains unverified. CURRENT is **P3-004**; do not start P3-005
-early. No agent PR actions.
+InfluxDB 1.x remains unverified. P3-004 is complete and archived. P3-005 is blocked at an
+architecture decision gate; do not start it without a new explicit human decision. No agent PR actions.

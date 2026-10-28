@@ -663,3 +663,32 @@ describe("CanonicalMapperPage live mode", () => {
     ).toBe(true);
   });
 });
+
+describe("CanonicalMapperPage mapping draft (live, GET-only)", () => {
+  it("validates a draft against observed live schema and issues only GET requests", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = installLiveBackend();
+    renderPage();
+    await activateLive(user);
+    await chooseProfiles(user);
+    const section = await screen
+      .findByRole("heading", { level: 2, name: "Mapping draft" })
+      .then((heading) => heading.closest("section") as HTMLElement);
+
+    await user.type(within(section).getByLabelText("Destination measurement"), "sensor");
+    await user.selectOptions(within(section).getByLabelText("Source measurement"), "sensor");
+    await user.click(await within(section).findByRole("button", { name: "Map field temperature" }));
+    await user.type(
+      within(section).getByLabelText("Destination name for field temperature"),
+      "_copy",
+    );
+
+    await waitFor(() => {
+      expect(within(section).getByText(/Plan ready for preview/)).toBeInTheDocument();
+    });
+    expect(within(section).queryByText(/MOCK draft/)).toBeNull();
+    for (const [, init] of fetchSpy.mock.calls) {
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+    }
+  });
+});

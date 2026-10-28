@@ -2,16 +2,48 @@
 
 ## CURRENT OPERATION
 **Branch:** `phase-3/canonical-mapper`
-**Current human-authorized task:** `workflow/active_work/P3-004-mapping-drafts-and-validation.md`
+**Current human-authorized task:** `workflow/active_work/P3-005-canonical-schema-versioning.md` — **TASK_BLOCKED** at an architecture decision gate (not started)
 **Authorized sequence:** P3-001 → P3-002 → P3-003 → P3-004 → P3-005 → P3-006.
 
 ## Base and context
 Branch created from merged `main` at `bba5a676c40cdbb5a3af87177ddfa979e59b5fdb` (PR #7 merged). Phase 2 Registry is substantially delivered; exit remains partial because downstream Registry consumption and query/write capability verification remain incomplete. P2C-001–P2C-008 are archived. Phase 3 entry contract: `docs/contracts/canonical-mapper.md`.
 
 ## Current task
-P3-004 — editable typed mapping drafts and validation. Read `workflow/active_work/P3-004-mapping-drafts-and-validation.md`. Begin only after verifying branch, clean worktree, and current pointers.
+P3-005 — portable canonical schema and mapping profile persistence is **TASK_BLOCKED** (see the status block below). P3-004 is complete and archived. Do not begin P3-005 without a new explicit human decision on its approval and versioning model.
 
-## Task status — P3-003 COMPLETE and ARCHIVED; CURRENT is P3-004 (2026-10-26)
+## Task status — P3-004 COMPLETE and ARCHIVED; CURRENT is P3-005, TASK_BLOCKED (2026-10-28)
+
+P3-004 is accepted and archived at
+`archive/active-work/P3-004-mapping-drafts-and-validation.md`. The Canonical
+Mapper now has a local, in-memory mapping draft over one source and one
+destination measurement, with deterministic validation. The draft records profile
+identities and canonical scope, never endpoints or credentials. Types are never
+coerced silently: a type change needs an explicit unit transform. Unknown,
+unloaded or unobserved schema is a blocking error for the dependent rule, not
+support. The draft is keyed by profile identity, so it is discarded on profile or
+scope change. The plan preview is text only; no query, sample read or write is
+built or issued. Drag-and-drop has a keyboard button alternative.
+
+Verification: `npx vitest run` 270 passed / 1 skipped (baseline 223 / 1; +37
+unit, +9 page mock-mode, +1 live GET-only); `eslint .` clean; `tsc -b` OK;
+`npm run build` OK; `make check` exit 0 (policy-check PASS within its limited regex
+scope). Gaps: no real browser or screen-reader pass; no property-based tests (no
+dependency installed); draft validation not exercised against real InfluxDB
+containers; single source and destination measurement per draft. No PR, no
+historian write, no deployment.
+
+**TASK_BLOCKED — P3-005 (architecture decision gate).** P3-005 requires separately
+versioned canonical schemas, approval and version states, revision history and
+SQLite persistence. `docs/contracts/canonical-mapper.md` §7 states that how a
+canonical schema is versioned, shared and approved is **not decided**, and
+`docs/CANONICAL_MAPPING.md` leaves it open. The approved decisions cover only the
+schema-discovery read path (Option A1), not a persistence or approval model.
+Choosing that model is a new architecture decision that the queue does not
+authorize. P3-005 is not started. Human decision needed: approve a versioning and
+approval model, or re-scope P3-005 to a non-approval persistence design, before
+CWAL resumes. P3-006 remains queued behind it.
+
+## Task status — P3-003 COMPLETE and ARCHIVED; CURRENT was P3-004 (2026-10-26)
 
 P3-003 is accepted and archived at
 `archive/active-work/P3-003-mapper-selection-and-schema-browser.md`. The
@@ -43,8 +75,7 @@ only). The read path issued GETs only; the containers kept their synthetic
 state; no deployment, historian write or PR.
 
 Mapping drafts, validation, versioned persistence/export and InfluxDB 1.x
-coverage do not exist. CURRENT is **P3-004** — editable typed mapping drafts and
-validation. Do not start P3-005 early.
+coverage do not exist. (Historical as of 2026-10-26: CURRENT was P3-004, now complete.)
 
 ## Authorization and execution policy
 The six bounded task packets are human-authorized for **sequential** Operation CWAL execution without intermediate approval within accepted architecture and safety boundaries. Execute only CURRENT; test, archive via `git mv`, commit/push, verify remote checkpoint and advance CURRENT in this file plus the Active Work README. Do not execute later tasks early. If a task raises a new architectural approval (including introducing a protected POST query path beyond the existing GET-only probe) obtain explicit human decision via TASK_BLOCKED; the task queue is not authority to approve ADR-0004/0005.
