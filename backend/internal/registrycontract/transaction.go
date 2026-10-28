@@ -19,6 +19,12 @@ type Repositories struct {
 	Bindings CredentialBindingStore
 	// Audit records sanitized audit events.
 	Audit AuditSink
+	// CanonicalSchemas stores versioned canonical schemas.
+	CanonicalSchemas CanonicalSchemaStore
+	// MappingProfiles stores versioned mapping profiles.
+	MappingProfiles MappingProfileStore
+	// RevisionHistory records immutable revision history.
+	RevisionHistory RevisionHistoryStore
 }
 
 // TransactionalStore is the optional persistence capability that applies a set

@@ -1,12 +1,12 @@
 # Active Work — Telegraf Toolkit
 
 **Designated branch:** `phase-3/canonical-mapper`
-**CURRENT:** `P3-005-canonical-schema-versioning.md` — **ARCHITECTURE APPROVED; implementation pending**
-**Human-authorized queue:** P3-005 → P3-006 (execute sequentially, subject to verification and any genuinely new gate).
+**CURRENT:** `P3-006-phase3-acceptance-handoff.md` — **EXECUTE NEXT**
+**Human-authorized queue:** P3-006 only (P3-005 completed and archived).
 
-When `operation cwal` is invoked, execute the task marked CURRENT in both pointer files. This is the existing authorization to perform the designated task, run its verification, and on acceptance archive, commit, push, confirm the remote SHA and advance both pointers. Do not require an additional approval merely because the task packet originally said queued. Continue P3-005 and P3-006 in order, stopping for a new architectural or security decision or a failed required check. No PR actions.
+When `operation cwal` is invoked, execute the task marked CURRENT in both pointer files. This is the existing authorization to perform the designated task, run its verification, and on acceptance archive, commit, push, confirm the remote SHA and advance both pointers. P3-005 is complete and archived; execute P3-006. Stop for a new architectural or security decision or a failed required check. No PR actions.
 
-P3-005 is designated CURRENT and its architecture decision was approved on 2026-10-28. Execute and verify P3-005 before P3-006. P3-001 through P3-004 are implemented, verified and archived (`archive/active-work/P3-002-authorized-schema-discovery.md`, `archive/active-work/P3-003-mapper-selection-and-schema-browser.md`, `archive/active-work/P3-004-mapping-drafts-and-validation.md`). Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. Do not require intermediate approvals unless a task reaches an architectural/security decision gate.
+P3-005 implemented and archived. P3-001 through P3-005 are implemented, verified and archived. P3-006 is CURRENT. Follow `handoff.md` and the selected packet. Verify each task, `git mv` archive, commit/push, remote-confirm then advance both pointers. No PR actions.
 
 Phase 3 consumes the Phase 2 Registry; preserve exact profile/binding/scope and pinned-peer/TLS/SSRF controls. P3-001 documented the safe schema-discovery API decision and **must not be read as silently authorizing a new query method or Proposed ADR**. No real historian writes, deployment, production endpoints or agent-created PR. Stop TASK_BLOCKED for missing required authority or evidence. On completion clear queue and report WORK_PACKAGE_READY.
 

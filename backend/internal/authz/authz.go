@@ -48,6 +48,11 @@ const (
 	PermCredentialAttach  Permission = "credential.attach"
 	PermAuditRead         Permission = "audit.read"
 	PermCredentialResolve Permission = "credential.resolve"
+	// P3-005 canonical schema and mapping profile permissions
+	PermCanonicalRead  Permission = "canonical.read"
+	PermCanonicalWrite Permission = "canonical.write"
+	PermMappingRead    Permission = "mapping.read"
+	PermMappingWrite   Permission = "mapping.write"
 )
 
 // rolePermissions maps a role to its granted permissions. The map is the single
@@ -85,6 +90,10 @@ var rolePermissions = map[Role]map[Permission]bool{
 		PermCredentialAttach:  true,
 		PermAuditRead:         true,
 		PermCredentialResolve: true,
+		PermCanonicalRead:     true,
+		PermCanonicalWrite:    true,
+		PermMappingRead:       true,
+		PermMappingWrite:      true,
 	},
 }
 

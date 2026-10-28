@@ -151,6 +151,18 @@ func (s *Store) CredentialBindings() *CredentialBindingRepository {
 	return &CredentialBindingRepository{db: s.db}
 }
 
+func (s *Store) CanonicalSchemas() *CanonicalSchemaRepository {
+	return &CanonicalSchemaRepository{db: s.db}
+}
+
+func (s *Store) MappingProfiles() *MappingProfileRepository {
+	return &MappingProfileRepository{db: s.db}
+}
+
+func (s *Store) RevisionHistory() *RevisionHistoryRepository {
+	return &RevisionHistoryRepository{db: s.db}
+}
+
 // WithinTransaction runs fn inside a single SQLite transaction.
 //
 // The repositories handed to fn are bound to that transaction, so every write
@@ -174,10 +186,13 @@ func (s *Store) WithinTransaction(ctx context.Context, fn func(registrycontract.
 	defer func() { _ = tx.Rollback() }()
 
 	repositories := registrycontract.Repositories{
-		Profiles:   &ProfileRepository{db: tx},
-		References: &CredentialRefRepository{db: tx},
-		Bindings:   &CredentialBindingRepository{db: tx},
-		Audit:      &AuditRepository{db: tx},
+		Profiles:         &ProfileRepository{db: tx},
+		References:       &CredentialRefRepository{db: tx},
+		Bindings:         &CredentialBindingRepository{db: tx},
+		Audit:            &AuditRepository{db: tx},
+		CanonicalSchemas: &CanonicalSchemaRepository{db: tx},
+		MappingProfiles:  &MappingProfileRepository{db: tx},
+		RevisionHistory:  &RevisionHistoryRepository{db: tx},
 	}
 	if err := fn(repositories); err != nil {
 		return err
@@ -209,10 +224,13 @@ func (s *Store) WithinRegistryTransaction(ctx context.Context, fn func(repos reg
 	defer func() { _ = tx.Rollback() }()
 
 	repositories := registrycontract.Repositories{
-		Profiles:   &ProfileRepository{db: tx},
-		References: &CredentialRefRepository{db: tx},
-		Bindings:   &CredentialBindingRepository{db: tx},
-		Audit:      &AuditRepository{db: tx},
+		Profiles:         &ProfileRepository{db: tx},
+		References:       &CredentialRefRepository{db: tx},
+		Bindings:         &CredentialBindingRepository{db: tx},
+		Audit:            &AuditRepository{db: tx},
+		CanonicalSchemas: &CanonicalSchemaRepository{db: tx},
+		MappingProfiles:  &MappingProfileRepository{db: tx},
+		RevisionHistory:  &RevisionHistoryRepository{db: tx},
 	}
 	if err := fn(repositories, &SecretEnvelopeRepository{db: tx}); err != nil {
 		return err

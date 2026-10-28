@@ -89,7 +89,8 @@ func openRegistry(storePath, keyPath string) *registryservice.Service {
 	log.Printf("metadata store ready at %s (schema version %d)", storePath, metadatastore.SchemaVersion())
 
 	service := registryservice.New(store.Profiles(), store.CredentialRefs(), store.Audit(), store).
-		WithCredentialBindings(store.CredentialBindings())
+		WithCredentialBindings(store.CredentialBindings()).
+		WithCanonicalSchemas(store.CanonicalSchemas(), store.MappingProfiles(), store.RevisionHistory())
 	attachSecretStore(service, store, keyPath)
 	return service
 }

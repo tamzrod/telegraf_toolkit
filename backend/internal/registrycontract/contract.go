@@ -147,11 +147,13 @@ type TargetKind string
 
 // Audit target kinds.
 const (
-	TargetProfile       TargetKind = "profile"
-	TargetCredentialRef TargetKind = "credential_ref"
-	TargetJob           TargetKind = "job"
-	TargetMapping       TargetKind = "mapping"
-	TargetRuntime       TargetKind = "runtime"
+	TargetProfile         TargetKind = "profile"
+	TargetCredentialRef   TargetKind = "credential_ref"
+	TargetJob             TargetKind = "job"
+	TargetMapping         TargetKind = "mapping"
+	TargetCanonicalSchema TargetKind = "canonical_schema"
+	TargetMappingProfile  TargetKind = "mapping_profile"
+	TargetRuntime         TargetKind = "runtime"
 )
 
 // Outcome is the result of an audited action.
@@ -310,6 +312,96 @@ func CheckCapabilities(source, destination fixtures.ConnectionProfile, dialect, 
 type EndpointPolicy struct {
 	AllowInsecureTLS bool
 	AllowPrivate     bool
+}
+
+// Canonical schema and mapping profile types (P3-005)
+
+// CanonicalRevisionState is the state of a revision.
+type CanonicalRevisionState string
+
+const (
+	CanonicalStateDraft    CanonicalRevisionState = "draft"
+	CanonicalStateApproved CanonicalRevisionState = "approved"
+	CanonicalStateRetired  CanonicalRevisionState = "retired"
+)
+
+// CanonicalSchemaRevision is a versioned canonical schema revision.
+type CanonicalSchemaRevision struct {
+	SchemaID     string
+	LogicalKey   string
+	MajorVersion int
+	MinorVersion int
+	Revision     int
+	State        CanonicalRevisionState
+	ContentJSON  string
+	ContentHash  string
+	CreatedBy    string
+	CreatedAt    time.Time
+	ApprovedBy   string
+	ApprovedAt   time.Time
+	Notes        string
+}
+
+// MappingProfileRevision is a versioned source-specific mapping profile revision.
+type MappingProfileRevision struct {
+	ProfileID               string
+	LogicalKey              string
+	CanonicalLogicalKey     string
+	CanonicalRevision       int
+	SourceConnectionID      string
+	DestinationConnectionID string
+	SourceScope             string
+	DestinationScope        string
+	MajorVersion            int
+	MinorVersion            int
+	Revision                int
+	State                   CanonicalRevisionState
+	ContentJSON             string
+	ContentHash             string
+	CreatedBy               string
+	CreatedAt               time.Time
+	ApprovedBy              string
+	ApprovedAt              time.Time
+	Notes                   string
+}
+
+// RevisionHistoryEntry records an immutable history event.
+type RevisionHistoryEntry struct {
+	HistoryID    string
+	ResourceType string
+	ResourceID   string
+	LogicalKey   string
+	Revision     int
+	Action       string
+	Actor        string
+	At           time.Time
+	DetailJSON   string
+}
+
+// CanonicalSchemaStore persists versioned canonical schemas.
+type CanonicalSchemaStore interface {
+	Put(schema CanonicalSchemaRevision) error
+	Get(schemaID string) (CanonicalSchemaRevision, bool, error)
+	GetByLogical(logicalKey string, revision int) (CanonicalSchemaRevision, bool, error)
+	ListByLogical(logicalKey string) ([]CanonicalSchemaRevision, error)
+	ListAll() ([]CanonicalSchemaRevision, error)
+}
+
+// MappingProfileStore persists versioned mapping profiles.
+type MappingProfileStore interface {
+	Put(profile MappingProfileRevision) error
+	Get(profileID string) (MappingProfileRevision, bool, error)
+	GetByLogical(logicalKey string, revision int) (MappingProfileRevision, bool, error)
+	ListByLogical(logicalKey string) ([]MappingProfileRevision, error)
+	ListAll() ([]MappingProfileRevision, error)
+	ListBySource(connectionID string) ([]MappingProfileRevision, error)
+}
+
+// RevisionHistoryStore records immutable revision history.
+type RevisionHistoryStore interface {
+	Record(entry RevisionHistoryEntry) error
+	ListByResource(resourceType, resourceID string) ([]RevisionHistoryEntry, error)
+	ListByLogical(logicalKey string) ([]RevisionHistoryEntry, error)
 }
 
 // ValidateEndpoint applies SSRF-aware, TLS-by-default validation to a profile
