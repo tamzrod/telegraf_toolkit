@@ -41,10 +41,11 @@ func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaR
 
 	tx, err := r.beginTx(ctx)
 	if err != nil {
-		// fallback to non-tx path if not possible
-		tx = nil
+		// BeginTx failed - propagate error to caller instead of silent fallback
+		return fmt.Errorf("BeginTx failed: %w", err)
 	}
 	if tx != nil {
+		// If here, beginTx succeeded with a valid transaction
 		defer tx.Rollback()
 		// Try to update if draft
 		res, err := tx.ExecContext(ctx, `
@@ -324,6 +325,7 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 		tx = nil
 	}
 	if tx != nil {
+		// If here, beginTx succeeded with a valid transaction
 		defer tx.Rollback()
 		res, err := tx.ExecContext(ctx, `
 			UPDATE mapping_profiles SET
