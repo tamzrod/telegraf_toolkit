@@ -1,6 +1,10 @@
 # P3-005 — Portable canonical schema and mapping profile persistence
 
-> **State: HUMAN-AUTHORIZED QUEUED (automatically executable once CURRENT)**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
+> **State: HUMAN-AUTHORIZED CURRENT — architecture approved by human on 2026-10-28; execute when `operation cwal` is invoked**. Branch `phase-3/canonical-mapper`. Execute only when designated CURRENT by both CWAL pointers. Authorized sequence P3-001 → P3-006. This packet does not approve any proposed ADR or unsafe capability expansion.
+
+## Approved architecture (human, 2026-10-28)
+
+Keep canonical schemas and source-specific mapping profiles as separate versioned resources. Approved revisions are immutable. Support explicit draft and approval states, revision history, and rollback by creating a new revision (never rewrite history). Use the existing SQLite transactional metadata-store approach with role checks, concurrency and audit protections. JSON import/export is deterministic and versioned and must contain no secrets, tokens, database endpoint URLs or credential references; only safe scope/connection identities as already authorized. Preserve no historian writes/deployments. This approval resolves the prior P3-005 decision gate; do not ask again unless genuinely new architecture/security authority is needed. Acceptance and tests remain mandatory.
 
 ## Purpose
 Implement separate versioned canonical schemas and source-specific mapping profiles, explicit approval/version states and revision history; import/export safe JSON devoid of credentials and endpoints. Preserve atomic storage/audit/security; plan schema migrations as required.
