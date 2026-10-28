@@ -5,6 +5,7 @@ import (
 	"testing"
 	"fmt"
 	"sync"
+	"strings"
 	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
@@ -457,10 +458,8 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 	if err := repo.Put(baseMP); err != nil {
 		t.Fatal(err)
 	}
-
 	var wg sync.WaitGroup
-	errCount := 0
-	results := make([]string, 0)
+	results := make([]string, 16) // Pre-allocate for 8 iterations * 2 goroutines
 
 	for i := 0; i < 8; i++ {
 		wg.Add(2)
@@ -468,10 +467,9 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 			defer wg.Done()
 			err := repo.ApproveMappingProfile(context.Background(), baseMP.ProfileID, fmt.Sprintf("approver%d", idx), now)
 			if err != nil {
-				errCount++
-				results = append(results, fmt.Sprintf("approve-%d-error: %v", idx, err))
+				results[2*idx] = fmt.Sprintf("approve-%d-error: %v", idx, err)
 			} else {
-				results = append(results, fmt.Sprintf("approve-%d-success with notes=%q", idx, baseMP.Notes))
+				results[2*idx] = fmt.Sprintf("approve-%d-success with notes=%q", idx, baseMP.Notes)
 			}
 		}(i)
 
@@ -479,10 +477,9 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 			defer wg.Done()
 			err := repo.ApproveMappingProfile(context.Background(), baseMP.ProfileID, fmt.Sprintf("approver%d-2nd", idx), now)
 			if err != nil {
-				errCount++
-				results = append(results, fmt.Sprintf("`approve-error:`%d-error: %v", idx, err))
+				results[2*idx+1] = fmt.Sprintf("`approve-error:`%d-error: %v", idx, err)
 			} else {
-				results = append(results, fmt.Sprintf("`approve-success:`%d-success with notes=%q", idx, baseMP.Notes))
+				results[2*idx+1] = fmt.Sprintf("`approve-success:`%d-success with notes=%q", idx, baseMP.Notes)
 			}
 		}(i)
 	}
@@ -490,11 +487,13 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 	wg.Wait() // wait for concurrent approve attempts to complete
 
 	t.Logf("Concurrent approves completed")
-	t.Logf("Total errors during concurrent approves: %d", errCount)
-	for i := range results {
-		t.Log(results[i])
+	errorCount := 0
+	for _, r := range results {
+		if strings.Contains(r, "-error:") {
+			errorCount++
+		}
+		t.Log(r)
 	}
-
 	finalMP, gotOk, _ := repo.Get(baseMP.ProfileID)
 	if !gotOk {
 		t.Fatal("final get failed after concurrent approves")
