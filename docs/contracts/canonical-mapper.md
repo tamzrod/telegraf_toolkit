@@ -1,6 +1,6 @@
 # Phase 3 Canonical Mapper — entry contract
 
-Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26); the read-only schema browser (P3-003) and the local, in-memory mapping draft with validation (P3-004, 2026-10-28) are implemented for the pinned InfluxDB 2 OSS and 3 Core editions. Draft persistence, versioning and export are not implemented (P3-005) and InfluxDB 1.x remains unverified.**
+Status: **Entry contract — the measurement-level read path is implemented (P3-002, 2026-10-26); the read-only schema browser (P3-003) and the local, in-memory mapping draft with validation (P3-004, 2026-10-28) are implemented for the pinned InfluxDB 2 OSS and 3 Core editions. Draft persistence, versioning, approval/history/rollback and portable JSON import/export are implemented (P3-005, 2026-10-28) with separate versioned canonical schemas and mapping profiles, immutable approved revisions, transactional SQLite metadata store with RBAC/audit, and safe exports containing only scope/connection identities. Phase 3 integrated acceptance completed (P3-006). InfluxDB 1.x remains unverified.**
 Task: P2C-006 (Phase 2 integration acceptance and Phase 3 handoff); reconciled by P3-001; read path delivered by P3-002; schema browser delivered by P3-003.
 Depends on: the Phase 2 Registry (P2L-001–P2L-007, P2C-001–P2C-008).
 

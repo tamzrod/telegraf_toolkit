@@ -113,7 +113,7 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 
 > **Status (P3-001, 2026-10-26):** the roadmap and the Phase 3 entry contract were reconciled with PR #7, and no mapper feature is implemented. The measurement-level read path is **approved** (Option A1): a backend-authorized, GET-only, fixed-`SHOW` metadata read under a dedicated `schema.read` permission, with no passthrough, POST query, `SELECT ... INTO`, DDL or writes. Implementation is P3-002. See [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md) §11. P3-002–P3-006 are queued.
 >
-> **Status (P3-002/P3-003, 2026-10-26):** P3-002 implemented and verified the authorized read path. P3-003 added the read-only mapper: explicit distinct source/destination selection, typed source/destination schema groups over that read path, all unknown/empty/permission/stale states, labeled Mock mode with no live fallback, and cache cancellation on selection/token/mode changes. No mapping draft, validation, versioned schema/profile persistence, export or deployment exists yet; P3-004–P3-006 remain queued. P3-003 is on `phase-3/canonical-mapper`, not merged.
+> **Status (P3-001–P3-006, 2026-10-28):** Phase 3 complete on `phase-3/canonical-mapper`. P3-002 implemented authorized read path; P3-003 read-only schema browser; P3-004 mapping drafts/validation; P3-005 portable versioned canonical schemas/mapping profiles with approval/history/rollback and safe JSON import/export (transactional SQLite, RBAC/audit); P3-006 integrated acceptance complete. No historian writes, deployment, Telegraf generation or sync. InfluxDB 1.x unverified.
 
 ## Phase 4 — Visual Pipeline Designer and TOML validation
 

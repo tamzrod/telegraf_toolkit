@@ -25,3 +25,9 @@ Go SQLite migration/concurrency/fault tests, UI API tests, export redaction chec
 
 ## CWAL lifecycle
 Execute only CURRENT. On verified acceptance, archive with `git mv` into `archive/active-work/`, update `handoff.md` and Active Work README to designate the next task, commit/push and verify remote SHA. Continue without intermediate approval when within existing approved boundaries. Stop with TASK_BLOCKED when blocked. On P3-006 success clear both pointers and report WORK_PACKAGE_READY. **No agent PR creation, approval or merge.**
+
+
+## P3-007 remediation (2026-10-28)
+- Enforced approved revision immutability at SQLite repository boundaries (content changes to approved revisions rejected).
+- Made put/approve operations atomic with revision history and audit records via existing transaction infrastructure; history/audit errors are not discarded.
+- No changes to original acceptance requirements.

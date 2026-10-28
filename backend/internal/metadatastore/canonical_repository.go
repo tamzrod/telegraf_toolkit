@@ -29,7 +29,24 @@ func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaR
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := r.db.ExecContext(ctx, `
+	// Enforce immutability of approved revisions at the repository boundary.
+	var existingState string
+	var existingContent string
+	err := r.db.QueryRowContext(ctx, `SELECT state, content_json FROM canonical_schemas WHERE schema_id = ?`, schema.SchemaID).Scan(&existingState, &existingContent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read existing canonical schema: %w", err)
+	}
+	if err == nil && existingState == string(registrycontract.CanonicalStateApproved) {
+		// Allow only the draft->approved transition to be applied by an authorized actor via service;
+		// direct Put of content changes to an approved revision is forbidden. State changes other
+		// than the explicit approval path should not rewrite content.
+		if existingContent != schema.ContentJSON {
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
+		}
+		// If content unchanged, only allow approval state updates (enforced by caller permissions)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO canonical_schemas (
 			schema_id, logical_key, major_version, minor_version, revision,
 			state, content_json, content_hash, created_by, created_at,
@@ -202,7 +219,19 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := r.db.ExecContext(ctx, `
+	var existingState string
+	var existingContent string
+	err := r.db.QueryRowContext(ctx, `SELECT state, content_json FROM mapping_profiles WHERE profile_id = ?`, profile.ProfileID).Scan(&existingState, &existingContent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read existing mapping profile: %w", err)
+	}
+	if err == nil && existingState == string(registrycontract.CanonicalStateApproved) {
+		if existingContent != profile.ContentJSON {
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
+		}
+	}
+
+	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO mapping_profiles (
 			profile_id, logical_key, canonical_logical_key, canonical_revision,
 			source_connection_id, destination_connection_id, source_scope, destination_scope,

@@ -1,13 +1,6 @@
 # Canonical Registry and Taglist Mapper
 
-Status: **Read-only schema browser implemented on `phase-3/canonical-mapper`
-(P3-003); mapping drafts and persistence are not implemented.** The
-measurement-level metadata read path is implemented (Option A1, P3-002) behind
-`schema.read` for the pinned InfluxDB 2 OSS and 3 Core editions, and the mapper
-now consumes it for explicit source/destination browsing. Drag-and-drop mapping
-drafts, canonical-schema versioning, validation, previews, import/export and
-deployment are not implemented. InfluxDB 1.x remains unverified. See
-[`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
+Status: **Phase 3 complete on `phase-3/canonical-mapper` (P3-001–P3-006).** Read-only schema browser (P3-003) and mapping drafts/validation (P3-004) are implemented; portable canonical schema and mapping profile persistence with versioning, approval states/history, rollback via new revision, transactional SQLite metadata store with RBAC/audit, and deterministic safe JSON import/export are implemented (P3-005). Integrated acceptance completed (P3-006). Measurement-level metadata read path is implemented (Option A1, P3-002) behind `schema.read` for the pinned InfluxDB 2 OSS and 3 Core editions. InfluxDB 1.x remains unverified. Mapping compilation, deployment and historian sync are out of scope for Phase 3. See [`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md).
 
 ## Terminology
 InfluxDB has **measurements**, **fields** (measured values), and **tags** (indexed metadata). The UI may call its browsing panel a *Taglist*, but must distinguish the three types.

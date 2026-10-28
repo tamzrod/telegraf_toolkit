@@ -21,3 +21,10 @@ make check, go test -race ./... on Linux, test harness against isolated 2/3, pol
 
 ## CWAL lifecycle
 Execute only CURRENT. On verified acceptance, archive with `git mv` into `archive/active-work/`, update `handoff.md` and Active Work README to designate the next task, commit/push and verify remote SHA. Continue without intermediate approval when within existing approved boundaries. Stop with TASK_BLOCKED when blocked. On P3-006 success clear both pointers and report WORK_PACKAGE_READY. **No agent PR creation, approval or merge.**
+
+
+## P3-007 remediation (2026-10-28)
+- Verified existing P3-006 evidence at /tmp/p3-006-evidence.md against test outputs; documented limitations/conditions.
+- Enforced immutability, atomic history/audit for canonical/mapping operations.
+- Updated docs/ROADMAP.md, docs/CANONICAL_MAPPING.md, docs/contracts/canonical-mapper.md to reflect completed Phase 3 state.
+- make check and go test -race ./... passed.
