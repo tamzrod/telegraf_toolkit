@@ -28,3 +28,8 @@ Last remediation commit: see git log
 
 ## Reproducibility
 Run from repo root on Linux with Go and Node toolchain as pinned; use isolated test instances for live verification if desired.
+
+
+## P3-009 regression tests (committed)
+- backend/internal/metadatastore/canonical_repository_test.go: TestCanonicalSchemaApprovedImmutableAllFields, TestMappingProfileApprovedImmutableAllFields (approved rewrites of notes/state/content/identity/metadata rejected)
+- Verified with go test ./internal/metadatastore/... and go test -race ./internal/metadatastore/...

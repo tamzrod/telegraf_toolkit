@@ -7,3 +7,9 @@ Implement atomic SQLite enforcement of immutable approved canonical schema and m
 Run Go tests/race, make check, policy and documentation checks. Record results. On passing acceptance, archive this packet, clear both CWAL pointers, commit, push normally and verify remote SHA; report PRE_PR_REAUDIT_READY. Stop with TASK_BLOCKED for genuine blockers.
 
 No PR operations, force push, historian writes, deployment or main branch changes.
+
+
+## P3-009 remediation (2026-10-28)
+- Enforced atomic immutability for all protected columns on approved revisions (canonical/mapping); notes/state/identity/content/version/hash/approver/creator/timestamps blocked.
+- Added committed regression tests in metadatastore.
+- Updated docs/PRE_PR_EVIDENCE_P3_PHASE.md with test names/results.

@@ -61,10 +61,7 @@ func (r *CanonicalSchemaRepository) Put(schema registrycontract.CanonicalSchemaR
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
 		}
 		if schema.CreatedBy != existingCreator || schema.ApprovedBy != existingApprover || schema.Notes != existingNotes {
-			// Allow updates only if they match existing approved metadata; otherwise reject
-			if schema.CreatedBy != existingCreator || schema.ApprovedBy != existingApprover {
-				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
-			}
+			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved canonical schema revisions are immutable")
 		}
 		// Timestamps must remain consistent
 		if formatTime(schema.CreatedAt) != existingCreated || formatTime(schema.ApprovedAt) != existingApproved {
@@ -286,7 +283,7 @@ func (r *MappingProfileRepository) Put(profile registrycontract.MappingProfileRe
 		if profile.ContentJSON != existingContent || profile.ContentHash != existingHash {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
 		}
-		if profile.CreatedBy != existingCreator || profile.ApprovedBy != existingApprover {
+		if profile.CreatedBy != existingCreator || profile.ApprovedBy != existingApprover || profile.Notes != existingNotes {
 			return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "approved mapping profile revisions are immutable")
 		}
 		if formatTime(profile.CreatedAt) != existingCreated || formatTime(profile.ApprovedAt) != existingApproved {
