@@ -390,7 +390,7 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 
 	var wg sync.WaitGroup
 	type opResult struct { name string; putErr error }
-	results := make([]opResult, 12)
+	results := make([]opResult, 18) // 6 iterations * 3 goroutines per iteration (distinct slots)
 
 	for i := 0; i < 6; i++ {
  		// Deterministic interleaving barrier: wait for previous iteration to complete
