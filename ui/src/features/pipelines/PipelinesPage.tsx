@@ -11,6 +11,16 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { ApiError } from "../../api/client";
+import {
+  approvePipelineRevision,
+  commitPipelineTransition,
+  createPipelineRevision,
+  previewPipelineTransition,
+  savePipelineRevision,
+  type PipelineRevisionPayload,
+} from "../../api/client";
+import { hasSessionToken } from "../../api/session";
 import { PageHeader } from "../../components/common/ModulePageParts";
 import { PLUGINS, findPlugin, searchPlugins, type OptionSpec } from "./catalog";
 import {
@@ -31,6 +41,9 @@ import {
   type PipelineDraft,
   type RenameRule,
 } from "./pipelineDraft";
+import { toContractDocument, toManualDocument } from "./pipelineDocument";
+import { reviewGraph, reviewManual, reviewRestore, type ModeReview, type Snapshot } from "./pipelineMode";
+import { PipelineModePanel } from "./PipelineModePanel";
 import { graphPreview } from "./pipelineToml";
 
 type FlowNodeData = { label: string };
@@ -48,6 +61,14 @@ export function PipelinesPage() {
   const [query, setQuery] = useState("");
   const [rejection, setRejection] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
+  const [mode, setMode] = useState<"graph" | "manual">("graph");
+  const [manualToml, setManualToml] = useState("");
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [review, setReview] = useState<ModeReview | null>(null);
+  const [serverRev, setServerRev] = useState<PipelineRevisionPayload | null>(null);
+  const [serverNote, setServerNote] = useState(
+    "A session is required to save a draft. Nothing is deployed.",
+  );
   const past = useRef<PipelineDraft[]>([]);
   const selected = draft.instances.find((instance) => instance.id === selectedId) ?? null;
   const catalog = searchPlugins(query);
@@ -103,6 +124,9 @@ export function PipelinesPage() {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") {
         return;
       }
+      if (mode !== "graph") {
+        return;
+      }
       const target = event.target;
       if (
         target instanceof HTMLInputElement ||
@@ -116,7 +140,100 @@ export function PipelinesPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undo]);
+  }, [mode, undo]);
+
+  function confirmReview() {
+    if (!review || review.kind !== "proposal") {
+      return;
+    }
+    if (review.to === "manual") {
+      setSnapshot({ mode: "graph", draft, preview: review.proposedText });
+      setManualToml(review.proposedText);
+      setMode("manual");
+      past.current = [];
+      setCanUndo(false);
+    } else {
+      setDraft(review.draft);
+      setMode("graph");
+      setManualToml("");
+      setSnapshot(null);
+    }
+    setReview(null);
+    setRejection(null);
+  }
+
+  async function saveDraft() {
+    if (!hasSessionToken()) {
+      return;
+    }
+    if (mode === "graph" && issues(draft).length > 0) {
+      setServerNote("The graph has validation issues. Nothing was saved or deployed.");
+      return;
+    }
+    try {
+      let current = serverRev ?? (await createPipelineRevision());
+      if (mode === "graph") {
+        current = await savePipelineRevision(
+          current.pipeline_id,
+          current.revision,
+          current.generation,
+          toContractDocument(draft),
+        );
+      } else if (snapshot) {
+        if (current.mode !== "manual") {
+          current = await savePipelineRevision(
+            current.pipeline_id,
+            current.revision,
+            current.generation,
+            toContractDocument(snapshot.draft),
+          );
+          const proposed = await previewPipelineTransition(
+            current.pipeline_id,
+            current.revision,
+            "manual",
+          );
+          current = await commitPipelineTransition(
+            current.pipeline_id,
+            current.revision,
+            current.generation,
+            "manual",
+            proposed.digest,
+          );
+        }
+        if (current.export_toml !== manualToml) {
+          current = await savePipelineRevision(
+            current.pipeline_id,
+            current.revision,
+            current.generation,
+            toManualDocument(draft, manualToml),
+          );
+        }
+      }
+      setServerRev(current);
+      setServerNote(`Draft revision ${current.revision} saved. Nothing was deployed.`);
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : 0;
+      setServerNote(`Save failed (${status}). Nothing was deployed.`);
+    }
+  }
+
+  async function approveDraft() {
+    if (!serverRev || serverRev.state !== "draft") {
+      return;
+    }
+    try {
+      const approved = await approvePipelineRevision(
+        serverRev.pipeline_id,
+        serverRev.revision,
+        serverRev.generation,
+      );
+      setServerRev(approved);
+      setServerNote(`Revision ${approved.revision} approved. Nothing was deployed.`);
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : 0;
+      setServerNote(`Approve failed (${status}). Nothing was deployed.`);
+    }
+  }
 
   function onNodesChange(changes: NodeChange<Node<FlowNodeData>>[]) {
     setDraft((current) => {
@@ -152,7 +269,7 @@ export function PipelinesPage() {
       <PageHeader
         id="pipelines-heading"
         title="Pipelines"
-        scope="Local Telegraf 1.40.1 graph. Canvas position is presentation only. The TOML preview is read-only. Nothing is deployed."
+        scope="Local Telegraf 1.40.1 graph or manual TOML. Canvas position is presentation only. Save and Approve do not deploy."
         status="partial"
       />
       <p role="status" className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -160,6 +277,25 @@ export function PipelinesPage() {
         not deploy a runtime, write a historian, or resolve credential values.
       </p>
 
+      <PipelineModePanel
+        mode={mode}
+        manualToml={manualToml}
+        review={review}
+        serverNote={serverNote}
+        saveDisabled={!hasSessionToken() || (mode === "graph" && issues(draft).length > 0)}
+        approveDisabled={!hasSessionToken() || !serverRev || serverRev.state !== "draft"}
+        canRestore={snapshot !== null && mode === "manual"}
+        onReviewManual={() => setReview(reviewManual(draft))}
+        onReviewGraph={() => setReview(reviewGraph(manualToml, snapshot))}
+        onReviewRestore={() => setReview(reviewRestore(manualToml, snapshot))}
+        onConfirm={confirmReview}
+        onCancel={() => setReview(null)}
+        onManualChange={setManualToml}
+        onSave={() => void saveDraft()}
+        onApprove={() => void approveDraft()}
+      />
+
+      {mode === "graph" ? (
       <div
         className="mt-4 flex w-full flex-col gap-4 lg:flex-row lg:items-start"
         data-layout="canvas-with-settings"
@@ -412,6 +548,7 @@ export function PipelinesPage() {
           )}
         </aside>
       </div>
+      ) : null}
       <p className="sr-only">Supported catalog size {PLUGINS.length}</p>
     </section>
   );

@@ -273,6 +273,33 @@ var migrations = []migration{
 			`CREATE INDEX idx_revision_history_logical ON revision_history (logical_key)`,
 		},
 	},
+	{
+		version: 10,
+		name:    "pipeline-revisions",
+		stmts: []string{
+			// pipeline_revisions stores configuration documents only. Approved
+			// rows are immutable. Rollback inserts a new revision. A partial
+			// unique index allows one open draft per pipeline.
+			`CREATE TABLE pipeline_revisions (
+				revision_id         TEXT PRIMARY KEY,
+				pipeline_id         TEXT NOT NULL,
+				revision            INTEGER NOT NULL,
+				state               TEXT NOT NULL CHECK (state IN ('draft', 'approved')),
+				mode                TEXT NOT NULL CHECK (mode IN ('graph', 'manual')),
+				document_json       TEXT NOT NULL,
+				snapshot_json       TEXT NOT NULL DEFAULT '',
+				parent_revision_id  TEXT NOT NULL DEFAULT '',
+				created_by          TEXT NOT NULL,
+				created_at          TEXT NOT NULL,
+				approved_by         TEXT NOT NULL DEFAULT '',
+				approved_at         TEXT NOT NULL DEFAULT '',
+				save_generation     INTEGER NOT NULL,
+				UNIQUE (pipeline_id, revision)
+			)`,
+			`CREATE UNIQUE INDEX idx_pipeline_one_draft ON pipeline_revisions (pipeline_id) WHERE state = 'draft'`,
+			`CREATE INDEX idx_pipeline_revisions_pipeline ON pipeline_revisions (pipeline_id, revision)`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

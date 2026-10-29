@@ -180,6 +180,18 @@ func TestSecretReferencesRejectLiterals(t *testing.T) {
 	}
 }
 
+func TestManualModeKeepsSecretStoreReferences(t *testing.T) {
+	doc := Document{
+		SchemaVersion:   SchemaVersion,
+		TelegrafVersion: SupportedTelegrafVersion,
+		Mode:            ModeManual,
+		Manual:          &Manual{TOML: "[[outputs.file]]\n  token = \"@{toolkit:cred_writer}\"\n"},
+	}
+	if err := Validate(doc); err != nil {
+		t.Fatalf("secret-store reference in manual TOML: %v", err)
+	}
+}
+
 func TestOmittedOptionsStayOmitted(t *testing.T) {
 	doc := validGraph()
 	disk := Instance{ID: "disk-plain", Kind: KindInput, Plugin: "disk"}

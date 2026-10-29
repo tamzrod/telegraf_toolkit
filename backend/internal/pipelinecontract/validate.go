@@ -23,6 +23,10 @@ var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 var inlineSecretLiteral = regexp.MustCompile(`(?i)\b(token|password|passwd|secret)\b\s*=\s*("([^"]*)"|'([^']*)')`)
 
+// secretStoreReference is the only non-empty credential assignment manual
+// TOML may keep. It is the same encoding Generate writes, not a secret value.
+var secretStoreReference = regexp.MustCompile(`^@\{toolkit:[A-Za-z0-9_]+\}$`)
+
 var credentialURLPattern = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
 
 // Validate checks a document against the verified 1.40.1 catalog.
@@ -72,7 +76,7 @@ func validateManual(toml string) error {
 		if literal == "" {
 			literal = match[4]
 		}
-		if literal != "" {
+		if literal != "" && !secretStoreReference.MatchString(literal) {
 			return contractError(CodeSecretMaterial, "manual TOML rejects inline credential literals")
 		}
 	}

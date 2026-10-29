@@ -42,7 +42,7 @@ export const MODULES: ModuleDefinition[] = [
     path: "/pipelines",
     label: "Pipelines",
     description:
-      "Local Telegraf 1.40.1 pipeline graph and read-only TOML preview. Canvas position is presentation only and nothing is deployed.",
+      "Local Telegraf 1.40.1 pipeline graph, manual TOML, and saved revisions. Canvas position is presentation only and nothing is deployed.",
     status: "partial",
   },
   {

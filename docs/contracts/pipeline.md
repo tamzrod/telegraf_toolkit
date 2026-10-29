@@ -200,6 +200,15 @@ Manual mode does not turn those literals into references.
 - Aggregation time windows are recorded and are not simulated.
 - Manual TOML is stored and is not parsed into instances, processor order, or
   layout. `Generate` and `ExecutionPlan` both refuse that conversion.
+  A non-empty credential assignment is accepted only when it is
+  `@{toolkit:<id>}` with the secret-store alphabet. Any other literal is
+  rejected.
+- Draft revisions live in the metadata store. Graph and manual are never
+  both authoritative. A mode change stores the previous document as a
+  snapshot and requires the reviewed digest. Manual TOML converts back to a
+  graph only when it round-trips through the preview dialect, or when it
+  still matches the snapshotted graph. Approved revisions are immutable.
+  Rollback inserts a new draft. Save and approve do not deploy a collector.
 - Secret-store references in generated TOML use the `toolkit` store id and the
   underscore alphabet above. Hyphenated reference IDs remain valid in the
   graph document and are not emitted.

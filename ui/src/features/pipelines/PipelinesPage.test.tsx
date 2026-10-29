@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { healthResponse } from "../../api/mock/health";
+import { setSessionToken, clearSessionToken } from "../../api/session";
 import { App } from "../../app/App";
 
 function renderPipelines() {
@@ -21,8 +22,25 @@ function renderPipelines() {
 }
 
 afterEach(() => {
+  clearSessionToken();
   vi.restoreAllMocks();
 });
+
+function revisionPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    pipeline_id: "p1",
+    revision_id: "r1",
+    revision: 1,
+    state: "draft",
+    mode: "graph",
+    generation: 1,
+    deployed: false,
+    document: {},
+    has_snapshot: false,
+    export_toml: "[agent]\n",
+    ...overrides,
+  };
+}
 
 function headingLevels(container: HTMLElement): number[] {
   return Array.from(container.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((node) =>
@@ -207,4 +225,73 @@ describe("pipeline designer", () => {
     expect(screen.getByText(/Select an instance to edit its settings/)).toBeInTheDocument();
     expect(screen.getByText(/does not deploy a runtime/i)).toBeInTheDocument();
   });
+
+  it("reviews a manual switch and refuses an edited reverse conversion", async () => {
+    const user = userEvent.setup();
+    renderPipelines();
+
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Approve revision" })).toBeDisabled();
+    expect(screen.getByText(/A session is required to save a draft. Nothing is deployed./)).toBeInTheDocument();
+    expect(screen.getByText(/They do not deploy a runtime./)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Review switch to manual" }));
+    expect(screen.getByLabelText("Difference review")).toHaveTextContent("Current");
+    expect(screen.getByLabelText("Difference review")).toHaveTextContent("[agent]");
+    await user.click(screen.getByRole("button", { name: "Confirm mode switch" }));
+
+    const manual = screen.getByRole("textbox", { name: "Manual TOML" }) as HTMLTextAreaElement;
+    expect(manual.value).toContain("[agent]");
+    expect(screen.queryByRole("textbox", { name: "Graph TOML preview" })).not.toBeInTheDocument();
+    await user.type(manual, "# edited");
+    await user.click(screen.getByRole("button", { name: "Review switch to graph" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot be converted back into the graph/);
+
+    await user.click(screen.getByRole("button", { name: "Review restore snapshot" }));
+    expect(screen.getByLabelText("Difference review")).toHaveTextContent("Proposed");
+    await user.click(screen.getByRole("button", { name: "Confirm mode switch" }));
+    expect(screen.getByRole("textbox", { name: "Graph TOML preview" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
+  });
+
+  it("saves a draft revision and reports that nothing was deployed", async () => {
+    const user = userEvent.setup();
+    setSessionToken("session-token");
+    const saved = revisionPayload({ generation: 2, export_toml: "[agent]\n" });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/health")) {
+        return healthResponse();
+      }
+      if (url.endsWith("/api/v1/pipelines") && init?.method === "POST") {
+        return jsonResponse(revisionPayload());
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        expect(body.document.mode).toBe("graph");
+        expect(JSON.stringify(body)).not.toContain("deploy");
+        return jsonResponse(saved);
+      }
+      throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/pipelines"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByText("Draft revision 1 saved. Nothing was deployed.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
+  });
 });
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
