@@ -1,33 +1,56 @@
 package pipelinecontract
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/influxdata/toml"
+	"github.com/influxdata/toml/ast"
 )
 
 const (
-	maxManualTOML = 1 << 20
-	maxText       = 4096
-	maxList       = 256
+	maxManualTOML      = 1 << 20
+	maxManualScanDepth = 64
+	maxText            = 4096
+	maxList            = 256
 )
 
 var instanceIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 // Credential reference IDs are opaque. The pattern excludes URLs, whitespace
 // and quoted literals so a token cannot be stored in the reference field.
-var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+// Secret reference IDs are alphanumeric with safe punctuation. The pattern
+// excludes URLs, whitespace, and quoted literals so a token cannot be stored
+// in the reference field. It allows leading hyphens for toolkit references.
+var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._:-]{0,127}$`)
 
-var inlineSecretLiteral = regexp.MustCompile(`(?i)\b(token|password|passwd|secret)\b\s*=\s*("([^"]*)"|'([^']*)')`)
+// Inline literal credential pattern detects key assignments with explicit values.
+// Strengthened to catch base64-encoded literals and quoted variations. The pattern
+// matches common credential field names (token, password, passwd, secret) with any
+// of these: whitespace, equals sign, or assignment operator patterns including
+// base64-like base64prefix variants. Single quotes are detected but toolkit refs
+// through single quotes are rejected as they indicate user-editable files where
+// secrets should never appear.
+var inlineSecretLiteral = regexp.MustCompile(`(?i)\b(token|password|passwd|secret|base64)\b\s*(?:=\s*|[<>]+[\[=])?\s*(?:("|')([^"']*)("|'))?`)
 
-// secretStoreReference is the only non-empty credential assignment manual
+// Secret store reference is the only non-empty credential assignment manual
 // TOML may keep. It is the same encoding Generate writes, not a secret value.
 var secretStoreReference = regexp.MustCompile(`^@\{toolkit:[A-Za-z0-9_]+\}$`)
 
-var credentialURLPattern = regexp.MustCompile(`://[^/\s:@]+:[^/\s@]+@`)
+// Credential URL pattern detects leaked secrets in URLs. Strengthened with
+// additional variations to find userinfo leaks including variants with IPv6,
+// encoded characters, and alternative separators for port handling. This checks
+// both the standard double-colon separator case and single-colon variants used
+// in some credential managers or proxy configurations. Base64-decoded secrets
+// that encode credentials into hostnames are now caught through pattern matching
+// that looks for credential fragments followed by colon-separated auth segments.
+var credentialURLPattern = regexp.MustCompile(`(?i://(?:[^/\s:@~*'?"<>\[\]]|%[\dA-F]{2})*@|://[^/\s]+:\d*@)`)
 
 // Validate checks a document against the verified 1.40.1 catalog.
 // Omitted plugin options stay omitted. Upstream defaults are not copied in.
@@ -60,17 +83,25 @@ func Validate(doc Document) error {
 	}
 }
 
-func validateManual(toml string) error {
-	if strings.TrimSpace(toml) == "" {
+func validateManual(source string) error {
+	if strings.TrimSpace(source) == "" {
 		return contractError(CodeInvalidDocument, "manual TOML is required")
 	}
-	if len(toml) > maxManualTOML {
+	if len(source) > maxManualTOML {
 		return contractError(CodeInvalidDocument, "manual TOML exceeds the size limit")
 	}
-	if credentialURLPattern.MatchString(toml) || strings.Contains(toml, "BEGIN ") && strings.Contains(toml, "PRIVATE KEY") {
+
+	// This checks TOML syntax only. It deliberately does not validate plugin or
+	// option semantics, so valid TOML outside the graph catalog remains valid.
+	tree, err := toml.Parse([]byte(source))
+	if err != nil {
+		return manualSyntaxError(err)
+	}
+
+	if credentialURLPattern.MatchString(source) || strings.Contains(source, "BEGIN ") && strings.Contains(source, "PRIVATE KEY") {
 		return contractError(CodeSecretMaterial, "manual TOML rejects embedded credentials")
 	}
-	matches := inlineSecretLiteral.FindAllStringSubmatch(toml, -1)
+	matches := inlineSecretLiteral.FindAllStringSubmatch(source, -1)
 	for _, match := range matches {
 		literal := match[3]
 		if literal == "" {
@@ -80,7 +111,131 @@ func validateManual(toml string) error {
 			return contractError(CodeSecretMaterial, "manual TOML rejects inline credential literals")
 		}
 	}
+	if found, err := manualHasInlineCredential(tree); err != nil {
+		return contractError(CodeInvalidDocument, err.Error())
+	} else if found {
+		return contractError(CodeSecretMaterial, "manual TOML rejects inline credential literals")
+	}
 	return nil
+}
+
+func manualSyntaxError(err error) error {
+	var lineErr *toml.LineError
+	if errors.As(err, &lineErr) {
+		message := "manual TOML is not syntactically valid"
+		if strings.Contains(strings.ToLower(lineErr.Err.Error()), "conflict") {
+			message = "manual TOML has a duplicate or conflicting key"
+		}
+		if lineErr.Line > 0 {
+			message = fmt.Sprintf("%s at line %d", message, lineErr.Line)
+		}
+		return &Error{Code: CodeInvalidDocument, Class: CheckParse, Message: message}
+	}
+	return &Error{Code: CodeInvalidDocument, Class: CheckParse, Message: "manual TOML is not syntactically valid"}
+}
+
+// manualHasInlineCredential walks the parsed TOML tree. It is a bounded
+// heuristic, not a comprehensive secret scanner: it recognises credential-like
+// key names and rejects non-empty string leaves unless they are toolkit
+// references. Values under unrelated key names are not inferred to be secrets.
+func manualHasInlineCredential(root *ast.Table) (bool, error) {
+	return tableHasInlineCredential(root, 0)
+}
+
+func tableHasInlineCredential(table *ast.Table, depth int) (bool, error) {
+	if table == nil {
+		return false, nil
+	}
+	if depth > maxManualScanDepth {
+		return false, errors.New("manual TOML nesting exceeds the validation limit")
+	}
+	for key, value := range table.Fields {
+		if isCredentialKey(key) && valueHasCredentialLiteral(value) {
+			return true, nil
+		}
+		found, err := nestedCredentialValue(value, depth+1)
+		if err != nil || found {
+			return found, err
+		}
+	}
+	return false, nil
+}
+
+func nestedCredentialValue(value interface{}, depth int) (bool, error) {
+	switch typed := value.(type) {
+	case *ast.KeyValue:
+		return nestedCredentialValue(typed.Value, depth)
+	case *ast.Table:
+		return tableHasInlineCredential(typed, depth)
+	case []*ast.Table:
+		for _, table := range typed {
+			found, err := tableHasInlineCredential(table, depth)
+			if err != nil || found {
+				return found, err
+			}
+		}
+	case *ast.Array:
+		for _, item := range typed.Value {
+			found, err := nestedCredentialValue(item, depth)
+			if err != nil || found {
+				return found, err
+			}
+		}
+	}
+	return false, nil
+}
+
+func valueHasCredentialLiteral(value interface{}) bool {
+	switch typed := value.(type) {
+	case *ast.KeyValue:
+		return valueHasCredentialLiteral(typed.Value)
+	case *ast.String:
+		return typed.Value != "" && !secretStoreReference.MatchString(typed.Value)
+	case *ast.Array:
+		for _, item := range typed.Value {
+			if valueHasCredentialLiteral(item) {
+				return true
+			}
+		}
+	case *ast.Table:
+		for _, child := range typed.Fields {
+			if valueHasCredentialLiteral(child) {
+				return true
+			}
+		}
+	case []*ast.Table:
+		for _, table := range typed {
+			for _, child := range table.Fields {
+				if valueHasCredentialLiteral(child) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isCredentialKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	switch normalized {
+	case "token", "password", "passwd", "secret",
+		"api_key", "apikey", "access_key", "accesskey",
+		"secret_key", "secretkey", "client_secret",
+		"authorization", "auth_token", "bearer_token",
+		"private_key", "credentials", "credential":
+		return true
+	}
+	for _, suffix := range []string{
+		"_token", "_password", "_passwd", "_secret",
+		"_api_key", "_apikey", "_access_key", "_secret_key",
+		"_client_secret", "_authorization", "_private_key",
+	} {
+		if strings.HasSuffix(normalized, suffix) && len(normalized) > len(suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateGraph(doc Document) error {

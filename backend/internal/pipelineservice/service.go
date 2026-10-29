@@ -172,8 +172,21 @@ func (s *Service) commitReviewed(ctx context.Context, actor, revisionID string, 
 	return rev, storeErr(err)
 }
 
-// Approve freezes a draft. It does not deploy the document.
+// Approve freezes a draft. It revalidates the stored document so a legacy or
+// damaged draft cannot become immutable without a valid manual TOML body.
+// It does not deploy the document.
 func (s *Service) Approve(ctx context.Context, actor, revisionID string, expectedGeneration int) (metadatastore.PipelineRevision, error) {
+	current, err := s.revisions.GetByID(ctx, revisionID)
+	if err != nil {
+		return metadatastore.PipelineRevision{}, storeErr(err)
+	}
+	doc, err := pipelinecontract.Parse([]byte(current.DocumentJSON))
+	if err != nil {
+		return metadatastore.PipelineRevision{}, invalidDocument(err)
+	}
+	if err := pipelinecontract.Validate(doc); err != nil {
+		return metadatastore.PipelineRevision{}, invalidDocument(err)
+	}
 	rev, err := s.revisions.ApproveDraft(ctx, revisionID, actor, expectedGeneration, s.now())
 	return rev, storeErr(err)
 }
