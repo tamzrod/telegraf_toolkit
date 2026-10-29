@@ -67,8 +67,8 @@ export const MODULES: ModuleDefinition[] = [
     path: "/canonical-mapper",
     label: "Canonical Mapper",
     description:
-      "Dual-database measurement, field and tag mapping to a canonical schema.",
-    status: "not implemented",
+      "Dual-database measurement, field and tag mapping to a canonical schema; read-only schema browsing is implemented.",
+    status: "partial",
   },
   {
     id: "synchronizer",

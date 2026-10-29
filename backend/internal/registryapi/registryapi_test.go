@@ -332,6 +332,14 @@ func TestMethodNotAllowed(t *testing.T) {
 // seed profiles.
 func newProbeAPIWithPolicy(t *testing.T, policy liveprobe.Policy) (*API, *registryservice.Service) {
 	t.Helper()
+	api, service, _ := newProbeAPIWithStore(t, policy)
+	return api, service
+}
+
+// newProbeAPIWithStore is newProbeAPIWithPolicy plus the metadata store, for
+// tests that must simulate an out-of-band row or envelope change.
+func newProbeAPIWithStore(t *testing.T, policy liveprobe.Policy) (*API, *registryservice.Service, *metadatastore.Store) {
+	t.Helper()
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "master.key")
 	key := make([]byte, 32)
@@ -378,7 +386,7 @@ func newProbeAPIWithPolicy(t *testing.T, policy liveprobe.Policy) (*API, *regist
 		Authenticator: authenticator,
 		Prober:        liveprobe.New(nil),
 		ProbePolicy:   policy,
-	}), service
+	}), service, store
 }
 
 func newProbeAPI(t *testing.T) *API {

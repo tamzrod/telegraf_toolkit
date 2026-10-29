@@ -5,12 +5,23 @@
 Visual Telegraf management, configuration, canonical data mapping, and cross-version InfluxDB synchronization toolkit.
 
 > **Status:** Early-stage delivery. The Phase 0 toolchain, the Phase 1 application
-> shell and the Phase 2 Database Registry **backend** are implemented and merged
-> into `main` (PRs #2–#6). The browser ships live profile listing and read-only
-> capability probing; the pipeline designer, canonical mapper, synchronizer,
-> runtime management and production packaging remain **proposed** and are not
-> implemented. See [Roadmap](docs/ROADMAP.md) for what is delivered, verified
-> and still outstanding.
+> shell and the Phase 2 Database Registry — including the administrator-only
+> credential lifecycle — are implemented and merged into `main` (PRs #2–#7).
+> The browser ships live profile listing, read-only capability probing, profile
+> create/delete and the write-only credential lifecycle. Phase 3 documentation
+> reconciliation is complete and the approved schema-discovery read path
+> (**Option A1**, GET-only fixed metadata statements under `schema.read`) is
+> implemented (P3-002) and verified against the isolated InfluxDB 2/3
+> containers. The read-only Canonical Mapper schema browser (P3-003) is
+> implemented on `phase-3/canonical-mapper`: it selects explicit distinct
+> source/destination profiles, shows typed measurement/field/tag groups with
+> honest loading/empty/permission/unknown/unsupported/stale states, and has a
+> clearly labeled Mock mode. Mapping drafts, validation, canonical-schema
+> persistence/export, the pipeline designer, synchronizer, runtime management,
+> production packaging and InfluxDB 1.x coverage remain
+> **proposed/unverified** and are not implemented. See
+> [Roadmap](docs/ROADMAP.md) and the
+> [Phase 3 gate record](docs/decisions/phase-3-schema-discovery-gate.md).
 
 ## Vision
 

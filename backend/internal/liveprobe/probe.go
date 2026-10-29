@@ -209,18 +209,27 @@ var capabilityChecks = []capabilityCheck{
 		attemptable: true,
 	},
 	{
+		// Corrected under the approved P3-002 catalogue fix: the measured
+		// InfluxDB 3 InfluxQL route is /api/v3/query_influxql with a q parameter.
+		// SHOW DATABASES is a valid InfluxQL statement that needs no profile
+		// scope, and the observed body must carry an InfluxDB 3 database row.
 		capability:  "influxql",
 		id:          "influxql-v3-query",
-		path:        "/api/v3/query/influxql?query=SELECT%201",
-		expect:      "\"results\"",
+		path:        "/api/v3/query_influxql?q=SHOW%20DATABASES",
+		expect:      "\"iox::database\"",
 		kind:        checkQuery,
 		attemptable: true,
 	},
 	{
+		// Corrected under the approved P3-002 catalogue fix: the measured path
+		// is /api/v3/query_sql with a q parameter. The endpoint requires a
+		// database even for SELECT 1, so the check uses the built-in _internal
+		// database. A deployment where that read is denied or absent reports
+		// unknown; the check never guesses support.
 		capability:  "sql",
 		id:          "sql-v3-query",
-		path:        "/api/v3/query/sql?query=SELECT%201",
-		expect:      "\"results\"",
+		path:        "/api/v3/query_sql?db=_internal&q=SELECT%201",
+		expect:      "\"Int64(1)\"",
 		kind:        checkQuery,
 		attemptable: true,
 	},
@@ -535,9 +544,17 @@ func (p *Prober) probeEdition(root string, get func(string) (int, string, error)
 // credential is never echoed. The client is bound to the validated peer
 // addresses for this probe.
 func (p *Prober) get(ctx context.Context, client *http.Client, rawURL string, cred Credential) (int, string, error) {
+	status, body, _, err := p.getLimited(ctx, client, rawURL, cred, 1<<20)
+	return status, body, err
+}
+
+// getLimited is get with an explicit response limit. It reports whether the
+// body exceeded the limit, so a caller can distinguish a bounded, truncated
+// answer from a complete one instead of parsing a silently cut-off body.
+func (p *Prober) getLimited(ctx context.Context, client *http.Client, rawURL string, cred Credential, limit int64) (int, string, bool, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return 0, "", registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The probe request could not be constructed.")
+		return 0, "", false, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The probe request could not be constructed.")
 	}
 	request.Header.Set("Accept", "application/json")
 	if cred.Value != "" && cred.Scheme != "" {
@@ -545,14 +562,14 @@ func (p *Prober) get(ctx context.Context, client *http.Client, rawURL string, cr
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return 0, "", registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint could not be reached.")
+		return 0, "", false, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint could not be reached.")
 	}
 	defer response.Body.Close()
-	body, err := readBounded(response.Body, 1<<20)
+	body, truncated, err := readBoundedFlag(response.Body, limit)
 	if err != nil {
-		return 0, "", registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint response could not be read.")
+		return 0, "", false, registrycontract.NewSanitizedError(registrycontract.CodeEndpointRejected, "The endpoint response could not be read.")
 	}
-	return response.StatusCode, string(body), nil
+	return response.StatusCode, string(body), truncated, nil
 }
 
 // validateEndpoint parses and validates an endpoint against the policy.
@@ -738,5 +755,23 @@ func (r Result) SortedDialects() []string {
 
 // readBounded reads at most limit bytes from a reader.
 func readBounded(reader io.Reader, limit int64) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(reader, limit))
+	body, _, err := readBoundedFlag(reader, limit)
+	return body, err
+}
+
+// readBoundedFlag reads at most limit bytes and reports whether more was
+// available. One extra byte is read to detect truncation without buffering the
+// remainder.
+func readBoundedFlag(reader io.Reader, limit int64) ([]byte, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(body)) > limit {
+		return body[:limit], true, nil
+	}
+	return body, false, nil
 }

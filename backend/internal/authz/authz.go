@@ -36,14 +36,23 @@ type Permission string
 
 // Registry permissions.
 const (
-	PermProfileRead       Permission = "profile.read"
-	PermProfileWrite      Permission = "profile.write"
-	PermProfileProbe      Permission = "profile.probe"
+	PermProfileRead  Permission = "profile.read"
+	PermProfileWrite Permission = "profile.write"
+	PermProfileProbe Permission = "profile.probe"
+	// PermSchemaRead authorizes the bounded, read-only metadata read of a
+	// registered profile's actual schema. It is deliberately distinct from
+	// profile.probe so it can be granted or revoked on its own.
+	PermSchemaRead        Permission = "schema.read"
 	PermCredentialRead    Permission = "credential.read"
 	PermCredentialWrite   Permission = "credential.write"
 	PermCredentialAttach  Permission = "credential.attach"
 	PermAuditRead         Permission = "audit.read"
 	PermCredentialResolve Permission = "credential.resolve"
+	// P3-005 canonical schema and mapping profile permissions
+	PermCanonicalRead  Permission = "canonical.read"
+	PermCanonicalWrite Permission = "canonical.write"
+	PermMappingRead    Permission = "mapping.read"
+	PermMappingWrite   Permission = "mapping.write"
 )
 
 // rolePermissions maps a role to its granted permissions. The map is the single
@@ -61,23 +70,30 @@ var rolePermissions = map[Role]map[Permission]bool{
 	RoleOperator: {
 		PermProfileRead:    true,
 		PermProfileProbe:   true,
+		PermSchemaRead:     true,
 		PermCredentialRead: true,
 	},
 	RoleConfigurator: {
 		PermProfileRead:    true,
 		PermProfileWrite:   true,
 		PermProfileProbe:   true,
+		PermSchemaRead:     true,
 		PermCredentialRead: true,
 	},
 	RoleAdministrator: {
 		PermProfileRead:       true,
 		PermProfileWrite:      true,
 		PermProfileProbe:      true,
+		PermSchemaRead:        true,
 		PermCredentialRead:    true,
 		PermCredentialWrite:   true,
 		PermCredentialAttach:  true,
 		PermAuditRead:         true,
 		PermCredentialResolve: true,
+		PermCanonicalRead:     true,
+		PermCanonicalWrite:    true,
+		PermMappingRead:       true,
+		PermMappingWrite:      true,
 	},
 }
 

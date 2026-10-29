@@ -191,6 +191,88 @@ var migrations = []migration{
 			`CREATE INDEX idx_credential_bindings_connection ON credential_bindings (connection_id)`,
 		},
 	},
+	{
+		version: 7,
+		name:    "canonical-schemas",
+		stmts: []string{
+			// canonical_schemas stores versioned canonical schemas as separate
+			// versioned resources. Approved revisions are immutable. Each revision
+			// has an explicit state and belongs to a logical schema key.
+			`CREATE TABLE canonical_schemas (
+				schema_id       TEXT PRIMARY KEY,
+				logical_key     TEXT NOT NULL,
+				major_version   INTEGER NOT NULL,
+				minor_version   INTEGER NOT NULL,
+				revision        INTEGER NOT NULL,
+				state           TEXT NOT NULL CHECK(state IN ('draft','approved','retired')),
+				content_json    TEXT NOT NULL,
+				content_hash    TEXT NOT NULL,
+				created_by      TEXT NOT NULL DEFAULT '',
+				created_at      TEXT NOT NULL,
+				approved_by     TEXT NOT NULL DEFAULT '',
+				approved_at     TEXT NOT NULL DEFAULT '',
+				notes           TEXT NOT NULL DEFAULT '',
+				UNIQUE(logical_key, revision)
+			)`,
+			`CREATE INDEX idx_canonical_schemas_logical ON canonical_schemas (logical_key, revision)`,
+		},
+	},
+	{
+		version: 8,
+		name:    "mapping-profiles",
+		stmts: []string{
+			// mapping_profiles stores source-specific mapping profiles as separate
+			// versioned resources. They may reference canonical schemas by logical
+			// key and revision; references are not forced by FK to allow safe
+			// history and validation. Approved revisions are immutable.
+			`CREATE TABLE mapping_profiles (
+				profile_id           TEXT PRIMARY KEY,
+				logical_key          TEXT NOT NULL,
+				canonical_logical_key TEXT NOT NULL DEFAULT '',
+				canonical_revision   INTEGER NOT NULL DEFAULT 0,
+				source_connection_id TEXT NOT NULL,
+				destination_connection_id TEXT NOT NULL,
+				source_scope         TEXT NOT NULL DEFAULT '',
+				destination_scope    TEXT NOT NULL DEFAULT '',
+				major_version        INTEGER NOT NULL,
+				minor_version        INTEGER NOT NULL,
+				revision             INTEGER NOT NULL,
+				state                TEXT NOT NULL CHECK(state IN ('draft','approved','retired')),
+				content_json         TEXT NOT NULL,
+				content_hash         TEXT NOT NULL,
+				created_by           TEXT NOT NULL DEFAULT '',
+				created_at           TEXT NOT NULL,
+				approved_by          TEXT NOT NULL DEFAULT '',
+				approved_at          TEXT NOT NULL DEFAULT '',
+				notes                TEXT NOT NULL DEFAULT '',
+				UNIQUE(logical_key, revision)
+			)`,
+			`CREATE INDEX idx_mapping_profiles_logical ON mapping_profiles (logical_key, revision)`,
+			`CREATE INDEX idx_mapping_profiles_source ON mapping_profiles (source_connection_id)`,
+			`CREATE INDEX idx_mapping_profiles_dest ON mapping_profiles (destination_connection_id)`,
+		},
+	},
+	{
+		version: 9,
+		name:    "canonical-audit-extensions",
+		stmts: []string{
+			// revision_history tracks immutable history entries for revisions.
+			// rollback creates a new revision rather than rewriting history.
+			`CREATE TABLE revision_history (
+				history_id   TEXT PRIMARY KEY,
+				resource_type TEXT NOT NULL CHECK(resource_type IN ('canonical_schema','mapping_profile')),
+				resource_id   TEXT NOT NULL,
+				logical_key   TEXT NOT NULL,
+				revision      INTEGER NOT NULL,
+				action        TEXT NOT NULL,
+				actor         TEXT NOT NULL DEFAULT '',
+				at            TEXT NOT NULL,
+				detail_json   TEXT NOT NULL DEFAULT '{}'
+			)`,
+			`CREATE INDEX idx_revision_history_resource ON revision_history (resource_type, resource_id, revision)`,
+			`CREATE INDEX idx_revision_history_logical ON revision_history (logical_key)`,
+		},
+	},
 }
 
 // SchemaVersion is the schema version this build expects after migration.

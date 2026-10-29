@@ -244,6 +244,61 @@ export type ApiProbeResult = {
   mock: boolean;
 };
 
+/**
+ * The three authorized metadata reads served by P3-002.
+ *
+ * They are separate GET routes, not a caller-supplied query: the kind is fixed
+ * by the route and the only inputs are a stored connection ID and (for fields
+ * and tags) an observed measurement name.
+ */
+export type ApiSchemaKind = "measurements" | "fields" | "tags";
+
+/** One observed field key and the type the deployment reported for it. */
+export type ApiSchemaField = {
+  name: string;
+  type: string;
+};
+
+/**
+ * One step of a bounded schema read. It is sanitized evidence: it carries a
+ * fixed statement path and an observed status, never a credential, a resolved
+ * secret or a credential-bearing URL.
+ */
+export type ApiSchemaObservation = {
+  check: string;
+  method: string;
+  path: string;
+  status: number;
+  outcome: CapabilityOutcome;
+  edition?: string;
+  detail: string;
+};
+
+/**
+ * Wire shape of one authorized schema read.
+ *
+ * `connection_id`, `scope`, `kind` and (for fields/tags) `measurement` repeat
+ * what the read used, so a client can reject an answer that is stale relative
+ * to the current selection. `measurements`, `fields` and `tags` are always
+ * arrays so an observed empty schema is distinguishable from an absent field.
+ */
+export type ApiSchemaResult = {
+  connection_id: string;
+  scope: string;
+  edition: string;
+  kind: ApiSchemaKind;
+  measurement?: string;
+  outcome: CapabilityOutcome;
+  measurements: string[];
+  fields: ApiSchemaField[];
+  tags: string[];
+  observations: ApiSchemaObservation[];
+  truncated: boolean;
+  requests: number;
+  read_at: string;
+  mock: boolean;
+};
+
 const SECRET_LIKE_KEYS = [
   "value",
   "password",
@@ -471,6 +526,65 @@ export function isApiProbeResult(value: unknown): value is ApiProbeResult {
     Array.isArray(value.observations) &&
     value.observations.every(isApiObservation) &&
     typeof value.probed_at === "string" &&
+    typeof value.mock === "boolean"
+  );
+}
+
+function isSchemaKind(value: unknown): value is ApiSchemaKind {
+  return value === "measurements" || value === "fields" || value === "tags";
+}
+
+function isApiSchemaField(value: unknown): value is ApiSchemaField {
+  return (
+    isRecord(value) &&
+    !hasSecretLikeKey(value) &&
+    typeof value.name === "string" &&
+    typeof value.type === "string"
+  );
+}
+
+function isApiSchemaObservation(
+  value: unknown,
+): value is ApiSchemaObservation {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.check === "string" &&
+    typeof value.method === "string" &&
+    typeof value.path === "string" &&
+    typeof value.status === "number" &&
+    isOutcome(value.outcome) &&
+    (value.edition === undefined || typeof value.edition === "string") &&
+    typeof value.detail === "string"
+  );
+}
+
+/**
+ * Runtime guard for one schema read. A payload carrying a secret-like key is
+ * refused, so a credential value can never reach the browser's display layer
+ * through this path.
+ */
+export function isApiSchemaResult(value: unknown): value is ApiSchemaResult {
+  if (!isRecord(value) || hasSecretLikeKey(value)) {
+    return false;
+  }
+  return (
+    typeof value.connection_id === "string" &&
+    typeof value.scope === "string" &&
+    typeof value.edition === "string" &&
+    isSchemaKind(value.kind) &&
+    (value.measurement === undefined || typeof value.measurement === "string") &&
+    isOutcome(value.outcome) &&
+    isStringArray(value.measurements) &&
+    Array.isArray(value.fields) &&
+    value.fields.every(isApiSchemaField) &&
+    isStringArray(value.tags) &&
+    Array.isArray(value.observations) &&
+    value.observations.every(isApiSchemaObservation) &&
+    typeof value.truncated === "boolean" &&
+    typeof value.requests === "number" &&
+    typeof value.read_at === "string" &&
     typeof value.mock === "boolean"
   );
 }

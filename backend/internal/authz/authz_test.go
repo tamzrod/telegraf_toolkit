@@ -10,7 +10,7 @@ import (
 func TestAnonymousIsDeniedEverything(t *testing.T) {
 	authorizer := NewAuthorizer()
 	var anonymous Principal
-	for _, perm := range []Permission{PermProfileRead, PermProfileWrite, PermCredentialRead, PermCredentialWrite, PermAuditRead, PermCredentialResolve} {
+	for _, perm := range []Permission{PermProfileRead, PermProfileWrite, PermCredentialRead, PermCredentialWrite, PermAuditRead, PermCredentialResolve, PermProfileProbe, PermSchemaRead} {
 		if err := authorizer.Authorize(anonymous, perm); !errors.Is(err, ErrUnauthenticated) {
 			t.Errorf("anonymous principal should be unauthenticated for %s, got %v", perm, err)
 		}
@@ -26,12 +26,17 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleViewer, PermProfileRead, true},
 		{RoleViewer, PermProfileWrite, false},
 		{RoleViewer, PermCredentialRead, false},
+		{RoleViewer, PermSchemaRead, false},
+		{RoleViewer, PermProfileProbe, false},
 		{RoleOperator, PermProfileRead, true},
+		{RoleOperator, PermSchemaRead, true},
 		{RoleOperator, PermCredentialRead, true},
 		{RoleOperator, PermProfileWrite, false},
 		{RoleOperator, PermCredentialWrite, false},
 		{RoleConfigurator, PermProfileWrite, true},
+		{RoleConfigurator, PermSchemaRead, true},
 		{RoleConfigurator, PermCredentialWrite, false},
+		{RoleAdministrator, PermSchemaRead, true},
 		{RoleAdministrator, PermCredentialWrite, true},
 		{RoleAdministrator, PermAuditRead, true},
 		{RoleAdministrator, PermCredentialResolve, true},
@@ -159,5 +164,28 @@ func TestLoadTokenFileSucceeds(t *testing.T) {
 	viewer, ok := authenticator.Authenticate("token-viewer")
 	if !ok || viewer.Can(PermProfileWrite) {
 		t.Fatal("the viewer token must not carry profile.write")
+	}
+}
+
+// TestSchemaReadIsADistinctPermission proves schema.read is not an alias for
+// profile.probe: the contract names differ, and a role can be checked for each
+// independently.
+func TestSchemaReadIsADistinctPermission(t *testing.T) {
+	if PermSchemaRead == PermProfileProbe {
+		t.Fatal("schema.read must be a distinct permission, not an alias of profile.probe")
+	}
+	if string(PermSchemaRead) != "schema.read" {
+		t.Fatalf("schema.read permission = %q", PermSchemaRead)
+	}
+	principal, err := NewPrincipal("tester", RoleViewer)
+	if err != nil {
+		t.Fatalf("principal: %v", err)
+	}
+	if principal.Can(PermSchemaRead) {
+		t.Fatal("viewer must not hold schema.read")
+	}
+	authorizer := NewAuthorizer()
+	if err := authorizer.Authorize(principal, PermSchemaRead); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("viewer schema.read = %v, want forbidden", err)
 	}
 }

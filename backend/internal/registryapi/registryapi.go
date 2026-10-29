@@ -75,8 +75,19 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/registry/credential-bindings", a.handleCredentialBindings)
 	mux.HandleFunc("/api/v1/registry/credential-bindings/", a.handleCredentialBindings)
 	mux.HandleFunc("/api/v1/registry/audit", a.handleAudit)
+	// P3-005 canonical schema and mapping profile endpoints
+	mux.HandleFunc("/api/v1/registry/canonical-schemas", a.handleCanonicalSchemas)
+	mux.HandleFunc("/api/v1/registry/canonical-schemas/", a.handleCanonicalSchemas)
+	mux.HandleFunc("/api/v1/registry/mapping-profiles", a.handleMappingProfiles)
+	mux.HandleFunc("/api/v1/registry/mapping-profiles/", a.handleMappingProfiles)
 	if a.prober != nil {
 		mux.HandleFunc("/api/v1/registry/probe", a.handleProbe)
+		// The approved read path (P3-002) is a GET-only metadata read. It is
+		// profile-only: the browser supplies a stored connection identity and a
+		// measurement name, never a URL, credential or query.
+		mux.HandleFunc("/api/v1/registry/schema/measurements", a.handleSchema)
+		mux.HandleFunc("/api/v1/registry/schema/fields", a.handleSchema)
+		mux.HandleFunc("/api/v1/registry/schema/tags", a.handleSchema)
 	}
 }
 
@@ -551,6 +562,26 @@ type probeResponse struct {
 	Mock            bool                                     `json:"mock"`
 }
 
+// schemaResponse is the sanitized result of one authorized metadata read. It
+// carries the profile identity and canonical scope the read used, so a client
+// can reject a stale answer after the selection or the profile scope changes.
+type schemaResponse struct {
+	ConnectionID string                        `json:"connection_id"`
+	Scope        string                        `json:"scope"`
+	Edition      string                        `json:"edition"`
+	Kind         string                        `json:"kind"`
+	Measurement  string                        `json:"measurement,omitempty"`
+	Outcome      registrycontract.ProbeOutcome `json:"outcome"`
+	Measurements []string                      `json:"measurements"`
+	Fields       []liveprobe.SchemaField       `json:"fields"`
+	Tags         []string                      `json:"tags"`
+	Observations []liveprobe.SchemaObservation `json:"observations"`
+	Truncated    bool                          `json:"truncated"`
+	Requests     int                           `json:"requests"`
+	ReadAt       string                        `json:"read_at"`
+	Mock         bool                          `json:"mock"`
+}
+
 // handleProbe performs a consented, read-only capability probe. It requires the
 // profile.probe permission and the endpoint policy configured on the API.
 //
@@ -661,6 +692,160 @@ func (a *API) handleProbe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSchema serves the approved bounded, read-only schema read.
+//
+// Every input is constrained: the route fixes the kind, a stored profile
+// supplies the endpoint, scope and credential, and only connection_id plus (for
+// fields/tags) a measurement name are accepted. There is no caller-supplied
+// query, URL, credential, deadline or limit. Authorization is checked before any
+// profile is read, and both the credential binding and the profile scope are
+// re-verified server-side.
+func (a *API) handleSchema(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	if !a.authorize(w, principal, authz.PermSchemaRead) {
+		return
+	}
+	if a.prober == nil {
+		writeError(w, http.StatusNotFound, "not-found", "Schema discovery is not enabled.")
+		return
+	}
+
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/v1/registry/schema/")
+	var kind liveprobe.SchemaKind
+	switch suffix {
+	case "measurements":
+		kind = liveprobe.SchemaMeasurements
+	case "fields":
+		kind = liveprobe.SchemaFields
+	case "tags":
+		kind = liveprobe.SchemaTags
+	default:
+		writeError(w, http.StatusNotFound, "not-found", "No schema read was requested.")
+		return
+	}
+
+	// Strict parameter handling: an unknown or repeated parameter is refused
+	// rather than ignored, so a query cannot be smuggled through a route that
+	// does not have one.
+	query := r.URL.Query()
+	for key, values := range query {
+		if key != "connection_id" && key != "measurement" {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "The schema read accepts only connection_id and measurement.")
+			return
+		}
+		if len(values) != 1 {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A schema read parameter must appear exactly once.")
+			return
+		}
+	}
+	connectionID := strings.TrimSpace(query.Get("connection_id"))
+	if connectionID == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A schema read requires a connection profile ID.")
+		return
+	}
+	measurement, hasMeasurement := query["measurement"]
+	if kind == liveprobe.SchemaMeasurements {
+		if hasMeasurement {
+			writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A measurement listing does not take a measurement name.")
+			return
+		}
+	} else if !hasMeasurement || strings.TrimSpace(string(measurement[0])) == "" {
+		writeError(w, http.StatusBadRequest, string(registrycontract.CodeInvalidProfile), "A field or tag read requires a measurement name.")
+		return
+	}
+
+	// Resolve the profile server-side. Only its own endpoint, scope and
+	// credential reference are used.
+	profile, found, err := a.service.GetProfile(r.Context(), connectionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The profile could not be read.")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, string(registrycontract.CodeProfileNotFound), "No profile matches the requested identity.")
+		return
+	}
+	if err := registrycontract.ValidateProfileEndpoint(profile.Endpoint); err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+	// Re-verify the approved binding at read time: a profile whose identity was
+	// altered out of band (endpoint or scope) cannot resolve its credential.
+	if err := a.service.VerifyProfileCredentialBinding(r.Context(), profile); err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+
+	// A configured credential must resolve; a revoked or invalid reference
+	// fails closed. Anonymous database access is only possible when the profile
+	// intentionally has no configured credential.
+	var credential liveprobe.Credential
+	if strings.TrimSpace(profile.CredentialRefID) != "" {
+		value, err := a.service.ResolveCredential(r.Context(), profile.CredentialRefID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		credential = credentialFor(value)
+	}
+
+	var selectedMeasurement string
+	if hasMeasurement {
+		selectedMeasurement = measurement[0]
+	}
+	result, err := a.prober.ReadSchema(r.Context(), liveprobe.SchemaRequest{
+		ConnectionID: profile.ConnectionID,
+		Endpoint:     profile.Endpoint,
+		Scope: liveprobe.SchemaScope{
+			Kind:            string(profile.Scope.Kind),
+			Organization:    profile.Scope.Organization,
+			Bucket:          profile.Scope.Bucket,
+			Database:        profile.Scope.Database,
+			RetentionPolicy: profile.Scope.RetentionPolicy,
+		},
+		Kind:        kind,
+		Measurement: selectedMeasurement,
+		Policy:      a.probePolicy,
+		Credential:  credential,
+		Deadline:    liveprobe.DefaultSchemaDeadline,
+		MaxRequests: liveprobe.DefaultSchemaMaxRequests,
+		MaxRows:     liveprobe.DefaultSchemaMaxRows,
+	})
+	if err != nil {
+		writeSanitizedError(w, err)
+		return
+	}
+
+	if err := a.service.RecordSchemaRead(r.Context(), principal.ID, profile.ConnectionID, string(kind)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal-error", "The schema read result could not be recorded.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, schemaResponse{
+		ConnectionID: result.ConnectionID,
+		Scope:        result.Scope,
+		Edition:      result.Edition,
+		Kind:         string(result.Kind),
+		Measurement:  result.Measurement,
+		Outcome:      result.Outcome,
+		Measurements: result.Measurements,
+		Fields:       result.Fields,
+		Tags:         result.Tags,
+		Observations: result.Observations,
+		Truncated:    result.Truncated,
+		Requests:     result.Requests,
+		ReadAt:       result.ReadAt.Format("2006-01-02T15:04:05Z07:00"),
+		Mock:         false,
+	})
+}
+
 // credentialFor infers the HTTP authorization scheme for a resolved credential.
 // InfluxDB 3 uses a Bearer token; InfluxDB 2 uses a Token. The scheme is chosen
 // without inspecting the value's contents beyond a length heuristic, and the
@@ -695,7 +880,7 @@ func writeSanitizedError(w http.ResponseWriter, err error) {
 // statusForCode maps a contract error code to an HTTP status.
 func statusForCode(code registrycontract.ErrorCode) int {
 	switch code {
-	case registrycontract.CodeProfileNotFound, registrycontract.CodeReferenceNotFound:
+	case registrycontract.CodeProfileNotFound, registrycontract.CodeReferenceNotFound, registrycontract.CodeMeasurementNotFound:
 		return http.StatusNotFound
 	case registrycontract.CodeDuplicateProfile:
 		return http.StatusConflict
@@ -776,4 +961,430 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func methodNotAllowed(w http.ResponseWriter, allowed ...string) {
 	w.Header().Set("Allow", strings.Join(allowed, ", "))
 	writeError(w, http.StatusMethodNotAllowed, "method-not-allowed", "The method is not allowed for this route.")
+}
+
+// P3-005 handlers
+
+type canonicalSchemaPayload struct {
+	SchemaID     string `json:"schemaId"`
+	LogicalKey   string `json:"logicalKey"`
+	MajorVersion int    `json:"majorVersion"`
+	MinorVersion int    `json:"minorVersion"`
+	Revision     int    `json:"revision"`
+	State        string `json:"state"`
+	ContentJSON  string `json:"contentJson"`
+	ContentHash  string `json:"contentHash"`
+	CreatedBy    string `json:"createdBy"`
+	CreatedAt    string `json:"createdAt"`
+	ApprovedBy   string `json:"approvedBy"`
+	ApprovedAt   string `json:"approvedAt"`
+	Notes        string `json:"notes"`
+}
+
+type canonicalSchemaInput struct {
+	SchemaID     string `json:"schemaId"`
+	LogicalKey   string `json:"logicalKey"`
+	MajorVersion int    `json:"majorVersion"`
+	MinorVersion int    `json:"minorVersion"`
+	Revision     int    `json:"revision"`
+	State        string `json:"state"`
+	ContentJSON  string `json:"contentJson"`
+	ContentHash  string `json:"contentHash"`
+	Notes        string `json:"notes"`
+}
+
+func (a *API) handleCanonicalSchemas(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/registry/canonical-schemas")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		switch r.Method {
+		case http.MethodGet:
+			if !a.authorize(w, principal, authz.PermCanonicalRead) {
+				return
+			}
+			list, err := a.service.ListCanonicalSchemas()
+			if err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			out := make([]canonicalSchemaPayload, 0, len(list))
+			for _, s := range list {
+				out = append(out, canonicalSchemaToPayload(s))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"items": out})
+			return
+		case http.MethodPost:
+			if !a.authorize(w, principal, authz.PermCanonicalWrite) {
+				return
+			}
+			var in canonicalSchemaInput
+			if err := decodeJSON(r, &in); err != nil {
+				if errors.Is(err, errSecretLikeBody) {
+					writeError(w, http.StatusBadRequest, string(registrycontract.CodeSecretMaterial), "Request body must not contain secrets.")
+					return
+				}
+				writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+				return
+			}
+			s := registrycontract.CanonicalSchemaRevision{
+				SchemaID:     in.SchemaID,
+				LogicalKey:   in.LogicalKey,
+				MajorVersion: in.MajorVersion,
+				MinorVersion: in.MinorVersion,
+				Revision:     in.Revision,
+				State:        registrycontract.CanonicalRevisionState(in.State),
+				ContentJSON:  in.ContentJSON,
+				ContentHash:  in.ContentHash,
+				Notes:        in.Notes,
+			}
+			if err := a.service.PutCanonicalSchema(r.Context(), principal.ID, s); err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			// fetch back
+			got, found, err := a.service.GetCanonicalSchema(s.SchemaID)
+			if err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			if !found {
+				writeSanitizedError(w, registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "not found"))
+				return
+			}
+			writeJSON(w, http.StatusOK, canonicalSchemaToPayload(got))
+			return
+		default:
+			methodNotAllowed(w, http.MethodGet, http.MethodPost)
+			return
+		}
+	}
+	// subpaths
+	parts := strings.Split(path, "/")
+	if len(parts) >= 2 && parts[1] == "approve" {
+		schemaID := parts[0]
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermCanonicalWrite) {
+			return
+		}
+		if err := a.service.ApproveCanonicalSchema(r.Context(), principal.ID, schemaID); err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		got, found, err := a.service.GetCanonicalSchema(schemaID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		if !found {
+			writeSanitizedError(w, registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "not found"))
+			return
+		}
+		writeJSON(w, http.StatusOK, canonicalSchemaToPayload(got))
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "export" {
+		schemaID := parts[0]
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermCanonicalRead) {
+			return
+		}
+		out, err := a.service.ExportCanonicalSchemaJSON(schemaID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(out))
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "history" {
+		schemaID := parts[0]
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermAuditRead) {
+			return
+		}
+		hist, err := a.service.GetRevisionHistory("canonical_schema", schemaID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": hist})
+		return
+	}
+	// get by id
+	if r.Method == http.MethodGet {
+		if !a.authorize(w, principal, authz.PermCanonicalRead) {
+			return
+		}
+		got, found, err := a.service.GetCanonicalSchema(path)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "not-found", "Not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, canonicalSchemaToPayload(got))
+		return
+	}
+	methodNotAllowed(w, http.MethodGet, http.MethodPost)
+}
+
+func canonicalSchemaToPayload(s registrycontract.CanonicalSchemaRevision) canonicalSchemaPayload {
+	return canonicalSchemaPayload{
+		SchemaID:     s.SchemaID,
+		LogicalKey:   s.LogicalKey,
+		MajorVersion: s.MajorVersion,
+		MinorVersion: s.MinorVersion,
+		Revision:     s.Revision,
+		State:        string(s.State),
+		ContentJSON:  s.ContentJSON,
+		ContentHash:  s.ContentHash,
+		CreatedBy:    s.CreatedBy,
+		CreatedAt:    formatTime(s.CreatedAt),
+		ApprovedBy:   s.ApprovedBy,
+		ApprovedAt:   formatTime(s.ApprovedAt),
+		Notes:        s.Notes,
+	}
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+type mappingProfilePayload struct {
+	ProfileID               string `json:"profileId"`
+	LogicalKey              string `json:"logicalKey"`
+	CanonicalLogicalKey     string `json:"canonicalLogicalKey"`
+	CanonicalRevision       int    `json:"canonicalRevision"`
+	SourceConnectionID      string `json:"sourceConnectionId"`
+	DestinationConnectionID string `json:"destinationConnectionId"`
+	SourceScope             string `json:"sourceScope"`
+	DestinationScope        string `json:"destinationScope"`
+	MajorVersion            int    `json:"majorVersion"`
+	MinorVersion            int    `json:"minorVersion"`
+	Revision                int    `json:"revision"`
+	State                   string `json:"state"`
+	ContentJSON             string `json:"contentJson"`
+	ContentHash             string `json:"contentHash"`
+	CreatedBy               string `json:"createdBy"`
+	CreatedAt               string `json:"createdAt"`
+	ApprovedBy              string `json:"approvedBy"`
+	ApprovedAt              string `json:"approvedAt"`
+	Notes                   string `json:"notes"`
+}
+
+type mappingProfileInput struct {
+	ProfileID               string `json:"profileId"`
+	LogicalKey              string `json:"logicalKey"`
+	CanonicalLogicalKey     string `json:"canonicalLogicalKey"`
+	CanonicalRevision       int    `json:"canonicalRevision"`
+	SourceConnectionID      string `json:"sourceConnectionId"`
+	DestinationConnectionID string `json:"destinationConnectionId"`
+	SourceScope             string `json:"sourceScope"`
+	DestinationScope        string `json:"destinationScope"`
+	MajorVersion            int    `json:"majorVersion"`
+	MinorVersion            int    `json:"minorVersion"`
+	Revision                int    `json:"revision"`
+	State                   string `json:"state"`
+	ContentJSON             string `json:"contentJson"`
+	ContentHash             string `json:"contentHash"`
+	Notes                   string `json:"notes"`
+}
+
+func (a *API) handleMappingProfiles(w http.ResponseWriter, r *http.Request) {
+	principal, ok := a.principal(w, r)
+	if !ok {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/registry/mapping-profiles")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		switch r.Method {
+		case http.MethodGet:
+			if !a.authorize(w, principal, authz.PermMappingRead) {
+				return
+			}
+			list, err := a.service.ListMappingProfiles()
+			if err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			out := make([]mappingProfilePayload, 0, len(list))
+			for _, p := range list {
+				out = append(out, mappingProfileToPayload(p))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"items": out})
+			return
+		case http.MethodPost:
+			if !a.authorize(w, principal, authz.PermMappingWrite) {
+				return
+			}
+			var in mappingProfileInput
+			if err := decodeJSON(r, &in); err != nil {
+				if errors.Is(err, errSecretLikeBody) {
+					writeError(w, http.StatusBadRequest, string(registrycontract.CodeSecretMaterial), "Request body must not contain secrets.")
+					return
+				}
+				writeError(w, http.StatusBadRequest, "invalid-body", "The request body is not valid JSON.")
+				return
+			}
+			mp := registrycontract.MappingProfileRevision{
+				ProfileID:               in.ProfileID,
+				LogicalKey:              in.LogicalKey,
+				CanonicalLogicalKey:     in.CanonicalLogicalKey,
+				CanonicalRevision:       in.CanonicalRevision,
+				SourceConnectionID:      in.SourceConnectionID,
+				DestinationConnectionID: in.DestinationConnectionID,
+				SourceScope:             in.SourceScope,
+				DestinationScope:        in.DestinationScope,
+				MajorVersion:            in.MajorVersion,
+				MinorVersion:            in.MinorVersion,
+				Revision:                in.Revision,
+				State:                   registrycontract.CanonicalRevisionState(in.State),
+				ContentJSON:             in.ContentJSON,
+				ContentHash:             in.ContentHash,
+				Notes:                   in.Notes,
+			}
+			if err := a.service.PutMappingProfile(r.Context(), principal.ID, mp); err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			got, found, err := a.service.GetMappingProfile(mp.ProfileID)
+			if err != nil {
+				writeSanitizedError(w, err)
+				return
+			}
+			if !found {
+				writeSanitizedError(w, registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "not found"))
+				return
+			}
+			writeJSON(w, http.StatusOK, mappingProfileToPayload(got))
+			return
+		default:
+			methodNotAllowed(w, http.MethodGet, http.MethodPost)
+			return
+		}
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) >= 2 && parts[1] == "approve" {
+		profileID := parts[0]
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermMappingWrite) {
+			return
+		}
+		if err := a.service.ApproveMappingProfile(r.Context(), principal.ID, profileID); err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		got, found, err := a.service.GetMappingProfile(profileID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		if !found {
+			writeSanitizedError(w, registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "not found"))
+			return
+		}
+		writeJSON(w, http.StatusOK, mappingProfileToPayload(got))
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "export" {
+		profileID := parts[0]
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermMappingRead) {
+			return
+		}
+		out, err := a.service.ExportMappingProfileJSON(profileID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(out))
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "history" {
+		profileID := parts[0]
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if !a.authorize(w, principal, authz.PermAuditRead) {
+			return
+		}
+		hist, err := a.service.GetRevisionHistory("mapping_profile", profileID)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": hist})
+		return
+	}
+	if r.Method == http.MethodGet {
+		if !a.authorize(w, principal, authz.PermMappingRead) {
+			return
+		}
+		got, found, err := a.service.GetMappingProfile(path)
+		if err != nil {
+			writeSanitizedError(w, err)
+			return
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "not-found", "Not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, mappingProfileToPayload(got))
+		return
+	}
+	methodNotAllowed(w, http.MethodGet, http.MethodPost)
+}
+
+func mappingProfileToPayload(p registrycontract.MappingProfileRevision) mappingProfilePayload {
+	return mappingProfilePayload{
+		ProfileID:               p.ProfileID,
+		LogicalKey:              p.LogicalKey,
+		CanonicalLogicalKey:     p.CanonicalLogicalKey,
+		CanonicalRevision:       p.CanonicalRevision,
+		SourceConnectionID:      p.SourceConnectionID,
+		DestinationConnectionID: p.DestinationConnectionID,
+		SourceScope:             p.SourceScope,
+		DestinationScope:        p.DestinationScope,
+		MajorVersion:            p.MajorVersion,
+		MinorVersion:            p.MinorVersion,
+		Revision:                p.Revision,
+		State:                   string(p.State),
+		ContentJSON:             p.ContentJSON,
+		ContentHash:             p.ContentHash,
+		CreatedBy:               p.CreatedBy,
+		CreatedAt:               formatTime(p.CreatedAt),
+		ApprovedBy:              p.ApprovedBy,
+		ApprovedAt:              formatTime(p.ApprovedAt),
+		Notes:                   p.Notes,
+	}
 }

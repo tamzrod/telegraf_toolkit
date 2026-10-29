@@ -13,6 +13,7 @@ package registryservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -75,13 +76,16 @@ type CredentialValidator func(ctx context.Context, endpoint string, value string
 // the same service runs against the SQLite repositories in production and the
 // in-memory adapters in tests.
 type Service struct {
-	profiles     registrycontract.ProfileStore
-	references   registrycontract.CredentialRefStore
-	bindings     registrycontract.CredentialBindingStore
-	audit        registrycontract.AuditSink
-	store        *metadatastore.Store
-	secrets      SecretStore
-	transactions registrycontract.TransactionalStore
+	profiles         registrycontract.ProfileStore
+	references       registrycontract.CredentialRefStore
+	bindings         registrycontract.CredentialBindingStore
+	audit            registrycontract.AuditSink
+	canonicalSchemas registrycontract.CanonicalSchemaStore
+	mappingProfiles  registrycontract.MappingProfileStore
+	revisionHistory  registrycontract.RevisionHistoryStore
+	store            *metadatastore.Store
+	secrets          SecretStore
+	transactions     registrycontract.TransactionalStore
 	// lifecycleHook is a test seam. It is nil in production. A hook must not
 	// perform registry writes while a lifecycle transaction is open: the
 	// in-commit phase runs inside that transaction.
@@ -98,6 +102,9 @@ func New(profiles registrycontract.ProfileStore, references registrycontract.Cre
 	s := &Service{profiles: profiles, references: references, audit: audit, store: store}
 	if store != nil {
 		s.transactions = store
+		s.canonicalSchemas = store.CanonicalSchemas()
+		s.mappingProfiles = store.MappingProfiles()
+		s.revisionHistory = store.RevisionHistory()
 	}
 	return s
 }
@@ -122,6 +129,14 @@ func (s *Service) WithTransactions(transactions registrycontract.TransactionalSt
 // so the service fails closed (P2L-007).
 func (s *Service) WithCredentialBindings(bindings registrycontract.CredentialBindingStore) *Service {
 	s.bindings = bindings
+	return s
+}
+
+// WithCanonicalSchemas attaches canonical schema stores.
+func (s *Service) WithCanonicalSchemas(canonical registrycontract.CanonicalSchemaStore, mapping registrycontract.MappingProfileStore, history registrycontract.RevisionHistoryStore) *Service {
+	s.canonicalSchemas = canonical
+	s.mappingProfiles = mapping
+	s.revisionHistory = history
 	return s
 }
 
@@ -896,6 +911,24 @@ func (s *Service) RecordProbe(ctx context.Context, actor, edition string) error 
 	return recordAudit(s.audit, actor, "profile.probe", registrycontract.TargetProfile, edition, registrycontract.OutcomeSucceeded)
 }
 
+// RecordSchemaRead records an authorized schema read attributed to the acting
+// principal. The event references the profile by identity and the metadata
+// kind by its fixed name; it never carries observed rows, metadata values or a
+// credential. The read completed within its bounds, so the audited action
+// succeeded; whether the deployment supported or left the metadata unknown is
+// carried by the response, not by this security event.
+func (s *Service) RecordSchemaRead(ctx context.Context, actor, connectionID, kind string) error {
+	if actor == "" {
+		actor = "system"
+	}
+	action := "schema.read"
+	switch kind {
+	case "measurements", "fields", "tags":
+		action += "." + kind
+	}
+	return recordAudit(s.audit, actor, action, registrycontract.TargetProfile, connectionID, registrycontract.OutcomeSucceeded)
+}
+
 // recordAudit appends a sanitized audit event to the service's own sink. It is
 // used for the transitions that are not part of a unit of work, such as a
 // rolled-back enrollment.
@@ -928,3 +961,531 @@ func recordAudit(sink registrycontract.AuditSink, actor, action string, kind reg
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }
+
+// P3-005 canonical schema and mapping profile methods
+
+func (s *Service) PutCanonicalSchema(ctx context.Context, actor string, schema registrycontract.CanonicalSchemaRevision) error {
+	if s.canonicalSchemas == nil {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "canonical schema store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	if schema.CreatedAt.IsZero() {
+		schema.CreatedAt = nowUTC()
+	}
+	if schema.SchemaID == "" {
+		schema.SchemaID = fmt.Sprintf("cs-%s-r%d", schema.LogicalKey, schema.Revision)
+	}
+	if s.transactions != nil {
+		return s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+			if repos.CanonicalSchemas == nil {
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "canonical schema store not available")
+			}
+			if err := repos.CanonicalSchemas.Put(schema); err != nil {
+				return err
+			}
+			if repos.RevisionHistory != nil {
+				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+					HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), schema.SchemaID),
+					ResourceType: "canonical_schema",
+					ResourceID:   schema.SchemaID,
+					LogicalKey:   schema.LogicalKey,
+					Revision:     schema.Revision,
+					Action:       "put",
+					Actor:        actor,
+					At:           nowUTC(),
+					DetailJSON:   "{}",
+				}); err != nil {
+					return err
+				}
+			}
+			return recordAudit(repos.Audit, actor, "canonical.schema.put", registrycontract.TargetCanonicalSchema, schema.SchemaID, registrycontract.OutcomeSucceeded)
+		})
+	}
+	if err := s.canonicalSchemas.Put(schema); err != nil {
+		return err
+	}
+	if s.revisionHistory != nil {
+		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), schema.SchemaID),
+			ResourceType: "canonical_schema",
+			ResourceID:   schema.SchemaID,
+			LogicalKey:   schema.LogicalKey,
+			Revision:     schema.Revision,
+			Action:       "put",
+			Actor:        actor,
+			At:           nowUTC(),
+			DetailJSON:   "{}",
+		}); err != nil {
+			return err
+		}
+	}
+	return recordAudit(s.audit, actor, "canonical.schema.put", registrycontract.TargetCanonicalSchema, schema.SchemaID, registrycontract.OutcomeSucceeded)
+}
+
+func (s *Service) GetCanonicalSchema(schemaID string) (registrycontract.CanonicalSchemaRevision, bool, error) {
+	if s.canonicalSchemas == nil {
+		return registrycontract.CanonicalSchemaRevision{}, false, nil
+	}
+	return s.canonicalSchemas.Get(schemaID)
+}
+
+func (s *Service) ListCanonicalSchemas() ([]registrycontract.CanonicalSchemaRevision, error) {
+	if s.canonicalSchemas == nil {
+		return []registrycontract.CanonicalSchemaRevision{}, nil
+	}
+	return s.canonicalSchemas.ListAll()
+}
+
+func (s *Service) ListCanonicalSchemaRevisions(logicalKey string) ([]registrycontract.CanonicalSchemaRevision, error) {
+	if s.canonicalSchemas == nil {
+		return []registrycontract.CanonicalSchemaRevision{}, nil
+	}
+	return s.canonicalSchemas.ListByLogical(logicalKey)
+}
+
+func (s *Service) ApproveCanonicalSchema(ctx context.Context, actor, schemaID string) error {
+	if s.canonicalSchemas == nil {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "canonical schema store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	if s.transactions != nil {
+		return s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+			if repos.CanonicalSchemas == nil {
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "canonical schema store not available")
+			}
+			schema, ok, err := repos.CanonicalSchemas.Get(schemaID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "canonical schema not found")
+			}
+			if schema.State == registrycontract.CanonicalStateApproved {
+				return nil
+			}
+			// Use atomic guarded transition
+			if csr, ok := repos.CanonicalSchemas.(interface {
+				ApproveCanonicalSchema(context.Context, string, string, time.Time) error
+			}); ok {
+				if err := csr.ApproveCanonicalSchema(ctx, schemaID, actor, nowUTC()); err != nil {
+					return err
+				}
+			} else {
+				schema.State = registrycontract.CanonicalStateApproved
+				schema.ApprovedBy = actor
+				schema.ApprovedAt = nowUTC()
+				if err := repos.CanonicalSchemas.Put(schema); err != nil {
+					return err
+				}
+			}
+			if repos.RevisionHistory != nil {
+				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+					HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), schema.SchemaID),
+					ResourceType: "canonical_schema",
+					ResourceID:   schema.SchemaID,
+					LogicalKey:   schema.LogicalKey,
+					Revision:     schema.Revision,
+					Action:       "approve",
+					Actor:        actor,
+					At:           nowUTC(),
+					DetailJSON:   "{}",
+				}); err != nil {
+					return err
+				}
+			}
+			return recordAudit(repos.Audit, actor, "canonical.schema.approve", registrycontract.TargetCanonicalSchema, schema.SchemaID, registrycontract.OutcomeSucceeded)
+		})
+	}
+	schema, ok, err := s.canonicalSchemas.Get(schemaID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "canonical schema not found")
+	}
+	if schema.State == registrycontract.CanonicalStateApproved {
+		return nil
+	}
+	if csr, ok := s.canonicalSchemas.(interface {
+		ApproveCanonicalSchema(context.Context, string, string, time.Time) error
+	}); ok {
+		if err := csr.ApproveCanonicalSchema(ctx, schemaID, actor, nowUTC()); err != nil {
+			return err
+		}
+	} else {
+		schema.State = registrycontract.CanonicalStateApproved
+		schema.ApprovedBy = actor
+		schema.ApprovedAt = nowUTC()
+		if err := s.canonicalSchemas.Put(schema); err != nil {
+			return err
+		}
+	}
+	if s.revisionHistory != nil {
+		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), schema.SchemaID),
+			ResourceType: "canonical_schema",
+			ResourceID:   schema.SchemaID,
+			LogicalKey:   schema.LogicalKey,
+			Revision:     schema.Revision,
+			Action:       "approve",
+			Actor:        actor,
+			At:           nowUTC(),
+			DetailJSON:   "{}",
+		}); err != nil {
+			return err
+		}
+	}
+	return recordAudit(s.audit, actor, "canonical.schema.approve", registrycontract.TargetCanonicalSchema, schema.SchemaID, registrycontract.OutcomeSucceeded)
+}
+
+func (s *Service) PutMappingProfile(ctx context.Context, actor string, profile registrycontract.MappingProfileRevision) error {
+	if s.mappingProfiles == nil {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "mapping profile store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	if profile.CreatedAt.IsZero() {
+		profile.CreatedAt = nowUTC()
+	}
+	if profile.ProfileID == "" {
+		profile.ProfileID = fmt.Sprintf("mp-%s-r%d", profile.LogicalKey, profile.Revision)
+	}
+	if s.transactions != nil {
+		return s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+			if repos.MappingProfiles == nil {
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "mapping profile store not available")
+			}
+			if err := repos.MappingProfiles.Put(profile); err != nil {
+				return err
+			}
+			if repos.RevisionHistory != nil {
+				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+					HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), profile.ProfileID),
+					ResourceType: "mapping_profile",
+					ResourceID:   profile.ProfileID,
+					LogicalKey:   profile.LogicalKey,
+					Revision:     profile.Revision,
+					Action:       "put",
+					Actor:        actor,
+					At:           nowUTC(),
+					DetailJSON:   "{}",
+				}); err != nil {
+					return err
+				}
+			}
+			return recordAudit(repos.Audit, actor, "mapping.profile.put", registrycontract.TargetMappingProfile, profile.ProfileID, registrycontract.OutcomeSucceeded)
+		})
+	}
+	if err := s.mappingProfiles.Put(profile); err != nil {
+		return err
+	}
+	if s.revisionHistory != nil {
+		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), profile.ProfileID),
+			ResourceType: "mapping_profile",
+			ResourceID:   profile.ProfileID,
+			LogicalKey:   profile.LogicalKey,
+			Revision:     profile.Revision,
+			Action:       "put",
+			Actor:        actor,
+			At:           nowUTC(),
+			DetailJSON:   "{}",
+		}); err != nil {
+			return err
+		}
+	}
+	return recordAudit(s.audit, actor, "mapping.profile.put", registrycontract.TargetMappingProfile, profile.ProfileID, registrycontract.OutcomeSucceeded)
+}
+
+func (s *Service) GetMappingProfile(profileID string) (registrycontract.MappingProfileRevision, bool, error) {
+	if s.mappingProfiles == nil {
+		return registrycontract.MappingProfileRevision{}, false, nil
+	}
+	return s.mappingProfiles.Get(profileID)
+}
+
+func (s *Service) ListMappingProfiles() ([]registrycontract.MappingProfileRevision, error) {
+	if s.mappingProfiles == nil {
+		return []registrycontract.MappingProfileRevision{}, nil
+	}
+	return s.mappingProfiles.ListAll()
+}
+
+func (s *Service) ListMappingProfileRevisions(logicalKey string) ([]registrycontract.MappingProfileRevision, error) {
+	if s.mappingProfiles == nil {
+		return []registrycontract.MappingProfileRevision{}, nil
+	}
+	return s.mappingProfiles.ListByLogical(logicalKey)
+}
+
+func (s *Service) ApproveMappingProfile(ctx context.Context, actor, profileID string) error {
+	if s.mappingProfiles == nil {
+		return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "mapping profile store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	if s.transactions != nil {
+		return s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+			if repos.MappingProfiles == nil {
+				return registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "mapping profile store not available")
+			}
+			profile, ok, err := repos.MappingProfiles.Get(profileID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "mapping profile not found")
+			}
+			if profile.State == registrycontract.CanonicalStateApproved {
+				return nil
+			}
+			if mpr, ok := repos.MappingProfiles.(interface {
+				ApproveMappingProfile(context.Context, string, string, time.Time) error
+			}); ok {
+				if err := mpr.ApproveMappingProfile(ctx, profileID, actor, nowUTC()); err != nil {
+					return err
+				}
+			} else {
+				profile.State = registrycontract.CanonicalStateApproved
+				profile.ApprovedBy = actor
+				profile.ApprovedAt = nowUTC()
+				if err := repos.MappingProfiles.Put(profile); err != nil {
+					return err
+				}
+			}
+			if repos.RevisionHistory != nil {
+				if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+					HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), profile.ProfileID),
+					ResourceType: "mapping_profile",
+					ResourceID:   profile.ProfileID,
+					LogicalKey:   profile.LogicalKey,
+					Revision:     profile.Revision,
+					Action:       "approve",
+					Actor:        actor,
+					At:           nowUTC(),
+					DetailJSON:   "{}",
+				}); err != nil {
+					return err
+				}
+			}
+			return recordAudit(repos.Audit, actor, "mapping.profile.approve", registrycontract.TargetMappingProfile, profile.ProfileID, registrycontract.OutcomeSucceeded)
+		})
+	}
+	profile, ok, err := s.mappingProfiles.Get(profileID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "mapping profile not found")
+	}
+	if profile.State == registrycontract.CanonicalStateApproved {
+		return nil
+	}
+	if mpr, ok := s.mappingProfiles.(interface {
+		ApproveMappingProfile(context.Context, string, string, time.Time) error
+	}); ok {
+		if err := mpr.ApproveMappingProfile(ctx, profileID, actor, nowUTC()); err != nil {
+			return err
+		}
+	} else {
+		profile.State = registrycontract.CanonicalStateApproved
+		profile.ApprovedBy = actor
+		profile.ApprovedAt = nowUTC()
+		if err := s.mappingProfiles.Put(profile); err != nil {
+			return err
+		}
+	}
+	if s.revisionHistory != nil {
+		if err := s.revisionHistory.Record(registrycontract.RevisionHistoryEntry{
+			HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), profile.ProfileID),
+			ResourceType: "mapping_profile",
+			ResourceID:   profile.ProfileID,
+			LogicalKey:   profile.LogicalKey,
+			Revision:     profile.Revision,
+			Action:       "approve",
+			Actor:        actor,
+			At:           nowUTC(),
+			DetailJSON:   "{}",
+		}); err != nil {
+			return err
+		}
+	}
+	return recordAudit(s.audit, actor, "mapping.profile.approve", registrycontract.TargetMappingProfile, profile.ProfileID, registrycontract.OutcomeSucceeded)
+}
+
+func (s *Service) RollbackCanonicalSchema(ctx context.Context, actor, logicalKey string, fromRevision, toRevision int) (registrycontract.CanonicalSchemaRevision, error) {
+	if s.canonicalSchemas == nil || s.transactions == nil {
+		return registrycontract.CanonicalSchemaRevision{}, registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	var created registrycontract.CanonicalSchemaRevision
+	err := s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+		target, ok, err := repos.CanonicalSchemas.GetByLogical(logicalKey, toRevision)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "target revision not found")
+		}
+		// create new revision (never rewrite history)
+		newRev := target
+		newRev.SchemaID = fmt.Sprintf("cs-%s-r%d-rb-%d", logicalKey, toRevision, time.Now().UnixNano())
+		newRev.Revision = fromRevision + 1 // simple increment; callers can control
+		newRev.State = registrycontract.CanonicalStateDraft
+		newRev.CreatedBy = actor
+		newRev.CreatedAt = nowUTC()
+		newRev.ApprovedBy = ""
+		newRev.ApprovedAt = time.Time{}
+		newRev.Notes = fmt.Sprintf("rollback from r%d to r%d", fromRevision, toRevision)
+		if err := repos.CanonicalSchemas.Put(newRev); err != nil {
+			return err
+		}
+		if repos.RevisionHistory != nil {
+			if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+				HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), newRev.SchemaID),
+				ResourceType: "canonical_schema",
+				ResourceID:   newRev.SchemaID,
+				LogicalKey:   logicalKey,
+				Revision:     newRev.Revision,
+				Action:       "rollback",
+				Actor:        actor,
+				At:           nowUTC(),
+				DetailJSON:   fmt.Sprintf("{\"from\":%d,\"to\":%d}", fromRevision, toRevision),
+			}); err != nil {
+				return err
+			}
+		}
+		created = newRev
+		return recordAudit(repos.Audit, actor, "canonical.schema.rollback", registrycontract.TargetCanonicalSchema, newRev.SchemaID, registrycontract.OutcomeSucceeded)
+	})
+	if err != nil {
+		return registrycontract.CanonicalSchemaRevision{}, err
+	}
+	return created, nil
+}
+
+func (s *Service) RollbackMappingProfile(ctx context.Context, actor, logicalKey string, fromRevision, toRevision int) (registrycontract.MappingProfileRevision, error) {
+	if s.mappingProfiles == nil || s.transactions == nil {
+		return registrycontract.MappingProfileRevision{}, registrycontract.NewSanitizedError(registrycontract.CodeSecretMaterial, "store not available")
+	}
+	if actor == "" {
+		actor = "system"
+	}
+	var created registrycontract.MappingProfileRevision
+	err := s.transactions.WithinTransaction(ctx, func(repos registrycontract.Repositories) error {
+		target, ok, err := repos.MappingProfiles.GetByLogical(logicalKey, toRevision)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "target revision not found")
+		}
+		newRev := target
+		newRev.ProfileID = fmt.Sprintf("mp-%s-r%d-rb-%d", logicalKey, toRevision, time.Now().UnixNano())
+		newRev.Revision = fromRevision + 1
+		newRev.State = registrycontract.CanonicalStateDraft
+		newRev.CreatedBy = actor
+		newRev.CreatedAt = nowUTC()
+		newRev.ApprovedBy = ""
+		newRev.ApprovedAt = time.Time{}
+		newRev.Notes = fmt.Sprintf("rollback from r%d to r%d", fromRevision, toRevision)
+		if err := repos.MappingProfiles.Put(newRev); err != nil {
+			return err
+		}
+		if repos.RevisionHistory != nil {
+			if err := repos.RevisionHistory.Record(registrycontract.RevisionHistoryEntry{
+				HistoryID:    fmt.Sprintf("h-%d-%s", time.Now().UnixNano(), newRev.ProfileID),
+				ResourceType: "mapping_profile",
+				ResourceID:   newRev.ProfileID,
+				LogicalKey:   logicalKey,
+				Revision:     newRev.Revision,
+				Action:       "rollback",
+				Actor:        actor,
+				At:           nowUTC(),
+				DetailJSON:   fmt.Sprintf("{\"from\":%d,\"to\":%d}", fromRevision, toRevision),
+			}); err != nil {
+				return err
+			}
+		}
+		created = newRev
+		return recordAudit(repos.Audit, actor, "mapping.profile.rollback", registrycontract.TargetMappingProfile, newRev.ProfileID, registrycontract.OutcomeSucceeded)
+	})
+	if err != nil {
+		return registrycontract.MappingProfileRevision{}, err
+	}
+	return created, nil
+}
+
+func (s *Service) ExportCanonicalSchemaJSON(schemaID string) (string, error) {
+	schema, ok, err := s.GetCanonicalSchema(schemaID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "canonical schema not found")
+	}
+	// deterministic versioned export with no secrets
+	out := map[string]any{
+		"format":         "telegraf-toolkit.canonical-schema",
+		"schema_version": 1,
+		"logical_key":    schema.LogicalKey,
+		"revision":       schema.Revision,
+		"major_version":  schema.MajorVersion,
+		"minor_version":  schema.MinorVersion,
+		"state":          schema.State,
+		"content":        schema.ContentJSON,
+		"content_hash":   schema.ContentHash,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (s *Service) ExportMappingProfileJSON(profileID string) (string, error) {
+	profile, ok, err := s.GetMappingProfile(profileID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", registrycontract.NewSanitizedError(registrycontract.CodeProfileNotFound, "mapping profile not found")
+	}
+	out := map[string]any{
+		"format":                    "telegraf-toolkit.mapping-profile",
+		"schema_version":            1,
+		"logical_key":               profile.LogicalKey,
+		"revision":                  profile.Revision,
+		"major_version":             profile.MajorVersion,
+		"minor_version":             profile.MinorVersion,
+		"state":                     profile.State,
+		"source_connection_id":      profile.SourceConnectionID,
+		"destination_connection_id": profile.DestinationConnectionID,
+		"source_scope":              profile.SourceScope,
+		"destination_scope":         profile.DestinationScope,
+		"canonical_logical_key":     profile.CanonicalLogicalKey,
+		"canonical_revision":        profile.CanonicalRevision,
+		"content":                   profile.ContentJSON,
+		"content_hash":              profile.ContentHash,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (s *Service) GetRevisionHistory(resourceType, resourceID string) ([]registrycontract.RevisionHistoryEntry, error) {
+	if s.revisionHistory == nil {
+		return []registrycontract.RevisionHistoryEntry{}, nil
+	}
+	return s.revisionHistory.ListByResource(resourceType, resourceID)
+}
