@@ -4,7 +4,7 @@
 **Name:** Telegraf Toolkit  
 **Repository:** https://github.com/tamzrod/telegraf_toolkit  
 **Tagline:** Configure. Map. Synchronize.  
-**Status:** Early implementation. The Phase 0 toolchain, the Phase 1 application shell and the Phase 2 Database Registry backend are implemented and merged into `main`; the pipeline designer, canonical mapper, synchronizer, runtime management and production packaging remain design-only. Delivery status is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).  
+**Status:** Phases 0–4 are merged into `main`, with scope limitations documented in [`docs/ROADMAP.md`](docs/ROADMAP.md). The Phase 3 Canonical Mapper and Phase 4 Pipeline Designer are implemented for focused, tested workflows; runtime management, historian synchronization and production packaging remain future work. InfluxDB 1.x coverage and several advanced mapping/UI capabilities remain unverified or unsupported.
 **License:** Apache License 2.0.
 
 Telegraf Toolkit is an open-source, browser-based management and configuration platform for Telegraf, with canonical data mapping and cross-version InfluxDB historical synchronization.
@@ -43,7 +43,7 @@ Telegraf Toolkit is an open-source, browser-based management and configuration p
 - **API state:** TanStack Query.
 - **Backend direction:** Go API and background workers.
 - **Deployment:** Toolkit management application separately deployed from isolated Compose-managed official Telegraf runtime containers.
-- **Still to decide:** Exact package versions (pin when scaffolding), metadata store selection, host-agent interface, production packaging, and concrete plugin adapters.
+- **Still to decide:** Host-agent privilege interface (ADR-0004), production packaging (ADR-0005), and later plugin/device discovery adapters. Metadata store (SQLite), secret-store architecture and dependency pinning are established.
 
 ## Primary user workflows
 
