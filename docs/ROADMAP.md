@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 (P3-001–P3-010) is implemented and merged into `main` by PR #8: authorized measurement-level metadata read, read-only Canonical Mapper schema browser, local mapping drafts/validation, and versioned canonical schemas and mapping profiles with approval/history/rollback and safe export. InfluxDB 1.x coverage remains outstanding.
+**Status:** Phases 0–4 are merged into `main` (Phase 4 via the post-review merge at `c25b5124c80fa46964dd212a8b50fa613cff3b50`). Phase 4's P4-001–P4-007 and P4-007-FU1 provide a focused Telegraf 1.40.1 pipeline designer and configuration-artifact workflow; no runtime deployment or historian write. Previous delivery record: Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 (P3-001–P3-010) is implemented and merged into `main` by PR #8: authorized measurement-level metadata read, read-only Canonical Mapper schema browser, local mapping drafts/validation, and versioned canonical schemas and mapping profiles with approval/history/rollback and safe export. InfluxDB 1.x coverage remains outstanding.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -13,10 +13,11 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
 | 2 | Database Registry and credential references | Mock/interface scope merged in PR #4; isolated InfluxDB 2/3 tests merged in PR #5; operational live Registry backend merged in PR #6 (P2L-001–P2L-007); completion workstream merged in PR #7 (P2C-001–P2C-008, including browser profile and credential writes); per-capability evidence matrix and InfluxDB 1.x coverage remain |
 | 3 | Dual-database Canonical Registry / Taglist Mapper | Complete and merged via PR #8 (P3-001–P3-010): authorized measurement-level GET metadata read verified on the pinned InfluxDB 2 OSS / 3 Core containers (P3-002), read-only dual-profile schema browser (P3-003), mapping drafts/validation (P3-004), and versioned canonical schemas and mapping profiles with approval/history/rollback and safe export (P3-005); integrated acceptance P3-006; InfluxDB 1.x coverage remains outstanding |
-| 4 | Visual Pipeline Designer and TOML validation | Implemented and checkpointed on `phase-4/pipeline-designer` (P4-001–P4-007); not merged |
+| 4 | Visual Pipeline Designer and TOML validation | **Merged into `main`** (P4-001–P4-007 and P4-007-FU1); focused plugin subset, syntax-validated manual TOML, no runtime deployment |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
 | 6 | Independent historian synchronizer and block explorer | Not started |
 | 7 | Production security, interoperability and packaging validation | Not started |
+| 8 (proposed) | Device intelligence and community profile library | **Proposal only**; not authorized or implemented |
 
 Phases identify primary delivery order, not permission to postpone baseline authentication, input validation, secret protection or tests until Phase 7. Work on an enabling shared contract may occur earlier when required by the currently authorized task.
 
@@ -73,7 +74,7 @@ Phases identify primary delivery order, not permission to postpone baseline auth
 
 **Exit criteria:** registered profiles are reusable across approved modules; permissions and secret isolation are tested; supported capabilities and unsupported cases are explicitly reported.
 
-**Exit criteria status (after the P2C workstream):** permissions and secret isolation are tested server-side, profiles persist, bind credentials and probe live, and the browser manages unbound profiles and credentials within the role model. Two parts of the criterion are **not** met yet: no downstream module consumes registered profiles (no Phase 3–6 module exists; Phase 3 has only started documentation reconciliation), and the query dialects and the write protocol are **unknown** in the capability model rather than proven - the GET-only probe cannot establish them as currently catalogued. The Phase 3 entry contract records what the mapper may rely on today ([`docs/contracts/canonical-mapper.md`](contracts/canonical-mapper.md)).
+**Exit criteria status (after the P2C workstream):** permissions and secret isolation are tested server-side, profiles persist, bind credentials and probe live, and the browser manages unbound profiles and credentials within the role model. Two parts of the criterion are **not** met yet: no downstream module consumes registered profiles (at that historical checkpoint, downstream integration was not yet implemented), and the query dialects and the write protocol are **unknown** in the capability model rather than proven - the GET-only probe cannot establish them as currently catalogued. The historical Phase 3 entry contract recorded what the mapper could rely on at that point ([`docs/contracts/canonical-mapper.md`](contracts/canonical-mapper.md)).
 
 P3-001 added a correction to the "POST-only query" premise: a read-only GET survey of the pinned containers found that both editions answer fixed **GET** metadata statements, and that the probe catalogue checked different v3 paths. P3-002 implemented the approved correction: the probe now observes 3 Core InfluxQL and SQL as `supported` through the corrected GET routes, while 2 OSS query dialects remain `unknown`; the authorized measurement-level schema read is also implemented ([`docs/decisions/phase-3-schema-discovery-gate.md`](decisions/phase-3-schema-discovery-gate.md)). P3-003 added the browser consumer: explicit dual-profile selection and typed schema browsing with honest states and cache cancellation, without a mapping draft or write.
 
@@ -125,15 +126,7 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 
 **Exit criteria:** representative plugin configurations produce tested TOML; invalid configurations are rejected; saving remains distinct from deployment.
 
-> **Status (P4-001–P4-007, 2026-10-29):** Phase 4 is implemented and
-> checkpointed on `phase-4/pipeline-designer`, not merged. The checked items
-> cover the verified plugin subset and configuration-artifact lifecycle only:
-> catalog editing, deterministic read-only TOML preview, draft/approval/history
-> and graph↔manual snapshot transitions, plus fail-closed compilation of
-> approved Phase 3 mapping references. The pipeline page does not edit a mapping
-> pin, and unit scaling and tag filters remain unsupported. No phase deploys a
-> runtime, restarts Telegraf or writes a historian; those remain Phase 5/6 work.
-> Human PR review and merge are pending.
+> **Integrated status (Phase 4, 2026-10-30):** P4-001–P4-007 and the targeted pre-PR P4-007-FU1 follow-up were checkpointed, reviewed and merged to `main` (merge HEAD `c25b5124c80fa46964dd212a8b50fa613cff3b50`). The supported scope is a verified Telegraf 1.40.1 plugin subset, typed graph and manual documents, deterministic graph TOML preview, TOML **syntax** validation for manual mode (not comprehensive Telegraf plugin-semantic validation), draft/approval/history/snapshot transitions, and fail-closed compilation of supported approved Phase 3 mapping revisions. The UI does not edit mapping pins or load existing server revisions; unit scaling and tag filters are not compiled. Credential detection in manual TOML is bounded, not a comprehensive secret scan. No live Telegraf deployment, runtime restart or historian writes were performed; those are later phases.
 
 ## Phase 5 — Isolated Telegraf Runtime Manager
 
@@ -165,6 +158,18 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 - [ ] Produce pinned/digest-verified packaging, install/upgrade/rollback documentation and release checks.
 
 **Exit criteria:** supported environments and limits are documented with reproducible evidence; security and operational gates pass before production release.
+
+## Proposed Phase 8 — Device intelligence and community library
+
+**Status:** Concept proposal only. This phase is not an active or authorized CWAL package; scope, sequencing and architecture require future human review.
+
+- [ ] Establish portable, versioned device profiles distinct from device instances (no stored or shared network addresses, site identifiers or secrets).
+- [ ] Develop permissioned, read-only, bounded protocol explorers for SNMP OIDs and OPC UA nodes; add device point selection and mapping into supported Telegraf configurations.
+- [ ] Define manufacturer/model/firmware-specific Modbus register maps and standards-based SunSpec model discovery, with provenance, compatibility and no control-register writes by default.
+- [ ] Provide offline import/export and GitHub-first community contribution, license/provenance review, security redaction and evidence-based profile trust labels.
+- [ ] Evaluate broader plugin-specific discovery recipes only after representative workflows and verified Telegraf support.
+
+**Proposed exit criteria:** users can load or discover tested device points, select and map telemetry, produce compatible reviewed Telegraf configurations, and share sanitized portable profiles without a mandatory hosted service.
 
 ## Development and CWAL execution policy
 

@@ -4,24 +4,7 @@
 
 Visual Telegraf management, configuration, canonical data mapping, and cross-version InfluxDB synchronization toolkit.
 
-> **Status:** Early-stage delivery. The Phase 0 toolchain, the Phase 1 application
-> shell, the Phase 2 Database Registry — including the administrator-only
-> credential lifecycle — and the Phase 3 Canonical Mapper (measurement-level
-> read path, schema browser, versioned canonical schemas and mapping profiles
-> with approval/history/rollback and safe export) are implemented and merged
-> into `main` (PRs #2–#8). The Phase 4 pipeline designer (P4-001–P4-007) is
-> implemented and checkpointed on `phase-4/pipeline-designer`: typed graph and
-> manual documents for a verified Telegraf 1.40.1 plugin subset, a
-> browser-local TOML preview, immutable draft/approval revisions, explicit
-> graph↔manual transitions with snapshots, and fail-closed compilation of
-> approved Phase 3 mapping references. Phase 4 is **not merged**; human PR
-> review remains required. No route deploys or restarts Telegraf, and no route
-> writes a historian. Not implemented or unverified: runtime
-> deployment/management, historical synchronization, unit scaling and tag
-> filters in mapping compilation, a UI for editing mapping pins, InfluxDB 1.x
-> coverage, production packaging and the host-agent interface. See
-> [Roadmap](docs/ROADMAP.md) and the
-> [Phase 3 gate record](docs/decisions/phase-3-schema-discovery-gate.md).
+> **Status:** Phases 0–4 are merged into `main`, including Phase 4's P4-001–P4-007 and P4-007-FU1 audit remediation. The Pipeline Designer supports typed graph and manual TOML configurations for a verified Telegraf 1.40.1 plugin subset, revisions and approval, syntax-validated manual TOML, and fail-closed compilation of supported Phase 3 mapping references. Manual syntax validation is **not** full Telegraf plugin-semantic validation, and credential detection is bounded. Pipeline mapping-pin editing, loading existing server revisions in the UI, unsupported transforms (including unit scaling and tag filters), live runtime deployment/management, historian synchronization, InfluxDB 1.x coverage, host-agent interface and production packaging remain incomplete or unverified. See [Roadmap](docs/ROADMAP.md).
 
 ## Vision
 
@@ -33,6 +16,10 @@ Telegraf Toolkit provides a unified control plane for configuring telemetry pipe
 2. **Configuration Editor:** Visual input -> processor -> output pipeline builder, with raw TOML editing, validation and rollback.
 3. **Database Synchronizer:** Drag databases, measurements, or selected fields into sync jobs. Compare counts by time block **per measurement**, mark affected blocks, selectively backfill and verify.
 4. **Canonical Registry / Taglist Mapper:** Browse measurements, fields and tags; drag into destination measurements; rename fields for canonical compliance; transform units; import/export reusable canonical schemas and mapping profiles.
+
+## Proposed future direction — Device Intelligence & Community Library
+
+A future, **not yet authorized or implemented** extension would add device-first discovery (SNMP OIDs, OPC UA nodes, Modbus model register maps and SunSpec models), selectable telemetry points, and an offline-capable community-maintained library of provenance-tracked, sanitized device profiles. See the proposed Phase 8 in the [Roadmap](docs/ROADMAP.md).
 
 ## Design commitments
 

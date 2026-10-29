@@ -475,6 +475,11 @@ func (s *Service) VerifyProfileCredentialBinding(ctx context.Context, profile fi
 		return nil
 	}
 	if s.bindings == nil {
+		if _, found, perr := s.profiles.Get(profile.ConnectionID); perr == nil && !found {
+			return registrycontract.NewSanitizedError(
+				registrycontract.CodeProfileNotFound,
+				fmt.Sprintf("Profile %q not found.", profile.ConnectionID))
+		}
 		return registrycontract.NewSanitizedError(
 			registrycontract.CodeCredentialNotBound,
 			"The profile's credential reference is not approved for its endpoint and scope.")
@@ -484,6 +489,15 @@ func (s *Service) VerifyProfileCredentialBinding(ctx context.Context, profile fi
 		return err
 	}
 	if !ok || !registrycontract.BindingMatches(binding, profile.ConnectionID, profile.Endpoint, profile.Scope) {
+		// A concurrent deletion can commit between a caller's profile read and
+		// this binding check. In that case the profile is gone, so report it as
+		// not found rather than as an unbound credential (which would surface as
+		// a spurious 403 for a request that was valid when it started).
+		if _, found, perr := s.profiles.Get(profile.ConnectionID); perr == nil && !found {
+			return registrycontract.NewSanitizedError(
+				registrycontract.CodeProfileNotFound,
+				fmt.Sprintf("Profile %q not found.", profile.ConnectionID))
+		}
 		return registrycontract.NewSanitizedError(
 			registrycontract.CodeCredentialNotBound,
 			"The profile's credential reference is not approved for its endpoint and scope.")
