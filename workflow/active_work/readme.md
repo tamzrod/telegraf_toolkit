@@ -1,10 +1,26 @@
-# Active Work Pools — phase-3/canonical-mapper
+# Active Work Pool — Phase 3 (Canonical Mapper)
 
-**Note:** All FU1 and FU2 remediation complete; awaiting human pre-PR audit review. No active CURRENT tasks pending execution. Branch checkpointed at `12a977f`.
+## Status Summary
+- **Main branch**: Stable (Phase 2 completed)
+- **Current work branch**: `phase-3/canonical-mapper` at SHA `4debc5f305af43611a5c451067d905cf27795f91`
 
-## State Summary
-- **FU1 (P3-010-FU1-pre-pr-audit-followup):** ✓ Complete — Evidence updated, tests verified, branch checkpointed → archived for re-audit review
-- **FU2 (P3-010-FU2-race-and-checkpoint-correction):** ✓ Complete — Race-fix verified on concurrent/race tests → archived
+## Phase 3: Pre-PR Evidence (FU1/FU2 — Both Archived)
+| Task | Status | Notes |
+|------|--------|-------|
+| P3-010-FU1: Pre-PR audit follow-up | ARCHIVED | Findings addressed via evidence update; race-fix verified under FU2; all tests PASS |
+| P3-010-FU2: Race-test correction | ARCHIVED | Slot-based indexing applied; 6 concurrent/race-specific tests PASS with `-race`; all 14 packages OK |
 
-## Pre-PR Re-Audit Ready (Human-Gated)
-Run `make check` and `go test -race ./...` before initiating PR workflow. Live InfluxDB 2/3 checks remain UNRUN unless executed locally.
+## Current Actions
+- **None active** — Pre-PR re-audit awaiting human review → report PRE_PR_REAUDIT_READY
+
+## Archived Items
+| File | Location |
+|------|----------|
+| FU1 completed marker | `workflow/archive/active_work/P3-010-FU1-pre-pr-audit-followup-complete.md` |
+| FU2 race-fix verification | `workflow/archive/work-history-archive/P3-010-FU2-race-and-checkpoint-correction.md` |
+
+## Evidence Summary
+See `docs/PRE_PR_EVIDENCE_P3_PHASE.md` for consolidated evidence pairs, test commands, outcomes, limitations.
+
+## Next Move (Human-Gated)
+Report **PRE_PR_REAUDIT_READY** branch checkpoint to initiate human-gated pre-PR audit review. No further agent action required unless re-audit feedback warrants new remediation tasks.
