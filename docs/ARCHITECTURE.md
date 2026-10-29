@@ -1,11 +1,6 @@
 # Architecture — Telegraf Toolkit
 
-Status: **Partially implemented.** The Phase 0 toolchain, the Phase 1 application
-shell and the Phase 2 Database Registry backend are implemented and merged into
-`main` (PRs #2/#3/#4/#5/#6). The Telegraf Manager, Configuration Editor, Canonical
-Mapper, Synchronizer, runtime control and production packaging remain design
-only. ADR-0002 and ADR-0003 are **Accepted** (2026-10-21); ADR-0004 and ADR-0005
-remain **Proposed**.
+Status: **Partially implemented.** Phases 0–4 are merged into `main`: application shell, live Database Registry/credential lifecycle, focused Canonical Mapper and focused Pipeline Designer with syntax-validated manual TOML. Phase 4 configuration approval/export is not runtime deployment. Runtime control, historian synchronization and production packaging are not implemented. ADR-0002 and ADR-0003 are **Accepted**; host-agent ADR-0004 and packaging ADR-0005 remain **Proposed**.
 
 ## Principles
 - Management plane is separate from data plane. Telegraf continues collecting if the Toolkit UI/backend is unavailable.
