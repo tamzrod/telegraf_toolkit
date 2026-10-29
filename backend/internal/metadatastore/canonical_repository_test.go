@@ -53,8 +53,8 @@ func TestCanonicalSchemaApprovedImmutableAllFields(t *testing.T) {
 	if got.State != registrycontract.CanonicalStateApproved {
 		t.Fatalf("state changed")
 	}
-	if got.ContentJSON != `{"k":"v"}` || got.Notes != "n" {
-		t.Fatalf("content changed")
+	if got.ContentJSON != `{"k":"v"}` || got.ContentHash != "h1" || got.Notes != "n" {
+		t.Fatalf("content changed: json=%s hash=%s notes=%s", got.ContentJSON, got.ContentHash, got.Notes)
 	}
 }
 
@@ -92,8 +92,8 @@ func TestMappingProfileApprovedImmutableAllFields(t *testing.T) {
 	if !ok {
 		t.Fatal("missing")
 	}
-	if got.State != registrycontract.CanonicalStateApproved || got.Notes != "n" || got.SourceConnectionID != "src" {
-		t.Fatalf("approved revision mutated")
+	if got.State != registrycontract.CanonicalStateApproved || got.Notes != "n" || got.ContentJSON != `{"m":"v"}` || got.ContentHash != "h1" || got.SourceConnectionID != "src" {
+		t.Fatalf("approved revision mutated: %+v", got)
 	}
 }
 
@@ -174,39 +174,31 @@ func TestCanonicalSchemaConcurrentApprovalVsEditRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
-	errCh := make(chan error, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		<-start
-		errCh <- repo.ApproveCanonicalSchema(context.Background(), s.SchemaID, "a1", now)
+		errs[0] = repo.ApproveCanonicalSchema(context.Background(), s.SchemaID, "a1", now)
 	}()
 	go func() {
+		defer wg.Done()
 		<-start
 		sEdit := s
 		sEdit.Notes = "race"
 		sEdit.ContentHash = "h2"
 		sEdit.ContentJSON = `{"v":2}`
-		errCh <- repo.Put(sEdit)
+		errs[1] = repo.Put(sEdit)
 	}()
 	close(start)
-	for i := 0; i < 2; i++ {
-		<-errCh
-	}
+	wg.Wait()
 	got, ok, err := repo.Get(s.SchemaID)
 	if err != nil || !ok {
 		t.Fatal(err)
 	}
-	// After race, if approved, the revision must be immutable (no post-approval changes)
-	if got.State == registrycontract.CanonicalStateApproved {
-		// The approved revision is fixed - we cannot have changes applied after it became approved
-		// Check that none of the "edit" changes made it into the approved state if approval won
-		// But if edit won first changing draft then approval approved modified draft, that's allowed as draft edit
-		// The key invariant: once approved, subsequent direct edits must fail. We already tested that above.
-		return
-	}
-	if got.State == registrycontract.CanonicalStateDraft {
-		return
-	}
-	t.Fatal("unexpected state")
+	assertCanonicalRaceSnapshot(t, repo, got, s, "race", "h2", `{"v":2}`)
+	t.Logf("approve err=%v put err=%v final state=%s hash=%s notes=%s", errs[0], errs[1], got.State, got.ContentHash, got.Notes)
 }
 
 func TestMappingProfileConcurrentApprovalVsEditRace(t *testing.T) {
@@ -223,34 +215,31 @@ func TestMappingProfileConcurrentApprovalVsEditRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
-	errCh := make(chan error, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		<-start
-		errCh <- repo.ApproveMappingProfile(context.Background(), mp.ProfileID, "a1", now)
+		errs[0] = repo.ApproveMappingProfile(context.Background(), mp.ProfileID, "a1", now)
 	}()
 	go func() {
+		defer wg.Done()
 		<-start
 		mpEdit := mp
 		mpEdit.Notes = "race"
 		mpEdit.ContentHash = "h2"
 		mpEdit.ContentJSON = `{"v":2}`
-		errCh <- repo.Put(mpEdit)
+		errs[1] = repo.Put(mpEdit)
 	}()
 	close(start)
-	for i := 0; i < 2; i++ {
-		<-errCh
-	}
+	wg.Wait()
 	got, ok, err := repo.Get(mp.ProfileID)
 	if err != nil || !ok {
 		t.Fatal(err)
 	}
-	if got.State == registrycontract.CanonicalStateApproved {
-		return
-	}
-	if got.State == registrycontract.CanonicalStateDraft {
-		return
-	}
-	t.Fatal("unexpected state")
+	assertMappingRaceSnapshot(t, repo, got, mp, "race", "h2", `{"v":2}`)
+	t.Logf("approve err=%v put err=%v final state=%s hash=%s notes=%s", errs[0], errs[1], got.State, got.ContentHash, got.Notes)
 }
 
 func TestApprovedRevisionCannotBeReplacedByInsertOrUpdateAllProtectedFields(t *testing.T) {
@@ -277,8 +266,8 @@ func TestApprovedRevisionCannotBeReplacedByInsertOrUpdateAllProtectedFields(t *t
 		t.Fatal("expected error")
 	}
 	got, _, _ := repo.Get(s.SchemaID)
-	if got.LogicalKey != "lk1" || got.ContentHash != "h1" || got.Notes != "note1" || got.ApprovedBy != "approver" {
-		t.Fatal("protected fields mutated")
+	if got.LogicalKey != "lk1" || got.ContentJSON != `{"k":"v"}` || got.ContentHash != "h1" || got.Notes != "note1" || got.ApprovedBy != "approver" || got.State != registrycontract.CanonicalStateApproved {
+		t.Fatalf("protected fields mutated: %+v", got)
 	}
 }
 
@@ -445,8 +434,28 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 	}
 	t.Logf("Final schema state: %s with content-hash %q", finalSchema.State, finalSchema.ContentHash)
 
+	if finalSchema.ContentJSON != baseSchema.ContentJSON || finalSchema.ContentHash != baseSchema.ContentHash || finalSchema.Notes != baseSchema.Notes || finalSchema.LogicalKey != baseSchema.LogicalKey {
+		t.Fatalf("concurrent schema ops changed protected content: %+v", finalSchema)
+	}
 	if finalSchema.State != registrycontract.CanonicalStateApproved && finalSchema.State != registrycontract.CanonicalStateDraft {
 		t.Fatalf("schema has invalid state after concurrent ops: %s", finalSchema.State)
+	}
+	if finalSchema.State == registrycontract.CanonicalStateApproved {
+		tamper := finalSchema
+		tamper.Notes = "tamper"
+		tamper.ContentHash = "tamper"
+		tamper.ContentJSON = `{"tamper":true}`
+		tamper.State = registrycontract.CanonicalStateDraft
+		if err := repo.Put(tamper); err == nil {
+			t.Fatal("edit after concurrent approval succeeded")
+		}
+		again, ok, err := repo.Get(baseSchema.SchemaID)
+		if err != nil || !ok {
+			t.Fatal(err)
+		}
+		if again.ContentJSON != finalSchema.ContentJSON || again.ContentHash != finalSchema.ContentHash || again.Notes != finalSchema.Notes || again.State != finalSchema.State {
+			t.Fatalf("approved schema changed after rejected edit: %+v", again)
+		}
 	}
 }
 
@@ -593,11 +602,24 @@ func TestMappingProfileDeterministicInterleaving(t *testing.T) {
 	}
 	t.Logf("State consistency verified for DeterministicInterleaving test")
 
-	// Verify edit-after-approval invariant on approved mapping profile
-	if err := repo.Put(finalMP); err == nil {
+	if !legalMappingTriple(finalMP, baseMP) {
+		t.Fatalf("mapping content/hash/notes are not a consistent attempted write: %+v", finalMP)
+	}
+	before := finalMP
+	tamper := finalMP
+	tamper.State = registrycontract.CanonicalStateDraft
+	tamper.Notes = "tamper"
+	tamper.ContentHash = "tamper"
+	tamper.ContentJSON = `{"tamper":true}`
+	if err := repo.Put(tamper); err == nil {
 		t.Fatal("editing approved MP should fail")
-	} else if !strings.Contains(err.Error(), "approved revision") && !strings.Contains(err.Error(), "immutable") {
-		t.Logf("expected edit error (got: %v)", err)
+	}
+	after, ok, err := repo.Get(baseMP.ProfileID)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	if after.State != before.State || after.ContentJSON != before.ContentJSON || after.ContentHash != before.ContentHash || after.Notes != before.Notes || after.SourceConnectionID != before.SourceConnectionID {
+		t.Fatalf("approved mapping changed after rejected edit: before=%+v after=%+v", before, after)
 	}
 }
 
@@ -663,12 +685,23 @@ func TestCanonicalSchemaDeterministicInterleaving(t *testing.T) {
 		t.Fatalf("expected approved state, got: %s", finalSchema.State)
 	}
 
-	// Verify edit-after-approval invariant on canonical schema
-	if err := repo.Put(finalSchema); err == nil {
-		t.Fatal("put to approved revision should fail")
-	} else if !strings.Contains(err.Error(), "approved revision") && !strings.Contains(err.Error(), "immutable") {
-		t.Logf("expected error, got: %v", err)
+	if !legalSchemaTriple(finalSchema, baseSchema) {
+		t.Fatalf("schema content/hash/notes are not a consistent attempted write: %+v", finalSchema)
 	}
-
-	t.Logf("Deterministic interleaving test completed. Final state: state=%s, hash=%q", finalSchema.State, finalSchema.ContentHash)
+	before := finalSchema
+	tamper := finalSchema
+	tamper.State = registrycontract.CanonicalStateDraft
+	tamper.Notes = "tamper"
+	tamper.ContentHash = "tamper"
+	tamper.ContentJSON = `{"tamper":true}`
+	if err := repo.Put(tamper); err == nil {
+		t.Fatal("put to approved revision should fail")
+	}
+	after, ok, err := repo.Get(baseSchema.SchemaID)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	if after.State != before.State || after.ContentJSON != before.ContentJSON || after.ContentHash != before.ContentHash || after.Notes != before.Notes || after.LogicalKey != before.LogicalKey {
+		t.Fatalf("approved schema changed after rejected edit: before=%+v after=%+v", before, after)
+	}
 }

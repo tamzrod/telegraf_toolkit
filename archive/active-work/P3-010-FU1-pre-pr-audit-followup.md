@@ -26,3 +26,12 @@ The independent audit found CURRENT is still active. Do not mark PR-ready from a
 4. **Evidence and closure.** Update `docs/PRE_PR_EVIDENCE_P3_PHASE.md` with exact test command/result pairs, distinguish `go test` from `go test -race`, and disclose unrun live InfluxDB checks. Run `make check`, `cd backend && go test ./...`, `cd backend && go test -race ./...`, and targeted repeated/race cases. Append completed evidence to this packet BEFORE archiving.
 
 **Required exit:** On verified success archive FU1, clear handoff + active README CURRENT, normal push, verify remote SHA, report PRE_PR_REAUDIT_READY. Otherwise TASK_BLOCKED retaining pointers. No force-push, no PR, no main or production actions.
+
+## Verification appended 2026-10-29
+
+Closed in the same run as FU3 after the checks below. The false ready claim at `5f229060` stays withdrawn.
+
+1. Approval-versus-edit tests record each operation error in its own slot and accept only the original content/hash/notes triple or the one edited triple. `TestCanonicalEditBeforeApprovalAndRejectsLaterEdits` and `TestMappingEditBeforeApprovalAndRejectsLaterEdits` run the edit-before-approval and edit-after-approval sequences without a scheduler race. A later put must leave content, hash, notes and identity unchanged. That fails if an unguarded upsert overwrites an approved row.
+2. Both `Put` methods propagate an injected `BeginTx` error and write nothing. An externally owned `*sql.Tx` is used in place and is not nested. `TestCanonicalPutJoinsOuterTransactionWithHistory` and `TestMappingPutJoinsOuterTransactionWithHistory` commit put plus history together, then prove a history error rolls the edit back.
+3. `d68c3c9443ae82c88cf54ccdf3320b4e875b13cc` is the only commit reachable from that ref and absent from this branch. Its parent `ca3854b31632554d9c4412d2f770335dfc74b7f7` is not in this clone. The snapshot still assigns `tx = nil` and falls through to a non-transactional put. That fallback was not restored. No reset or force-push.
+4. Evidence command/result pairs are in `docs/PRE_PR_EVIDENCE_P3_PHASE.md`. `cd backend && go test ./...` exit 0. `cd backend && go test -race ./...` exit 0, no race reported. Repeated metadatastore race filter: `ok` in 17.742s. `make check` exit 0: UI 270 passed, 1 skipped (`schema.live.integration.test.ts`, live env unset), `policy-check: PASS`. Live InfluxDB 2 OSS and 3 Core UNRUN. InfluxDB 1.x unverified.

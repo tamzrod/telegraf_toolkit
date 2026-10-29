@@ -1,93 +1,81 @@
-# Pre-PR evidence — Phase 3 (P3-001–P3-008)
+# Pre-PR evidence — Phase 3 (P3-001–P3-010 follow-ups)
 
-Branch: phase-3/canonical-mapper  
-Last remediation commit: see git log
+Branch: `phase-3/canonical-mapper`  
+Recorded: 2026-10-29, after P3-010-FU3.  
+The earlier `PRE_PR_REAUDIT_READY` claim at `5f229060` is withdrawn. This file records commands that were run in this closure.
 
 ## Per-edition acceptance (InfluxDB 2 OSS / 3 Core)
+
 | Check | InfluxDB 2 OSS | InfluxDB 3 Core | Evidence/Notes |
 |---|---|---|---|
-| Read-only schema discovery (schema.read) | Tested via unit/integration tests; live isolated runs not executed in this sandbox. | Same as 2 OSS. | Contracts enforced; no passthrough queries, no writes. Unknown/unsupported never treated as supported. |
-| Explicit source/destination selection | Covered by UI/API tests and contracts. | Covered by UI/API tests and contracts. | Only registered connection IDs/scope used server-side. |
-| Mapping drafts/validation | Verified by CanonicalMapperPage tests (mock/local). | Verified by CanonicalMapperPage tests. | Deterministic validation, no silent coercion. |
-| Version/save/import/export/rollback (P3-005) | Implemented with versioned schemas/profiles, immutable approved revisions, history, rollback via new revision, safe JSON. | Same. | Enforced at repo+service boundaries; transactional with history/audit. Exports contain only scope/connection identities (no secrets/URLs/creds). |
-| Permission denial / RBAC | Covered by authz/API tests. | Covered by authz/API tests. | Role checks enforced. |
-| Immutable approved revisions (F-01 fix) | Enforced at SQLite repository boundary for all protected columns; approved→draft/retired and identity/content changes rejected. | Same. | Tested via implementation + regression coverage intent; races rejected by boundary checks. |
-| Transactional history/audit + rollback (F-02 fix) | Rollback methods propagate history/audit errors; put/approve/rollback use transactions. | Same. | Atomicity enforced. |
+| Read-only schema discovery (schema.read) | UNRUN live. Unit and API tests cover the fixed GET `SHOW` path. | UNRUN live. Same tests. | No passthrough queries and no historian writes in these checks. |
+| Explicit source/destination selection | UI/API tests and contracts. | UI/API tests and contracts. | Registered connection IDs and scope stay server-side. |
+| Mapping drafts/validation | CanonicalMapperPage tests (mock/local). | Same tests. | Local validation only. |
+| Version/save/import/export/rollback (P3-005) | Repository and service tests on SQLite. | Same tests. | Approved revisions reject later puts. Exports are covered by existing secret-boundary tests. |
+| Permission denial / RBAC | authz and API tests. | Same tests. | Role checks in the suite. |
+| Immutable approved revisions | SQLite guarded `UPDATE ... WHERE state = 'draft'`, then exact field reads. | Same tests. | `TestCanonicalEditBeforeApprovalAndRejectsLaterEdits` and `TestMappingEditBeforeApprovalAndRejectsLaterEdits` assert content, hash, notes and identity after a rejected edit. |
+| Transactional history/audit + rollback | `WithinTransaction` put + history. | Same tests. | A forced history error rolls the edit back. See transaction tests below. |
 
-## Exact commands and results
-- `make check` (repo root): **PASSED** (backend fmt/vet/build, policy/secret checks, UI tests 270 passed/1 skipped)
-- `cd backend && go test ./...`: **PASSED** (all 14 packages including metadatastore, 0 failures)
-- `cd backend && make build`: **PASSED**
-- Frontend: `npm run lint`, `npm run build`, `npx vitest run` (via make check): **PASSED**
+Live InfluxDB 2 OSS and InfluxDB 3 Core were not started. InfluxDB 1.x remains unverified.
 
-## Race condition evidence documentation — FU2 remediation applied
+## Transaction proof (not inferred from `-race`)
 
-### P3-010-FU2 race-fix (slot-based indexing) summary
-```bash
-cd backend && go test -race ./...  # All packages pass: OK
+`go test -race` reports data races in the test process. It does not prove that an approved SQLite row rejects a later edit. These tests do:
+
+| Test | What it checks |
+|---|---|
+| `TestCanonicalPutOnExternalTxRollsBack` | `Put` on an externally owned `*sql.Tx` leaves `Rollback` usable. After rollback the schema row is absent. |
+| `TestMappingPutOnExternalTxRollsBack` | Same for mapping profiles. |
+| `TestCanonicalBeginTxErrorWritesNothing` | Injected `BeginTx` error is returned. No schema row is written. |
+| `TestMappingBeginTxErrorWritesNothing` | Same for mapping profiles. |
+| `TestCanonicalPutJoinsOuterTransactionWithHistory` | Put and history commit together. A later history error rolls the edit back and preserves content, hash and notes. |
+| `TestMappingPutJoinsOuterTransactionWithHistory` | Same for mapping profiles, including source connection id. |
+| `TestCanonicalEditBeforeApprovalAndRejectsLaterEdits` | Draft edit then approval stores that content, hash and notes. A later put leaves those fields and identity unchanged. |
+| `TestMappingEditBeforeApprovalAndRejectsLaterEdits` | Same for mapping profiles, including connection and scope fields. |
+
+An unguarded upsert after approval would fail the last two tests. `Put` joins an existing `*sql.Tx` and does not call `BeginTx`, `Commit` or `Rollback` on it. A real `BeginTx` failure returns before any write.
+
+## Commands and observed results (2026-10-29)
+
+All of these exited 0.
+
+`cd backend && go test ./...`
+
+```
+ok  internal/authz
+ok  internal/fixtures
+ok  internal/httpapi
+ok  internal/liveprobe
+ok  internal/metadatastore
+ok  internal/registryapi
+ok  internal/registrycontract
+ok  internal/registryservice
+ok  internal/secretstore
+ok  internal/synccontract
 ```
 
-**FU2 fix applied to:** `backend/internal/metadatastore/canonical_repository_test.go`
+`cmd/api` and `internal/version` have no test files. The command printed `?` for those two packages.
 
-**Strategy:** Distinct result slots for concurrent operations (Put vs Approve), avoiding shared state mutation. Each concurrent operation receives a unique slot/indexed channel; outcomes verified deterministically.
+`cd backend && go test -race ./...`
 
-### Race condition tests all PASS with `-race`:
+Same packages, all `ok`. metadatastore 3.875s, registryapi 4.689s, registryservice 5.187s, httpapi 1.184s. No race was reported.
 
-#### Test Results Summary:
-| Test Name | Command | Result | Notes |
-|-----------|---------|--------|-------|
-| `TestConcurrentPutApproveWithInterleavingAndFinalStateVerification` | `go test -race` | **PASS** (0.08s) | Guarded interleaving; final state verified |
-| `TestSchemaConcurrentRaceWithFinalStateVerification` | `go test -race` | **PASS** (0.09s) | Slot-based distinct indices; no race detected after fix |
-| `TestConcurrentApproveRaceConditionRecovery` | `go test -race` | **PASSED** (0.07s) | Handles concurrent approvals gracefully |
-| `TestConcurrentDistinctWritesAllSucceed` | `go test -race` | **PASS** (0.11s) | Distinct writes succeed under contention |
-| `TestConcurrentDuplicateWritesAdmitExactlyOne` | `go test -race` | **PASS** (0.08s) | Exactly one win for duplicates |
-| `TestConcurrentMixedReadersAndWriters` | `go test -race` | **PASS** (0.22s) | Readers/writers coexist safely |
+`cd backend && go test -race -count=10 -timeout 300s ./internal/metadatastore/ -run 'TestCanonical|TestMapping|TestApproved|TestConcurrent|TestSchema'`
 
-#### Evidence Pairs:
+`ok github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore 17.742s`
 
-**FU1 Finding 1 → Fixed by FU2:**
-- *Finding:* Schema and mapping approval-vs-edit tests permitted any final state, discarded errors  
-- *Evidence Before Fix:* Test exercised shared slot mutation at lines 405/419 (goroutines competing)  
-- *Fix Applied:* Slot-based indexing assigns unique indices per operation type; outcomes captured without shared mutations  
-- *Result After Fix:* **All concurrent tests PASS with `-race`**
+`make check` from the repo root ran `gofmt` check, `go vet`, `go build`, `go test ./...`, `npm ci`, `npm run lint`, `npm run build`, `npm test`, and `scripts/policy-check.sh`.
 
-**FU1 Finding 2 → Already addressed:**
-- *Finding:* `beginTx` error fallback in both canonical/Mapping Put methods  
-- *Status:* **BeginTx errors propagated correctly** at boundary; externally-owned transaction path preserved (no nested BeginTx)  
-- *Evidence:* Verified via unit tests and policy-checks
+UI result from that run: `Test Files  25 passed | 1 skipped (26)`, `Tests  270 passed | 1 skipped (271)`. The skipped file is `src/api/schema.live.integration.test.ts` because `TTK_LIVE_API_URL`, `TTK_LIVE_API_TOKEN` and `TTK_LIVE_PROFILE_ID` were unset. `policy-check: PASS (limited regex checks only)`.
 
-### Other Tests Executed with `-race`:
-All 14 backend packages pass, including:
-- `internal/authz`, `internal/fixtures`, `internal/httpapi`, `internal/liveprobe`
-- `internal/metadatastore` (all concurrent/race tests PASS)
-- `internal/registryapi`, `internal/registrycontract`, `internal/registryservice`
-- `internal/secretstore`, `internal/synccontract`
+Concurrent repository tests write each goroutine's error into its own result slot. `TestSchemaConcurrentRaceWithFinalStateVerification` keeps the original content, hash and notes. Approval-versus-edit tests accept only the original triple or the single edited triple, then reject a further edit when the row is approved.
 
-### Race-free test suite (without `-race`):
-All 14 packages pass: authz, fixtures, httpapi, liveprobe, metadatastore, registryapi, registrycontract, registryservice, secretstore, synccontract.
+## Limitations
 
----
-
-## Limitations / skips
-- Live integration against actual isolated InfluxDB 2 OSS and 3 Core instances not executed in this sandbox environment. Behavior verified by unit/integration tests, contracts and safety boundaries.
-- InfluxDB 1.x: not verified / not claimed as supported.
-- Browser visual/screen-reader checks: not re-executed here; disclose as per policy; core accessibility tests in suite passed where applicable.
-- No historian writes, no Telegraf deployment, no sync/runtime operations performed.
-
-## Reproducibility (unchanged)
-Run from repo root on Linux with Go and Node toolchain as pinned; use isolated test instances for live verification if desired.
-
----
-
-## VERDICT (Phase 3 evidence complete — FU1/FU2 remediation verified)
-
-- **Branch**: `phase-3/canonical-mapper`
-- **All functional tests status**: **PASSED** (270 tests, 1 skipped)
-- **Race detection**: **ALL PASS with `-race` flag** (FU2 slot-based indexing applied; all concurrent operations guarded)
-- **Safety boundaries**: Enforced at backend repository layer, history/audit propagated, rollbacks atomic
-- **BeginTx error handling**: Errors propagated correctly at repository boundary; no silent fallbacks
-- **Build & policy check**: PASSED (fmt/vet/build, secret/policy checks)
-- **FU1 Completion**: Pre-PR audit follow-up findings addressed; FU2 race-fix verified
-
-Work package ready for human PR review → merge on approval.
+- Live InfluxDB 2 OSS: UNRUN.
+- Live InfluxDB 3 Core: UNRUN.
+- InfluxDB 1.x: unverified.
+- No historian writes, deployment, runtime sync, or production access.
+- Browser screen-reader checks were not repeated outside the existing Vitest accessibility tests.
+- `d68c3c9443ae82c88cf54ccdf3320b4e875b13cc` is not an ancestor of this branch. Its parent object is absent from this clone. That snapshot still uses the non-transactional `BeginTx` fallback. It was not merged and its fallback was not restored.
 
