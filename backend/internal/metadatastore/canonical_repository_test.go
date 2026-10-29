@@ -2,10 +2,10 @@ package metadatastore
 
 import (
 	"context"
-	"testing"
 	"fmt"
-	"sync"
 	"strings"
+	"sync"
+	"testing"
 	"time"
 
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registrycontract"
@@ -287,10 +287,10 @@ func TestConcurrentPutApproveWithInterleavingAndFinalStateVerification(t *testin
 	repo := store.MappingProfiles()
 	now := time.Now().UTC()
 	baseMP := registrycontract.MappingProfileRevision{
-		ProfileID:         "mp-concurrent-1", LogicalKey: "lk", SourceConnectionID: "src",
+		ProfileID: "mp-concurrent-1", LogicalKey: "lk", SourceConnectionID: "src",
 		DestinationConnectionID: "dst", SourceScope: "s", DestinationScope: "d",
 		MajorVersion: 1, MinorVersion: 0, Revision: 1, State: registrycontract.CanonicalStateDraft,
-		ContentJSON:       `{"v":1}`, ContentHash: "h1", CreatedBy: "creator", CreatedAt: now, Notes: "n1",
+		ContentJSON: `{"v":1}`, ContentHash: "h1", CreatedBy: "creator", CreatedAt: now, Notes: "n1",
 	}
 
 	if err := repo.Put(baseMP); err != nil {
@@ -298,11 +298,14 @@ func TestConcurrentPutApproveWithInterleavingAndFinalStateVerification(t *testin
 	}
 
 	var wg sync.WaitGroup
-	type operation struct { name string; result error }
+	type operation struct {
+		name   string
+		result error
+	}
 	ops := make([]operation, 48)
 
 	for i := 0; i < 10; i++ {
- 		// Deterministic interleaving barrier: wait for previous iteration to complete
+		// Deterministic interleaving barrier: wait for previous iteration to complete
 		if i > 0 {
 			wg.Wait()
 		}
@@ -379,9 +382,9 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 	repo := store.CanonicalSchemas()
 	now := time.Now().UTC()
 	baseSchema := registrycontract.CanonicalSchemaRevision{
-		SchemaID:         "cs-concurrent-1", LogicalKey: "lk", MajorVersion: 1, MinorVersion: 0, Revision: 1,
-		State:             registrycontract.CanonicalStateDraft, ContentJSON: `{"k":"v"}`,
-		ContentHash:       "h-base1", CreatedBy: "creator", CreatedAt: now, Notes: "n-base1",
+		SchemaID: "cs-concurrent-1", LogicalKey: "lk", MajorVersion: 1, MinorVersion: 0, Revision: 1,
+		State: registrycontract.CanonicalStateDraft, ContentJSON: `{"k":"v"}`,
+		ContentHash: "h-base1", CreatedBy: "creator", CreatedAt: now, Notes: "n-base1",
 	}
 
 	if err := repo.Put(baseSchema); err != nil {
@@ -389,11 +392,14 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	type opResult struct { name string; putErr error }
+	type opResult struct {
+		name   string
+		putErr error
+	}
 	results := make([]opResult, 18) // 6 iterations * 3 goroutines per iteration (distinct slots)
 
 	for i := 0; i < 6; i++ {
- 		// Deterministic interleaving barrier: wait for previous iteration to complete
+		// Deterministic interleaving barrier: wait for previous iteration to complete
 		if i > 0 {
 			wg.Wait()
 		}
@@ -449,10 +455,10 @@ func TestConcurrentApproveRaceConditionRecovery(t *testing.T) {
 	repo := store.MappingProfiles()
 	now := time.Now().UTC()
 	baseMP := registrycontract.MappingProfileRevision{
-		ProfileID:         "mp-concurrent-approverace", LogicalKey: "lk", SourceConnectionID: "src",
+		ProfileID: "mp-concurrent-approverace", LogicalKey: "lk", SourceConnectionID: "src",
 		DestinationConnectionID: "dst", SourceScope: "s", DestinationScope: "d",
 		MajorVersion: 1, MinorVersion: 0, Revision: 1, State: registrycontract.CanonicalStateDraft,
-		ContentJSON:       `{"v":1}`, ContentHash: "h-base", CreatedBy: "creator", CreatedAt: now, Notes: "n-base",
+		ContentJSON: `{"v":1}`, ContentHash: "h-base", CreatedBy: "creator", CreatedAt: now, Notes: "n-base",
 	}
 
 	if err := repo.Put(baseMP); err != nil {
@@ -520,11 +526,11 @@ func TestMappingProfileDeterministicInterleaving(t *testing.T) {
 	now := time.Now().UTC()
 
 	baseMP := registrycontract.MappingProfileRevision{
-		ProfileID:         "mp-deterministic-1", LogicalKey: "lk", SourceConnectionID:   "src-mapper",
+		ProfileID: "mp-deterministic-1", LogicalKey: "lk", SourceConnectionID: "src-mapper",
 		DestinationConnectionID: "dst-mapper", SourceScope: "scope-s", DestinationScope: "scope-d",
 		MajorVersion: 1, MinorVersion: 0, Revision: 1, State: registrycontract.CanonicalStateDraft,
-		ContentJSON:       `{"base-mp":true}`, ContentHash: "h-base-mapper",
-		CreatedBy:         "mapper-creator", CreatedAt: now, Notes: "initial-mapper-notes",
+		ContentJSON: `{"base-mp":true}`, ContentHash: "h-base-mapper",
+		CreatedBy: "mapper-creator", CreatedAt: now, Notes: "initial-mapper-notes",
 	}
 
 	if err := repo.Put(baseMP); err != nil {
@@ -581,7 +587,7 @@ func TestMappingProfileDeterministicInterleaving(t *testing.T) {
 	if !ok2 || err2 != nil {
 		t.Fatal("second get failed")
 	}
-	
+
 	if finalMP.ContentHash != finalMP2.ContentHash {
 		t.Fatalf("state inconsistency detected: hash1=%q, hash2=%q", finalMP.ContentHash, finalMP2.ContentHash)
 	}
@@ -602,9 +608,9 @@ func TestCanonicalSchemaDeterministicInterleaving(t *testing.T) {
 	now := time.Now().UTC()
 
 	baseSchema := registrycontract.CanonicalSchemaRevision{
-		SchemaID:         "cs-deterministic-1", LogicalKey: "lk", MajorVersion: 1, MinorVersion: 0, Revision: 1,
-		State:             registrycontract.CanonicalStateDraft, ContentJSON: `{"base":true}`,
-		ContentHash:       "h-base-schema", CreatedBy: "creator", CreatedAt: now, Notes: "initial-notes",
+		SchemaID: "cs-deterministic-1", LogicalKey: "lk", MajorVersion: 1, MinorVersion: 0, Revision: 1,
+		State: registrycontract.CanonicalStateDraft, ContentJSON: `{"base":true}`,
+		ContentHash: "h-base-schema", CreatedBy: "creator", CreatedAt: now, Notes: "initial-notes",
 	}
 
 	if err := repo.Put(baseSchema); err != nil {
