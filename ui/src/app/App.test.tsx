@@ -132,6 +132,39 @@ describe("application shell", () => {
     );
   });
 
+  it("anchors a full-width shell and a collapsible left sidebar", async () => {
+    mockHealthyBackend();
+    const user = userEvent.setup();
+    renderApp();
+
+    const shell = document.querySelector("[data-shell='full-width']");
+    expect(shell).not.toBeNull();
+    expect(shell?.className).not.toMatch(/max-w-/);
+    expect(document.querySelector(".max-w-6xl")).not.toBeInTheDocument();
+
+    const nav = screen.getByRole("navigation", { name: /primary/i });
+    const main = screen.getByRole("main");
+    expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(main).toHaveAttribute("data-form-measure", "40rem");
+
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+    expect(collapse).toHaveAttribute("aria-controls", "app-sidebar");
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(collapse);
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(nav).toHaveClass("md:hidden");
+
+    await user.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("toggles the mobile navigation menu for narrow viewports", async () => {
     mockHealthyBackend();
     const user = userEvent.setup();

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/pipelineapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/version"
@@ -53,12 +54,12 @@ func NewHealth() Health {
 
 // Handler returns the HTTP handler for the scaffold API.
 func Handler() http.Handler {
-	return HandlerWithRegistry(nil, nil)
+	return HandlerWithRegistry(nil, nil, nil)
 }
 
 // HandlerWithRegistry returns the HTTP handler with an optional Registry
-// service. Passing nil keeps the scaffold-only surface.
-func HandlerWithRegistry(registry *registryservice.Service, api *registryapi.API) http.Handler {
+// service and an optional pipeline API. Passing nil keeps that surface off.
+func HandlerWithRegistry(registry *registryservice.Service, api *registryapi.API, pipelines *pipelineapi.API) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +107,9 @@ func HandlerWithRegistry(registry *registryservice.Service, api *registryapi.API
 	// there is no anonymously reachable registry surface.
 	if api != nil {
 		api.Register(mux)
+	}
+	if pipelines != nil {
+		pipelines.Register(mux)
 	}
 
 	return mux

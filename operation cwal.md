@@ -42,3 +42,20 @@ Autonomous **work-package execution** with verified microtask checkpoints and hu
 ## Ownership summary
 **Human:** work authorization and branch, task promotion, phase/architecture changes, privileged actions, PR initiation/review/approval/merge.  
 **Agent:** bounded implementation, evidence, verified branch checkpoint, automatic progression through already-authorized tasks, and final readiness report.
+
+
+## Hardened checkpoint and completion guardrails (all runners, including Jr Qwen)
+These checks **strengthen**, not replace, existing human authorization, scope boundaries and autonomous progression. All status claims must be grounded in the designated remote branch, not a local summary.
+
+1. **Acceptance matrix first.** For CURRENT, enumerate each acceptance criterion and its specific code change, test or inspection evidence. Passing unrelated tests or reporting a count is not proof that each criterion passes. Do not silently downgrade a requirement.
+2. **Truthful verification.** Record exact commands, exit codes, test passes/failures/skips, runtime/toolchain versions, and explicit limitations. Distinguish syntax validation from Telegraf semantic validation, mocked tests from live integration, and tests run now from previously reported runs.
+3. **Transactional checkpoint gate.** Do not claim `TASK_CHECKPOINTED` until criteria and mandated checks pass; the task is moved from `workflow/active_work/` to `archive/active-work/`; both pointers match the next authorized task; relevant changes and evidence are committed/pushed; and the **remote SHA and remote tree** confirm implementation, archive and pointers. A commit or test pass by itself is insufficient.
+4. **Protected `WORK_PACKAGE_READY`.** Require the entire authorized queue to be archived; `CURRENT: none`, `NEXT: none` and `WORK_PACKAGE_READY` in both pointer documents; package-level checks pass; remote commit and paths verified; local tree clean; unresolved limitations disclosed. Otherwise report `IN_PROGRESS` or `TASK_BLOCKED`—never `READY`.
+5. **Challenge protocol.** If a claim is questioned, stop repeating it. Re-read remote HEAD, handoff, Active Work README, CURRENT file and archive; compare each acceptance requirement. Correct inaccurate claims, then resume outstanding authorized work if within runner permissions.
+6. **Runner roles are binding.** A test-only runner may verify and report but may not checkpoint implementation without authority. An implementation runner must actually complete and checkpoint the CURRENT task. Never self-grant permissions or claim another runner's work as independently verified.
+7. **Safe failure statement.** If remote verification is unavailable, report `REMOTE_CHECKPOINT_UNVERIFIED — COMPLETION NOT CLAIMED`. If a criterion fails or required verification cannot run, report `TASK_BLOCKED` with specific evidence and preserve existing changes.
+8. **Final evidence record.** Include designated branch, full verified remote SHA, exact task name, acceptance-by-criterion PASS/FAIL, commands/results/skips, verified archive path, exact CURRENT/NEXT pointers, local tree status, and remaining limitations.
+
+**Absolute gate: NO verified remote checkpoint = NO completion. NO acceptance evidence = NO pass. NO archived task plus synchronized pointers = NO `WORK_PACKAGE_READY`.**
+
+Do not interpret these guardrails as a new CWAL implementation task or as authorization to alter an active queue; the currently designated, human-authorized task remains CURRENT until genuinely checkpointed.

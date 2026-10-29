@@ -155,6 +155,11 @@ func (s *Store) CanonicalSchemas() *CanonicalSchemaRepository {
 	return &CanonicalSchemaRepository{db: s.db}
 }
 
+// Pipelines returns the pipeline revision repository.
+func (s *Store) Pipelines() *PipelineRepository {
+	return &PipelineRepository{db: s.db}
+}
+
 func (s *Store) MappingProfiles() *MappingProfileRepository {
 	return &MappingProfileRepository{db: s.db}
 }

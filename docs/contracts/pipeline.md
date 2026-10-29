@@ -1,0 +1,316 @@
+# Pipeline configuration contract
+
+Status: **Implemented** for the focused Phase 4 domain model in
+`backend/internal/pipelinecontract`, including a read-only graph TOML preview
+and compilation of an approved mapping revision in
+`backend/internal/mappingcompile`.
+Task: P4-002, P4-004, and P4-006.
+Scope: versioned graph and manual pipeline documents, a verified Telegraf
+1.40.1 plugin subset, validation, filter evaluation, an execution plan, and
+deterministic graph-mode TOML. This contract does not open an HTTP route,
+deploy Telegraf, restart a runtime, write a historian, or resolve a secret
+value.
+
+## Authority
+
+- Product boundaries: [`IDENTITY.md`](../../IDENTITY.md).
+- Version pin: [`docs/adr/0001-official-telegraf-and-version-pinning.md`](../adr/0001-official-telegraf-and-version-pinning.md).
+  The only accepted Telegraf version in this contract is `1.40.1`.
+- Phase 4 decisions: [`docs/PHASE_4_PLAN.md`](../PHASE_4_PLAN.md).
+
+`schema_version` is `1`. `mode` is `graph` or `manual`. A document carries one
+authoritative body. Canvas `layout` coordinates are presentation and are not
+an input to the execution plan.
+
+## Catalog provenance
+
+The supported plugins and options were read from the official tag `v1.40.1`,
+which peels to commit `26b8f4478b676f4f5e5d8ce1622cdf4f6c273bda`
+(annotated tag object `c23023ec014359c536e710d3cf4aaf93dbb48e2d`,
+tagged 2026-09-21). The files below were inspected on 2026-10-29 via that tag.
+A plugin or option is supported only when it appears in this catalog.
+Candidate names are rejected.
+
+Shared behavior was taken from:
+
+| Path | What it fixes |
+| --- | --- |
+| `docs/CONFIGURATION.md` | Common plugin keys, selector and modifier filters, processor passes, aggregator `period`, `delay`, `grace`, and `drop_original` |
+| `models/filter.go` | Selector order and tagpass/tagdrop matching |
+| `filter/filter.go` | Glob wildcard characters |
+| `agent/agent.go` | Aggregator fan-out, original-metric drop, when the second processor pass starts |
+| `config/config.go` | Each processor is built twice; both skip flags cannot be true; the before-pass list is cleared when that skip is set |
+
+Plugin files:
+
+| Kind | Name | Inspected paths |
+| --- | --- | --- |
+| input | `cpu` | `plugins/inputs/cpu/README.md` |
+| input | `mem` | `plugins/inputs/mem/README.md` |
+| input | `disk` | `plugins/inputs/disk/README.md` |
+| processor | `rename` | `plugins/processors/rename/README.md` |
+| aggregator | `basicstats` | `plugins/aggregators/basicstats/README.md`, `plugins/aggregators/basicstats/basicstats.go` |
+| output | `file` | `plugins/outputs/file/README.md` |
+| output | `influxdb_v2` | `plugins/outputs/influxdb_v2/README.md` |
+
+### Supported options
+
+Common input keys: `alias`, `interval`, `name_override`, `name_prefix`,
+`name_suffix`, `tags`.
+
+`cpu`: `percpu`, `totalcpu`, `collect_cpu_time`, `report_active`, `core_tags`.
+
+`mem`: `collect_extended`.
+
+`disk`: `mount_points`, `ignore_fs`, `ignore_mount_opts`.
+
+Common processor key: `alias`. `rename` adds `replace`. Each replace entry has
+`dest` and exactly one of `measurement`, `tag`, or `field`.
+
+Common aggregator keys, all required on every aggregator instance: `period`,
+`delay`, `grace`, `drop_original`. Also `alias`, `name_override`,
+`name_prefix`, `name_suffix`.
+
+`basicstats` adds `stats`. Accepted names are the `parseStats` cases in
+`basicstats.go`: `count`, `diff`, `first`, `interval`, `last`, `max`, `mean`,
+`min`, `non_negative_diff`, `non_negative_rate`, `percent_change`, `rate`,
+`s2`, `stdev`, `sum`.
+
+Common output keys: `alias`, `name_override`, `name_prefix`, `name_suffix`.
+
+`file`: `files` and `data_format` are required. `data_format` accepts `influx`.
+Also `use_batch_format`, `rotation_interval`, `rotation_max_archives`.
+
+`influxdb_v2`: `urls`, `token`, `organization`, and `bucket` are required.
+`token` is a credential reference ID. Also `timeout`, `content_encoding`
+(`gzip` or `identity`), `influx_uint_support`, `concurrent_writes`.
+
+Omitted optional options stay omitted. The contract does not copy upstream
+defaults into the document. In particular it does not fill `basicstats.stats`
+with `count`, `min`, `max`, `mean`, `stdev`, and `s2`, and it does not fill
+`disk.ignore_fs` with the sample filesystem list.
+
+## Execution model
+
+Checked against `config.go` and `agent.go` at the commit above.
+
+- Several instances may use the same plugin. Instance `id` is the identity.
+- Inputs are independent sources in declaration order. They are not a chain.
+- Processors run in `processor_order`. That list is the sequence. Telegraf's
+  per-processor `order` integer is not a second field on the instance, so the
+  two cannot disagree. Slice position and canvas position do not reorder
+  processors.
+- With one or more aggregators, the same processor sequence runs before
+  aggregators and again after them. `skip_processors_before_aggregators` and
+  `skip_processors_after_aggregators` must be set in the document. Both cannot
+  be true. The 1.40.1 agent still fills a nil after-flag with false while
+  logging that the default will change; this contract does not inherit that
+  default.
+- When the graph has no aggregators, Telegraf starts only the before-pass.
+  The plan leaves the after-pass empty in that case.
+- Every aggregator is offered each metric, in declaration order. A filter miss
+  does not remove the metric from later aggregators. `drop_original` on any
+  aggregator that selected the metric drops the original, including when field
+  modifiers emptied it. Aggregated series are emitted on `period`. `delay` and
+  `grace` bound the window. This contract records those three durations and
+  does not simulate the window.
+- Outputs are independent writers in declaration order.
+- `global_tags` are metric tags from `CONFIGURATION.md`. They are not routes.
+
+## Filters
+
+Selector order is namepass, namedrop, tagpass, tagdrop.
+
+- A non-empty namepass list keeps measurements that match any pattern.
+- namedrop then removes matches.
+- A present tagpass table keeps a metric when any listed tag key has a value
+  matching any of its patterns. An empty tagpass table keeps nothing.
+  `models/filter.go` `ShouldTagsPass` and the tagpass example in
+  `CONFIGURATION.md` both use this OR across tag keys.
+- tagdrop then removes a metric when any listed tag matches.
+- fieldinclude / fieldexclude and taginclude / tagexclude run only after
+  selectors accept the metric. An empty field set drops the metric.
+- An input or output selector miss drops the metric for that plugin.
+- A processor or aggregator selector miss bypasses that plugin and leaves the
+  metric unchanged.
+
+Patterns accept literals, `*`, and `?`. Patterns containing `{`, `}`, `[`,
+`]`, `!`, or `\` are rejected. Telegraf compiles the wider gobwas/glob set;
+this contract refuses the extra forms instead of evaluating them differently.
+
+## TOML preview
+
+`Generate` writes Telegraf 1.40.1 TOML for a graph document that already
+passes `Validate`. `ParsePreview` reads that preview back. The pair is a
+roundtrip for graph fields. It is not an importer for arbitrary Telegraf
+configuration, and it does not convert manual mode.
+
+Checks are classified:
+
+| Class | What it means |
+| --- | --- |
+| parse | The JSON or preview TOML cannot be read as a document this package accepts. |
+| config | The document is readable and breaks a pipeline rule, including mode, order, filters, required values, and secret handling. |
+| support | The request is outside the verified 1.40.1 subset: version, plugin, option, or glob form. |
+
+Ordering is stable. Inputs, aggregators, and outputs stay in declaration
+order. Processors follow `processor_order`. Option keys follow catalog order.
+Map keys are sorted. A second `Generate` of the same document returns the same
+bytes. Layout coordinates are not written.
+
+A secret option is written only as `@{toolkit:<reference>}` where the
+reference matches Telegraf 1.40.1's secret-store name alphabet: letters,
+digits, and underscores. The package does not configure a secret store and
+does not substitute a value. A reference that uses any other character stays
+in the graph document and is refused at generation, without the reference
+being copied into the error.
+
+Representative previews from `Generate` were loaded with the official
+Telegraf 1.40.1 linux/amd64 binary (`Telegraf 1.40.1 (git: HEAD@26b8f447)`).
+The release tarball SHA256 is
+`3a6cfa0ab1b08a31687d80b3813304706280dba789348b5dad539bdbe0a72d52`.
+`telegraf --config <preview> --test --quiet` exited 0 for the golden
+secret-free fixture and for a preview that sets `basicstats` `period`,
+`delay`, `grace`, `drop_original`, and `stats` `mean` and `s2`. `--test`
+collects one local input sample. It does not install a service, restart a
+collector, or write a historian. Stdout from that sample is not retained.
+
+## Secrets
+
+`influxdb_v2.token` accepts only `secret_ref`, a credential reference ID.
+The value type has no secret field. The contract does not look up, invent, or
+echo a credential. URLs with userinfo are rejected. Manual TOML that assigns a
+non-empty `token`, `password`, `passwd`, or `secret` literal is rejected, and
+so is a credential-bearing URL. Empty assignments are not treated as values.
+Manual mode does not turn those literals into references.
+
+## Mapping compilation
+
+A graph may pin one mapping profile with `mapping.profile_id`,
+`mapping.revision`, and `mapping.content_hash`. The pin is not a copy of the
+mapping. `Validate` checks the pin shape. `Generate` and `ExecutionPlan`
+refuse a document that still carries the pin, so a preview cannot omit it.
+
+`mappingcompile` reads the pinned row and the canonical schema revision that
+row cites. It does not call the mapping or schema write methods. Compilation
+accepts only an approved mapping whose revision and content hash match the
+pin and whose cited canonical schema revision is approved.
+
+- A missing row, a draft, a retired mapping, a retired or draft schema, and
+  a pin that does not match the stored revision or hash fail closed.
+- Mapping content is schema version 1: `source_measurement`,
+  `destination_measurement`, `fields`, `tags`, and `filters`. A field
+  transform is `none` or `unit`. Unknown JSON fields are rejected, and any
+  content after the single rules object (including a trailing `]`, `}`, or
+  second value) is rejected rather than parsed as a second document.
+- A measurement, field, or tag rename with transform `none` becomes one
+  `processors.rename` instance. Its `namepass` is the source measurement, so
+  other measurements are left unchanged. The processor is prepended to
+  `processor_order` on a copy used for export and for a graph-to-manual
+  transition. The stored graph keeps the pin.
+- Identity rules add no rename entry. A mapping that changes no names
+  compiles to no processor.
+- A unit scale, a factor left on a `none` transform, any other transform
+  kind, and a tag filter fail the whole mapping. No partial processor is
+  returned. A processor filter miss does not drop a metric, and this catalog
+  has no converter, so those rules are not approximated by a rename.
+- A declared type change with transform `none` is rejected.
+- Undeclared fields and tags stay in the metric. The rules do not declare a
+  closed field set, and `fieldinclude` / `fielddrop` are outside the verified
+  catalog. Content that asks to drop them is an unknown field and is rejected.
+- Content that contains credential material is rejected, and the diagnostic
+  does not quote the content.
+
+Export and mode transition compile that copy only. They do not deploy a
+collector or write a historian.
+
+## P4-007 integrated verification (2026-10-29)
+
+Verified on `phase-4/pipeline-designer` with local Go 1.26.8, Node v24.16.0 and
+npm 11.13.0. CI pins Go 1.27.3. No live container, deployment, Telegraf
+restart, historian write or secret value was involved.
+
+| Check | Actual result |
+| --- | --- |
+| `make check` | exit 0: backend gofmt/vet/build/tests; UI lint/build; Vitest **28 files passed / 1 skipped**, **298 tests passed / 1 skipped**; `policy-check: PASS` |
+| `cd backend && go test -race -count=1 ./...` | exit 0 on two consecutive runs; every listed package `ok`, no data races |
+| `TestIntegratedAcceptanceHTTPLifecycle` | pass; design → validate → preview → save → reload → manual → approve → rollback draft → export, plus RBAC, stale generation/digest, unsupported mapping, credential rejection and mapping immutability |
+| `PipelinesPage.test.tsx` | 12/12 pass, including the save → approve flow and absence of a deploy control |
+| Headless Chrome layout capture | 1440×900: aside right of the canvas (aside left 1081, canvas right 1065, aside width 320), navigation menu hidden; 390×844: stacked full-width panels (both 24–366), menu visible; no horizontal overflow, one `h1` |
+
+The cross-layer test uses the same HTTP surface, service and
+`mappingcompile` wiring as `cmd/api` over a temporary SQLite store. It asserts
+that an unsupported mapping returns a diagnostic without quoting the mapping
+content, that the approved mapping revision is not mutated, that a viewer cannot
+save, that a configurator cannot approve, and that the success audit actions are
+recorded. Nothing is deployed.
+
+### Pre-existing race-suite flake and test-only repair
+
+`go test -race ./...` intermittently failed
+`TestConcurrentReplacementsHaveOneWinner` in
+`backend/internal/registryapi/credential_lifecycle_test.go` with
+`racing replacements = 2 wins / 0 conflicts, want 1/1`. The failure reproduced
+on untouched `origin/main` and is unrelated to Phase 4 behavior. Root cause:
+the test did not synchronize the two HTTP replacements, so they sometimes ran
+sequentially; the second attempt then observed the first attempt's committed
+envelope and both replacements legitimately succeeded, exercising no conflict.
+
+P4-007 repaired only the test setup: the fake InfluxDB listing server now holds
+each candidate validation until both candidates have arrived, so both
+observations precede either compare-and-swap. The assertions are unchanged and
+no production code was touched. Evidence: 6/10 failures before the repair,
+50/50 targeted `-race` passes after it, and two consecutive full
+`go test -race -count=1 ./...` passes. CI should still confirm the repaired test
+on the pinned Go version.
+
+### Limitations
+
+- No live InfluxDB container or schema-discovery smoke was run for P4-007; the
+  acceptance test uses approved mapping rows in a temporary store.
+- The pipeline page does not edit a mapping pin and does not display the
+  server-compiled export. Unit scaling and tag filters remain unsupported.
+- InfluxDB 1.x remains unverified.
+- The real-browser check measured layout and control presence, not
+  screen-reader behavior or visual styling.
+- The local Go toolchain differs from the CI-pinned version.
+
+## Limitations
+
+- The catalog is a subset of Telegraf 1.40.1. Plugins such as `net`, `kafka`,
+  and `influxdb` are real upstream plugins and are still rejected here.
+- Options read upstream and left unsupported in this subset include processor
+  `order` (represented by `processor_order`), `metricpass`, `namepass_separator`,
+  `namedrop_separator`, deprecated `fieldpass` / `fielddrop`, `http_headers`,
+  TLS settings, `http_proxy`, rate limits, `rotation_max_size`, and file
+  compression. `basicstats` sample text lists `variance`; the parser accepts
+  `s2` and ignores unknown names. This contract rejects `variance`.
+- `basicstats` README states that the aggregator applies no tags, so the
+  common aggregator `tags` key is not in its spec.
+- `file.data_format` accepts `influx` only. Other serializers were not modeled.
+- Filter patterns are the `*` / `?` subset described above.
+- Rename rules are validated and are not applied to metrics.
+- Aggregation time windows are recorded and are not simulated.
+- Manual TOML is stored and is not parsed into instances, processor order, or
+  layout. `Generate` and `ExecutionPlan` both refuse that conversion.
+  A non-empty credential assignment is accepted only when it is
+  `@{toolkit:<id>}` with the secret-store alphabet. Any other literal is
+  rejected.
+- Draft revisions live in the metadata store. Graph and manual are never
+  both authoritative. A mode change stores the previous document as a
+  snapshot and requires the reviewed digest. Manual TOML converts back to a
+  graph only when it round-trips through the preview dialect, or when it
+  still matches the snapshotted graph. Approved revisions are immutable.
+  Rollback inserts a new draft. Save and approve do not deploy a collector.
+- Secret-store references in generated TOML use the `toolkit` store id and the
+  underscore alphabet above. Hyphenated reference IDs remain valid in the
+  graph document and are not emitted.
+- `ParsePreview` accepts only the preview dialect. It does not load a general
+  Telegraf file, and a literal credential assignment is rejected without being
+  echoed.
+- Phase 4 authors configuration artifacts only. Nothing in this package
+  deploys a collector or writes a database.
+- Mapping compilation reads approved revisions and does not change them.
+  The pipelines page does not yet edit a mapping pin. Unit scaling and tag
+  filters remain unsupported because the verified processor subset cannot
+  represent them. InfluxDB 1.x remains unverified.

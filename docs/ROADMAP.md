@@ -1,6 +1,6 @@
 # Telegraf Toolkit — Development Roadmap
 
-**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 documentation reconciliation (P3-001) is complete, the authorized schema-discovery read path is implemented by P3-002 (2026-10-26), and the read-only Canonical Mapper schema browser is implemented by P3-003 (2026-10-26) against the pinned InfluxDB 2 OSS / 3 Core containers. Mapping drafts, validation, versioned persistence/export and InfluxDB 1.x coverage are not implemented; P3-003 is checkpointed on `phase-3/canonical-mapper` and is not merged.
+**Status:** Phase 0 engineering foundation and Phase 1 shell merged via PRs #2/#3; Phase 2 mock/interface Registry merged via PR #4. Real isolated InfluxDB 2 OSS / InfluxDB 3 Core testing and repeatability verification merged via PR #5 (TEST-001/TEST-002). The operational Phase 2 Registry **backend** merged via PR #6 on 2026-10-21 (P2L-001–P2L-007): persistent SQLite metadata store, envelope-encrypted credential store, server-authorized API, read-only live probing with pinned-peer/SSRF controls, administrator-only credential binding, and a **partial** browser UI (live listing and read-only probing). Browser profile create/delete and the administrator-only credential lifecycle are delivered (P2C-004–P2C-008); a full evidence-based per-capability matrix and InfluxDB 1.x coverage remain outstanding. The Phase 2 completion workstream P2C-001–P2C-008 was merged into `main` by PR #7. Phase 3 (P3-001–P3-010) is implemented and merged into `main` by PR #8: authorized measurement-level metadata read, read-only Canonical Mapper schema browser, local mapping drafts/validation, and versioned canonical schemas and mapping profiles with approval/history/rollback and safe export. InfluxDB 1.x coverage remains outstanding.
 **Authority:** [IDENTITY.md](../IDENTITY.md) defines product scope, architecture invariants and initial delivery order. This roadmap tracks delivery, not execution authorization.
 
 A checked item reflects repository evidence, not intent. Proposed features and mock workflows are never presented as working connections, deployed runtimes or verified historian reconciliation.
@@ -12,8 +12,8 @@ A checked item reflects repository evidence, not intent. Proposed features and m
 | 0 | Repository and engineering foundation | Engineering scaffold merged; ADR-0002/0003 accepted for single-host Registry on 2026-10-21; ADR-0004/0005 still Proposed |
 | 1 | Application shell and labeled mock workflows | Integrated into `main` via PR #3 |
 | 2 | Database Registry and credential references | Mock/interface scope merged in PR #4; isolated InfluxDB 2/3 tests merged in PR #5; operational live Registry backend merged in PR #6 (P2L-001–P2L-007); completion workstream merged in PR #7 (P2C-001–P2C-008, including browser profile and credential writes); per-capability evidence matrix and InfluxDB 1.x coverage remain |
-| 3 | Dual-database Canonical Registry / Taglist Mapper | Documentation reconciliation complete (P3-001); authorized measurement-level GET metadata read implemented and verified on the pinned InfluxDB 2 OSS / 3 Core containers (P3-002); read-only dual-profile schema browser implemented (P3-003, branch checkpoint); mapping drafts/validation/persistence and 1.x coverage not implemented |
-| 4 | Visual Pipeline Designer and TOML validation | Not started |
+| 3 | Dual-database Canonical Registry / Taglist Mapper | Complete and merged via PR #8 (P3-001–P3-010): authorized measurement-level GET metadata read verified on the pinned InfluxDB 2 OSS / 3 Core containers (P3-002), read-only dual-profile schema browser (P3-003), mapping drafts/validation (P3-004), and versioned canonical schemas and mapping profiles with approval/history/rollback and safe export (P3-005); integrated acceptance P3-006; InfluxDB 1.x coverage remains outstanding |
+| 4 | Visual Pipeline Designer and TOML validation | Implemented and checkpointed on `phase-4/pipeline-designer` (P4-001–P4-007); not merged |
 | 5 | Isolated Telegraf Runtime Manager | Not started |
 | 6 | Independent historian synchronizer and block explorer | Not started |
 | 7 | Production security, interoperability and packaging validation | Not started |
@@ -104,10 +104,10 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 
 - [x] Require explicit **Source Database** and **Destination Database** selection, including scope, before schema browsing. **P3-003:** both sides are native selects; the same profile is refused; an ID that disappears is reported.
 - [x] Browse actual source and destination measurements, field keys and tag keys as distinct types, with cache invalidation on connection/scope changes. **P3-003:** live reads use the P3-002 fixed GET routes under `schema.read`; loading/empty/permission/unknown/unsupported/truncated/stale are distinct; query keys include connection + canonical scope (and measurement) and a selection/token/mode change cancels and drops the affected answers. Mock mode is labeled and never a live fallback.
-- [ ] Create editable drag-and-drop mapping drafts for measurement/field/tag names, tag values, filters and explicit unit transforms.
-- [ ] Validate types, destination collisions and canonical contracts with sample-point previews.
-- [ ] Version and import/export canonical schemas separately from source-specific mapping profiles; exclude secrets.
-- [ ] Save profiles without deploying pipelines or starting historical synchronization.
+- [x] Create editable drag-and-drop mapping drafts for measurement/field/tag names, tag values, filters and explicit unit transforms. **P3-004:** local, in-memory draft over one source and one destination measurement, with controlled drag/drop and keyboard alternatives; persisted and versioned by P3-005.
+- [x] Validate types, destination collisions and canonical contracts with sample-point previews. **P3-004:** deterministic validation and a text-only mapping-plan preview; no sample-point query is made because the query dialect remains unproven.
+- [x] Version and import/export canonical schemas separately from source-specific mapping profiles; exclude secrets. **P3-005:** separate versioned resources, immutable approved revisions, transactional SQLite store with RBAC/audit, and deterministic JSON import/export that excludes credentials, tokens, references and endpoints.
+- [x] Save profiles without deploying pipelines or starting historical synchronization. **P3-005:** saves metadata and audit rows only; no deployment, Telegraf process, historian write or sync.
 
 **Exit criteria:** source/destination switching, drafts, validation, save/rollback and portable artifacts pass tests. Shared mapping semantics are specified for both live data and backfill.
 
@@ -117,13 +117,23 @@ P3-001 added a correction to the "POST-only query" premise: a read-only GET surv
 
 ## Phase 4 — Visual Pipeline Designer and TOML validation
 
-- [ ] Build input → processor → output graph editing, keyboard alternatives and plugin configuration panels.
-- [ ] Discover and validate version-specific official Telegraf plugin settings, starting with 1.40.1.
-- [ ] Generate/review native TOML, diffs and revisions without leaking secrets.
-- [ ] Support draft, validation and approved apply/rollback semantics without silently changing a live runtime.
-- [ ] Verify mapping compilation behavior against Phase 3 contracts.
+- [x] Build input → processor → output graph editing, keyboard alternatives and plugin configuration panels.
+- [x] Discover and validate version-specific official Telegraf plugin settings, starting with 1.40.1.
+- [x] Generate/review native TOML, diffs and revisions without leaking secrets.
+- [x] Support draft, validation and approved apply/rollback semantics without silently changing a live runtime.
+- [x] Verify mapping compilation behavior against Phase 3 contracts.
 
 **Exit criteria:** representative plugin configurations produce tested TOML; invalid configurations are rejected; saving remains distinct from deployment.
+
+> **Status (P4-001–P4-007, 2026-10-29):** Phase 4 is implemented and
+> checkpointed on `phase-4/pipeline-designer`, not merged. The checked items
+> cover the verified plugin subset and configuration-artifact lifecycle only:
+> catalog editing, deterministic read-only TOML preview, draft/approval/history
+> and graph↔manual snapshot transitions, plus fail-closed compilation of
+> approved Phase 3 mapping references. The pipeline page does not edit a mapping
+> pin, and unit scaling and tag filters remain unsupported. No phase deploys a
+> runtime, restarts Telegraf or writes a historian; those remain Phase 5/6 work.
+> Human PR review and merge are pending.
 
 ## Phase 5 — Isolated Telegraf Runtime Manager
 

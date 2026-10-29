@@ -8,3 +8,16 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+/* The shell is full width. Individual fields stay within a readable measure. */
+main[data-form-measure] :is(input, select, textarea):not(
+  [type="checkbox"],
+  [type="radio"],
+  [type="button"],
+  [type="submit"],
+  [type="reset"],
+  [type="hidden"],
+  [type="file"]
+) {
+  max-width: 40rem;
+}

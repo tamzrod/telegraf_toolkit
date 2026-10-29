@@ -55,7 +55,7 @@ export class ApiError extends Error {
 
 export type RequestOptions = {
   signal?: AbortSignal;
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
 };
 
@@ -362,5 +362,129 @@ export async function revokeCredential(
     `/registry/credentials/${encodeURIComponent(credentialRefId)}`,
     acceptsAnyBody,
     { signal, method: "DELETE" },
+  );
+}
+
+/** A stored pipeline revision. `deployed` is false because these routes never deploy. */
+export type PipelineRevisionPayload = {
+  pipeline_id: string;
+  revision_id: string;
+  revision: number;
+  state: "draft" | "approved";
+  mode: "graph" | "manual";
+  generation: number;
+  deployed: false;
+  export_toml?: string;
+};
+
+export type PipelineTransitionReview = {
+  from_mode: "graph" | "manual";
+  to_mode: "graph" | "manual";
+  current_text: string;
+  proposed_text: string;
+  digest: string;
+  deployed: false;
+};
+
+function isPipelineRevisionPayload(value: unknown): value is PipelineRevisionPayload {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    row.deployed === false &&
+    typeof row.pipeline_id === "string" &&
+    typeof row.revision_id === "string" &&
+    typeof row.revision === "number" &&
+    (row.state === "draft" || row.state === "approved") &&
+    (row.mode === "graph" || row.mode === "manual") &&
+    typeof row.generation === "number"
+  );
+}
+
+function isPipelineTransitionReview(value: unknown): value is PipelineTransitionReview {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    row.deployed === false &&
+    (row.from_mode === "graph" || row.from_mode === "manual") &&
+    (row.to_mode === "graph" || row.to_mode === "manual") &&
+    typeof row.current_text === "string" &&
+    typeof row.proposed_text === "string" &&
+    typeof row.digest === "string"
+  );
+}
+
+/** Creates an empty graph draft. The draft is not deployed. */
+export function createPipelineRevision(signal?: AbortSignal): Promise<PipelineRevisionPayload> {
+  return requestJson("/pipelines", isPipelineRevisionPayload, { method: "POST", signal });
+}
+
+/** Replaces a draft document without changing its mode. */
+export function savePipelineRevision(
+  pipelineId: string,
+  revision: number,
+  expectedGeneration: number,
+  document: unknown,
+  signal?: AbortSignal,
+): Promise<PipelineRevisionPayload> {
+  return requestJson(
+    `/pipelines/${encodeURIComponent(pipelineId)}/revisions/${revision}`,
+    isPipelineRevisionPayload,
+    {
+      method: "PUT",
+      signal,
+      body: { expected_generation: expectedGeneration, document },
+    },
+  );
+}
+
+/** Returns the difference a mode change would write. */
+export function previewPipelineTransition(
+  pipelineId: string,
+  revision: number,
+  targetMode: "graph" | "manual" | "snapshot",
+  signal?: AbortSignal,
+): Promise<PipelineTransitionReview> {
+  return requestJson(
+    `/pipelines/${encodeURIComponent(pipelineId)}/revisions/${revision}/transition-preview`,
+    isPipelineTransitionReview,
+    { method: "POST", signal, body: { target_mode: targetMode } },
+  );
+}
+
+/** Writes a reviewed mode change. */
+export function commitPipelineTransition(
+  pipelineId: string,
+  revision: number,
+  expectedGeneration: number,
+  targetMode: "graph" | "manual",
+  digest: string,
+  signal?: AbortSignal,
+): Promise<PipelineRevisionPayload> {
+  return requestJson(
+    `/pipelines/${encodeURIComponent(pipelineId)}/revisions/${revision}/transition`,
+    isPipelineRevisionPayload,
+    {
+      method: "POST",
+      signal,
+      body: { expected_generation: expectedGeneration, target_mode: targetMode, digest },
+    },
+  );
+}
+
+/** Approves a draft. Approval does not deploy the revision. */
+export function approvePipelineRevision(
+  pipelineId: string,
+  revision: number,
+  expectedGeneration: number,
+  signal?: AbortSignal,
+): Promise<PipelineRevisionPayload> {
+  return requestJson(
+    `/pipelines/${encodeURIComponent(pipelineId)}/revisions/${revision}/approve`,
+    isPipelineRevisionPayload,
+    { method: "POST", signal, body: { expected_generation: expectedGeneration } },
   );
 }

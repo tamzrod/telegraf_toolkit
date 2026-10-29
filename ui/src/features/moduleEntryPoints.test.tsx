@@ -41,11 +41,13 @@ vi.spyOn(globalThis, "fetch").mockResolvedValue(
 
 describe("feature module entry points", () => {
   const nonOverviewModules = MODULES.filter((module) => module.path !== "/");
-  // Databases gained an authorized, mock-only Phase 2 registry workflow and
-  // Canonical Mapper gained the read-only P3-003 schema browser, so neither is
-  // an inert shell. Their safety boundaries are asserted separately.
+  // Databases, Canonical Mapper and Pipelines have authorized partial pages.
+  // Their boundaries are asserted in their own feature tests.
   const inertModules = nonOverviewModules.filter(
-    (module) => module.id !== "databases" && module.id !== "canonical-mapper",
+    (module) =>
+      module.id !== "databases" &&
+      module.id !== "canonical-mapper" &&
+      module.id !== "pipelines",
   );
 
   it("registers exactly the eight primary areas", () => {
@@ -130,10 +132,15 @@ describe("feature module entry points", () => {
     expect(scaffoldModules.map((module) => module.id)).toEqual(["overview"]);
   });
 
-  it("labels Databases and Canonical Mapper as partially implemented, not live", () => {
-    const databases = MODULES.find((module) => module.id === "databases");
-    expect(databases?.status).toBe("partial");
-    const canonical = MODULES.find((module) => module.id === "canonical-mapper");
-    expect(canonical?.status).toBe("partial");
+  it("labels the partial modules without calling them live", () => {
+    expect(MODULES.find((module) => module.id === "databases")?.status).toBe(
+      "partial",
+    );
+    expect(
+      MODULES.find((module) => module.id === "canonical-mapper")?.status,
+    ).toBe("partial");
+    expect(MODULES.find((module) => module.id === "pipelines")?.status).toBe(
+      "partial",
+    );
   });
 });

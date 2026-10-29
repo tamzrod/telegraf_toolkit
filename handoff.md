@@ -1,8 +1,8 @@
 # HANDOFF — Operation CWAL
 
-**STATE:** AWAITING HUMAN REVIEW
-**BRANCH:** `phase-3/canonical-mapper`
+**STATE:** WORK_PACKAGE_READY
+**BRANCH:** `phase-4/pipeline-designer`
 **CURRENT:** none
 **NEXT:** none
 
-P3-010-FU3, P3-010-FU2 and P3-010-FU1 are archived under `archive/active-work/` after the 2026-10-29 checks in `docs/PRE_PR_EVIDENCE_P3_PHASE.md`. No authorized task remains. PRE_PR_REAUDIT_READY for a separate human review. Human controls any pull request. No force push or main changes.
+P4-001–P4-007 and the human-authorized P4-007-FU1 follow-up are archived. P4-007-FU1 passed targeted and package-level checks on the named branch. This is a verified branch checkpoint, not integration: no PR was opened and `main` was not modified. Human PR review, approval and merge remain required. No deployment, restart, historian write or credential exposure was performed.

@@ -45,7 +45,7 @@ func TestRegistryDataRoutesRequireAuthentication(t *testing.T) {
 		t.Fatalf("seed reference: %v", err)
 	}
 
-	srv := httptest.NewServer(HandlerWithRegistry(service, registryapi.New(service, authenticator)))
+	srv := httptest.NewServer(HandlerWithRegistry(service, registryapi.New(service, authenticator), nil))
 	defer srv.Close()
 
 	// Anonymous list is rejected.

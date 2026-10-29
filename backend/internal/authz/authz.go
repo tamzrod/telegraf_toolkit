@@ -53,6 +53,11 @@ const (
 	PermCanonicalWrite Permission = "canonical.write"
 	PermMappingRead    Permission = "mapping.read"
 	PermMappingWrite   Permission = "mapping.write"
+	// Pipeline permissions are configuration only. They do not authorize a
+	// deploy, a runtime restart, or a historian write.
+	PermPipelineRead    Permission = "pipeline.read"
+	PermPipelineWrite   Permission = "pipeline.write"
+	PermPipelineApprove Permission = "pipeline.approve"
 )
 
 // rolePermissions maps a role to its granted permissions. The map is the single
@@ -65,13 +70,15 @@ const (
 // principal's stored secret to a profile it controls (P2L-007).
 var rolePermissions = map[Role]map[Permission]bool{
 	RoleViewer: {
-		PermProfileRead: true,
+		PermProfileRead:  true,
+		PermPipelineRead: true,
 	},
 	RoleOperator: {
 		PermProfileRead:    true,
 		PermProfileProbe:   true,
 		PermSchemaRead:     true,
 		PermCredentialRead: true,
+		PermPipelineRead:   true,
 	},
 	RoleConfigurator: {
 		PermProfileRead:    true,
@@ -79,6 +86,8 @@ var rolePermissions = map[Role]map[Permission]bool{
 		PermProfileProbe:   true,
 		PermSchemaRead:     true,
 		PermCredentialRead: true,
+		PermPipelineRead:   true,
+		PermPipelineWrite:  true,
 	},
 	RoleAdministrator: {
 		PermProfileRead:       true,
@@ -94,6 +103,9 @@ var rolePermissions = map[Role]map[Permission]bool{
 		PermCanonicalWrite:    true,
 		PermMappingRead:       true,
 		PermMappingWrite:      true,
+		PermPipelineRead:      true,
+		PermPipelineWrite:     true,
+		PermPipelineApprove:   true,
 	},
 }
 

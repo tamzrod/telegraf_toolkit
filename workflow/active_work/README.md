@@ -1,8 +1,8 @@
-# Active Work
+# Active Work — Phase 4 audit follow-up
 
-**STATE:** AWAITING HUMAN REVIEW
-**BRANCH:** `phase-3/canonical-mapper`
+**STATE:** WORK_PACKAGE_READY
+**BRANCH:** `phase-4/pipeline-designer`
 **CURRENT:** none
 **NEXT:** none
 
-P3-010-FU3, P3-010-FU2 and P3-010-FU1 are archived under `archive/active-work/`. No authorized task remains. `operation cwal.md` governs. Human controls any pull request.
+P4-007-FU1 is archived under `archive/active-work/` after passing targeted and package-level checks. No further authorized task remains. The branch checkpoint is not integrated; PR creation, review, approval and merge are human-only. No deployment or `main` modification was performed.

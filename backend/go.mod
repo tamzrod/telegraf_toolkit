@@ -2,12 +2,17 @@ module github.com/tamzrod/telegraf_toolkit/backend
 
 go 1.27.3
 
-require modernc.org/sqlite v1.60.1
+require (
+	github.com/influxdata/toml v0.0.0-20251106153700-c381e153d076
+	modernc.org/sqlite v1.60.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sys v0.48.0 // indirect

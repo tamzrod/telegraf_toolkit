@@ -1,9 +1,10 @@
 # Developer setup and isolated fixtures
 
-This guide covers reproducible local setup for the Telegraf Toolkit Phase 0
-scaffold. Everything runs **offline with isolated fixtures**: no database
+This guide covers reproducible local setup for the Telegraf Toolkit through
+Phase 4. Everything runs **offline with isolated fixtures**: no database
 credentials, live historian endpoints, Docker socket access or production
-runtime operations are used or required.
+runtime operations are used or required. Optional live checks are skipped unless
+their environment variables are set explicitly.
 
 ## Prerequisites (pinned)
 
@@ -107,13 +108,50 @@ cd backend && go test ./...
 cd ui && npm test
 ```
 
+## Pipeline designer and mapping coverage
+
+Backend (`backend/internal/pipelinecontract`, `mappingcompile`,
+`pipelineservice`, `pipelineapi`):
+
+- Typed graph and manual documents are validated against a verified Telegraf
+  1.40.1 plugin subset, then encoded as deterministic TOML. Graph TOML cannot
+  be generated while an unresolved mapping pin remains.
+- `mappingcompile` resolves only an approved pinned mapping revision and its
+  approved canonical schema revision. Missing, draft, retired, stale or
+  hash-mismatched references fail closed. Unit scaling, tag filters, unsupported
+  transforms and unknown JSON fields return a diagnostic; the compiler never
+  approximates them or mutates the stored mapping.
+- The P4-007 acceptance test drives the HTTP surface with the same compiler
+  wiring as `cmd/api`: RBAC, design validation, save/reload, stale generation,
+  graph-to-manual transition, approval, rollback draft, audit, credential
+  rejection and approved-mapping immutability.
+- Unit and integrated tests use a temporary metadata store. They do not contact
+  a real mapping store, deploy Telegraf or write a historian.
+
+Frontend (`ui/src/features/pipelines`):
+
+- The page edits the supported catalog, keeps canvas coordinates out of
+  processor order, generates a browser-local read-only TOML preview, reviews
+  graph/manual transitions and sends save/approve requests. It does not edit a
+  mapping pin and does not display the server-compiled export.
+- jsdom does not apply Tailwind CSS or media queries, so tests assert layout
+  classes and landmarks rather than rendered geometry. Verify wide/narrow
+  layout manually or with a real browser.
+
+Unsupported or unverified in Phase 4: production deployment/restart, historian
+writes, synchronization, unit and tag-filter mapping compilation, mapping-pin
+editing in the UI, InfluxDB 1.x and non-Linux platforms.
+
 ## CI without external services
 
 `.github/workflows/ci.yml` runs backend, frontend and policy jobs. It needs only
 the pinned Go and Node toolchains and the committed lockfile. No database,
-Docker or network service is started, so CI exercises the fixtures only. This is
-deliberate: the scaffold has no live integration, and the checks do not claim
-integration coverage.
+Docker or network service is started, so CI exercises unit and HTTP acceptance
+tests against temporary stores only. Live container checks and
+`src/api/schema.live.integration.test.ts` are not run by default; that test is
+skipped unless `TTK_LIVE_API_URL`, `TTK_LIVE_API_TOKEN` and
+`TTK_LIVE_PROFILE_ID` are supplied by an isolated harness. CI does not claim
+live integration coverage.
 
 ## Policy check scope and limitations
 
@@ -200,13 +238,18 @@ exists (see [`LIVE_PROBING.md`](LIVE_PROBING.md)); it performs GET requests only
 and never writes to a historian. The host-agent interface and packaging
 remain **Proposed** ADRs (`docs/adr/0004`–`0005`), not implemented.
 
+The Phase 4 pipeline contract, mapping compiler, revision service and
+`/api/v1/pipelines` routes are implemented and checkpointed on
+`phase-4/pipeline-designer`, not merged. They write configuration metadata and
+audit rows only; they do not deploy, restart or write a historian.
+
 The backend accepts three optional flags: `-store` (metadata DB path), `-key-file`
 (master key for the secret store) and `-token-file` (authentication tokens). With
-no token file the Registry data routes are not registered, so there is no
-anonymously reachable Registry surface.
+no token file the Registry and pipeline data routes are not registered, so there
+is no anonymously reachable data surface.
 
 The token file and the master key file must be **owner-only (0600)**; a
 group- or other-readable file is refused at startup. On a filesystem that
 reports no POSIX permission bits (Windows), both files are refused, the
-Registry data routes stay unregistered and the secret store stays unattached —
-run the Registry locally on Linux.
+Registry and pipeline data routes stay unregistered and the secret store stays
+unattached — run the Registry locally on Linux.

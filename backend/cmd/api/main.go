@@ -21,7 +21,10 @@ import (
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/httpapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/mappingcompile"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/pipelineapi"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/pipelineservice"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/registryservice"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/secretstore"
@@ -41,12 +44,13 @@ func main() {
 	allowTestProbe := flag.Bool("allow-test-probe-policy", false, "allow the loopback/insecure-TLS capability-probe policy (isolated test harness only; never a production default)")
 	flag.Parse()
 
-	registry := openRegistry(*storePath, *keyPath)
+	registry, store := openRegistry(*storePath, *keyPath)
 	api := openRegistryAPI(registry, *tokenPath, *allowTestProbe)
+	pipelines := openPipelineAPI(store, *tokenPath)
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           httpapi.HandlerWithRegistry(registry, api),
+		Handler:           httpapi.HandlerWithRegistry(registry, api, pipelines),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -77,14 +81,14 @@ func main() {
 // store or resolve a credential value. The key is never read from an
 // environment variable, a request or a command-line value (only its path is a
 // flag), matching ADR-0003.
-func openRegistry(storePath, keyPath string) *registryservice.Service {
+func openRegistry(storePath, keyPath string) (*registryservice.Service, *metadatastore.Store) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	store, err := metadatastore.Open(ctx, metadatastore.Options{Path: storePath})
 	if err != nil {
 		log.Printf("metadata store unavailable (%s): %v", storePath, err)
-		return nil
+		return nil, nil
 	}
 	log.Printf("metadata store ready at %s (schema version %d)", storePath, metadatastore.SchemaVersion())
 
@@ -92,7 +96,22 @@ func openRegistry(storePath, keyPath string) *registryservice.Service {
 		WithCredentialBindings(store.CredentialBindings()).
 		WithCanonicalSchemas(store.CanonicalSchemas(), store.MappingProfiles(), store.RevisionHistory())
 	attachSecretStore(service, store, keyPath)
-	return service
+	return service, store
+}
+
+func openPipelineAPI(store *metadatastore.Store, tokenPath string) *pipelineapi.API {
+	if store == nil || tokenPath == "" {
+		return nil
+	}
+	authenticator, err := authz.LoadTokenFile(tokenPath)
+	if err != nil {
+		log.Printf("pipeline routes disabled: authentication token file unavailable")
+		return nil
+	}
+	log.Printf("pipeline revision routes ready")
+	service := pipelineservice.New(store.Pipelines())
+	service.SetMappingCompiler(mappingcompile.New(store.MappingProfiles(), store.CanonicalSchemas()))
+	return pipelineapi.New(service, authenticator)
 }
 
 // attachSecretStore loads the master key and attaches the envelope-encrypted

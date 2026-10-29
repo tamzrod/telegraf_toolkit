@@ -154,6 +154,7 @@ const (
 	TargetCanonicalSchema TargetKind = "canonical_schema"
 	TargetMappingProfile  TargetKind = "mapping_profile"
 	TargetRuntime         TargetKind = "runtime"
+	TargetPipeline        TargetKind = "pipeline"
 )
 
 // Outcome is the result of an audited action.
