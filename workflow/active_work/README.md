@@ -1,8 +1,8 @@
 # Active Work
 
-**STATE:** ACTIVE
+**STATE:** AWAITING HUMAN REVIEW
 **BRANCH:** `phase-3/canonical-mapper`
-**CURRENT:** `UI-001-single-field-inline-edit.md`
+**CURRENT:** none
 **NEXT:** none
 
-Follow `operation cwal.md`. Locate the pictured PPC/VRE UI in this repository before editing; if missing, report TASK_BLOCKED instead of creating a substitute.
+P3-010-FU3, P3-010-FU2 and P3-010-FU1 are archived under `archive/active-work/`. No authorized task remains. `operation cwal.md` governs. Human controls any pull request.
