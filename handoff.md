@@ -1,12 +1,8 @@
 # HANDOFF — Operation CWAL
 
-**STATE:** AWAITING HUMAN REVIEW (WORK_PACKAGE_READY)
+**STATE:** AUTHORIZED — EXECUTE AUTONOMOUSLY
 **BRANCH:** `phase-4/pipeline-designer`
-**CURRENT:** none
+**CURRENT:** `P4-007-FU1-pre-pr-validation-and-ui-safety.md`
 **NEXT:** none
 
-P4-001 through P4-007 are archived under `archive/active-work/`. No authorized
-task remains. The Phase 4 work package is verified and checkpointed on the work
-branch, not merged: see `archive/active-work/P4-007-integrated-acceptance.md`.
-Human PR review and merge remain required. No force push, `main` modification,
-runtime deployment, historian write or scope expansion occurred.
+P4-001–P4-007 remain archived. One human-authorized targeted follow-up is active following the independent Phase 4 pre-PR audit. Execute P4-007-FU1 autonomously under `operation cwal.md`; after actual verification, archive, commit, push, and confirm the remote checkpoint. Then clear both pointers and report `WORK_PACKAGE_READY`. No PR, merge, force push, `main` modifications, deployment or historian writes.
