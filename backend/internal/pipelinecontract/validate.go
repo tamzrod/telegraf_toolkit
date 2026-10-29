@@ -114,12 +114,44 @@ func validateGraph(doc Document) error {
 	if err := validateProcessorOrder(graph.ProcessorOrder, processors); err != nil {
 		return err
 	}
+	if err := validateMappingRef(graph.Mapping); err != nil {
+		return err
+	}
 	if doc.Layout != nil {
 		if err := validateLayout(*doc.Layout, ids); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validateMappingRef(ref *MappingRef) error {
+	if ref == nil {
+		return nil
+	}
+	if ref.Revision <= 0 {
+		return contractError(CodeInvalidDocument, "mapping revision must be pinned")
+	}
+	if err := validatePlainText(ref.ProfileID, true); err != nil {
+		return contractError(CodeInvalidDocument, "mapping profile id is invalid")
+	}
+	if err := validatePlainText(ref.ContentHash, true); err != nil {
+		return contractError(CodeInvalidDocument, "mapping content hash is invalid")
+	}
+	if containsCredentialMarker(ref.ProfileID) || containsCredentialMarker(ref.ContentHash) {
+		return contractError(CodeSecretMaterial, "mapping reference rejects credential material")
+	}
+	return nil
+}
+
+func containsCredentialMarker(value string) bool {
+	blob := strings.ToLower(value)
+	for _, marker := range []string{"password", "passwd", "token", "apikey", "api_key", "secret", "bearer", "authorization"} {
+		if strings.Contains(blob, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateProcessorOrder(order, processors []string) error {

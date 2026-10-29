@@ -21,6 +21,7 @@ import (
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/authz"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/httpapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/liveprobe"
+	"github.com/tamzrod/telegraf_toolkit/backend/internal/mappingcompile"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/metadatastore"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/pipelineapi"
 	"github.com/tamzrod/telegraf_toolkit/backend/internal/pipelineservice"
@@ -108,7 +109,9 @@ func openPipelineAPI(store *metadatastore.Store, tokenPath string) *pipelineapi.
 		return nil
 	}
 	log.Printf("pipeline revision routes ready")
-	return pipelineapi.New(pipelineservice.New(store.Pipelines()), authenticator)
+	service := pipelineservice.New(store.Pipelines())
+	service.SetMappingCompiler(mappingcompile.New(store.MappingProfiles(), store.CanonicalSchemas()))
+	return pipelineapi.New(service, authenticator)
 }
 
 // attachSecretStore loads the master key and attaches the envelope-encrypted

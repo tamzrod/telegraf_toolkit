@@ -39,10 +39,29 @@ type Review struct {
 	Digest       string
 }
 
+// MappingCompiler resolves an approved mapping pin into processors.
+// Implementations must not modify mapping rows.
+type MappingCompiler interface {
+	Prepare(ctx context.Context, doc pipelinecontract.Document) (pipelinecontract.Document, error)
+}
+
 // Service is the pipeline revision lifecycle.
 type Service struct {
 	revisions *metadatastore.PipelineRepository
+	mapping   MappingCompiler
 	now       func() time.Time
+}
+
+// SetMappingCompiler attaches the read-only mapping compiler used when a
+// graph cites a mapping. Export and mode transitions compile a copy.
+func (s *Service) SetMappingCompiler(compiler MappingCompiler) {
+	s.mapping = compiler
+}
+
+// PrepareGraph compiles a mapping pin on a copy. Documents without a pin are
+// returned unchanged. The stored revision is not written.
+func (s *Service) PrepareGraph(ctx context.Context, doc pipelinecontract.Document) (pipelinecontract.Document, error) {
+	return prepareGraph(ctx, s.mapping, doc)
 }
 
 // New returns a service that uses the metadata store clock.
@@ -114,7 +133,7 @@ func (s *Service) PreviewTransition(ctx context.Context, pipelineID string, numb
 	if rev.State != "draft" {
 		return Review{}, &Error{Code: CodeImmutable, Message: "An approved revision cannot change mode."}
 	}
-	return buildReview(rev, target)
+	return buildReview(ctx, s.mapping, rev, target)
 }
 
 // CommitTransition writes a reviewed mode change. The digest must match the preview.
@@ -132,7 +151,7 @@ func (s *Service) commitReviewed(ctx context.Context, actor, revisionID string, 
 	if err != nil {
 		return metadatastore.PipelineRevision{}, storeErr(err)
 	}
-	review, err := buildReview(current, target)
+	review, err := buildReview(ctx, s.mapping, current, target)
 	if err != nil {
 		return metadatastore.PipelineRevision{}, err
 	}

@@ -1,8 +1,10 @@
 # Pipeline configuration contract
 
 Status: **Implemented** for the focused Phase 4 domain model in
-`backend/internal/pipelinecontract`, including a read-only graph TOML preview.
-Task: P4-002 and P4-004.
+`backend/internal/pipelinecontract`, including a read-only graph TOML preview
+and compilation of an approved mapping revision in
+`backend/internal/mappingcompile`.
+Task: P4-002, P4-004, and P4-006.
 Scope: versioned graph and manual pipeline documents, a verified Telegraf
 1.40.1 plugin subset, validation, filter evaluation, an execution plan, and
 deterministic graph-mode TOML. This contract does not open an HTTP route,
@@ -182,6 +184,46 @@ non-empty `token`, `password`, `passwd`, or `secret` literal is rejected, and
 so is a credential-bearing URL. Empty assignments are not treated as values.
 Manual mode does not turn those literals into references.
 
+## Mapping compilation
+
+A graph may pin one mapping profile with `mapping.profile_id`,
+`mapping.revision`, and `mapping.content_hash`. The pin is not a copy of the
+mapping. `Validate` checks the pin shape. `Generate` and `ExecutionPlan`
+refuse a document that still carries the pin, so a preview cannot omit it.
+
+`mappingcompile` reads the pinned row and the canonical schema revision that
+row cites. It does not call the mapping or schema write methods. Compilation
+accepts only an approved mapping whose revision and content hash match the
+pin and whose cited canonical schema revision is approved.
+
+- A missing row, a draft, a retired mapping, a retired or draft schema, and
+  a pin that does not match the stored revision or hash fail closed.
+- Mapping content is schema version 1: `source_measurement`,
+  `destination_measurement`, `fields`, `tags`, and `filters`. A field
+  transform is `none` or `unit`. Unknown JSON fields are rejected, and any
+  content after the single rules object (including a trailing `]`, `}`, or
+  second value) is rejected rather than parsed as a second document.
+- A measurement, field, or tag rename with transform `none` becomes one
+  `processors.rename` instance. Its `namepass` is the source measurement, so
+  other measurements are left unchanged. The processor is prepended to
+  `processor_order` on a copy used for export and for a graph-to-manual
+  transition. The stored graph keeps the pin.
+- Identity rules add no rename entry. A mapping that changes no names
+  compiles to no processor.
+- A unit scale, a factor left on a `none` transform, any other transform
+  kind, and a tag filter fail the whole mapping. No partial processor is
+  returned. A processor filter miss does not drop a metric, and this catalog
+  has no converter, so those rules are not approximated by a rename.
+- A declared type change with transform `none` is rejected.
+- Undeclared fields and tags stay in the metric. The rules do not declare a
+  closed field set, and `fieldinclude` / `fielddrop` are outside the verified
+  catalog. Content that asks to drop them is an unknown field and is rejected.
+- Content that contains credential material is rejected, and the diagnostic
+  does not quote the content.
+
+Export and mode transition compile that copy only. They do not deploy a
+collector or write a historian.
+
 ## Limitations
 
 - The catalog is a subset of Telegraf 1.40.1. Plugins such as `net`, `kafka`,
@@ -217,3 +259,7 @@ Manual mode does not turn those literals into references.
   echoed.
 - Phase 4 authors configuration artifacts only. Nothing in this package
   deploys a collector or writes a database.
+- Mapping compilation reads approved revisions and does not change them.
+  The pipelines page does not yet edit a mapping pin. Unit scaling and tag
+  filters remain unsupported because the verified processor subset cannot
+  represent them. InfluxDB 1.x remains unverified.

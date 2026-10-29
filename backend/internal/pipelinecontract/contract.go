@@ -55,6 +55,7 @@ const (
 	CodeSecretMaterial      = "secret-material-rejected"
 	CodeModeConflict        = "mode-conflict"
 	CodeManualNotExecutable = "manual-not-executable"
+	CodeMappingUnresolved   = "mapping-unresolved"
 )
 
 // Error is a secret-free contract failure.
@@ -143,6 +144,16 @@ type Graph struct {
 	ProcessorOrder                  []string          `json:"processor_order"`
 	SkipProcessorsBeforeAggregators *bool             `json:"skip_processors_before_aggregators"`
 	SkipProcessorsAfterAggregators  *bool             `json:"skip_processors_after_aggregators"`
+	// Mapping pins an approved mapping revision. Generate refuses it until a
+	// compiler has turned it into processors, so the preview cannot drop it.
+	Mapping *MappingRef `json:"mapping,omitempty"`
+}
+
+// MappingRef pins one mapping-profile revision. It is not the mapping body.
+type MappingRef struct {
+	ProfileID   string `json:"profile_id"`
+	Revision    int    `json:"revision"`
+	ContentHash string `json:"content_hash"`
 }
 
 // Manual is the authoritative body when Mode is manual.

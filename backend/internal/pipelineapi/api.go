@@ -6,6 +6,7 @@
 package pipelineapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -56,7 +57,7 @@ func (a *API) handleCollection(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, mustView(rev))
+	writeJSON(w, http.StatusCreated, a.view(r.Context(), rev))
 }
 
 func (a *API) handlePipeline(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +83,7 @@ func (a *API) handlePipeline(w http.ResponseWriter, r *http.Request) {
 			writeServiceError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, mustView(revs[len(revs)-1]))
+		writeJSON(w, http.StatusOK, a.view(r.Context(), revs[len(revs)-1]))
 		return
 	}
 	if rest[0] == "revisions" && len(rest) == 1 {
@@ -125,7 +126,7 @@ func (a *API) handlePipeline(w http.ResponseWriter, r *http.Request) {
 			writeServiceError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, mustView(rev))
+		writeJSON(w, http.StatusCreated, a.view(r.Context(), rev))
 		return
 	}
 	if len(rest) < 2 || rest[0] != "revisions" {
@@ -155,7 +156,7 @@ func (a *API) handlePipeline(w http.ResponseWriter, r *http.Request) {
 			writeServiceError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, mustView(rev))
+		writeJSON(w, http.StatusOK, a.view(r.Context(), rev))
 	case action == "" && r.Method == http.MethodPut:
 		if !a.authorize(w, principal, authz.PermPipelineWrite) {
 			return
@@ -217,7 +218,7 @@ func (a *API) save(w http.ResponseWriter, r *http.Request, principal authz.Princ
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mustView(rev))
+	writeJSON(w, http.StatusOK, a.view(r.Context(), rev))
 }
 
 func (a *API) transition(w http.ResponseWriter, r *http.Request, principal authz.Principal, pipelineID string, number int) {
@@ -240,7 +241,7 @@ func (a *API) transition(w http.ResponseWriter, r *http.Request, principal authz
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mustView(rev))
+	writeJSON(w, http.StatusOK, a.view(r.Context(), rev))
 }
 
 func (a *API) restore(w http.ResponseWriter, r *http.Request, principal authz.Principal, pipelineID string, number int) {
@@ -262,7 +263,7 @@ func (a *API) restore(w http.ResponseWriter, r *http.Request, principal authz.Pr
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mustView(rev))
+	writeJSON(w, http.StatusOK, a.view(r.Context(), rev))
 }
 
 func (a *API) approve(w http.ResponseWriter, r *http.Request, principal authz.Principal, pipelineID string, number int) {
@@ -283,7 +284,7 @@ func (a *API) approve(w http.ResponseWriter, r *http.Request, principal authz.Pr
 		writeServiceError(w, err)
 		return
 	}
-	view := mustView(rev)
+	view := a.view(r.Context(), rev)
 	if view.Deployed {
 		writeError(w, http.StatusInternalServerError, "invalid", "Approval tried to deploy a pipeline.")
 		return
@@ -340,7 +341,7 @@ func historyItem(rev metadatastore.PipelineRevision) historyView {
 	}
 }
 
-func mustView(rev metadatastore.PipelineRevision) revisionView {
+func (a *API) view(ctx context.Context, rev metadatastore.PipelineRevision) revisionView {
 	view := revisionView{
 		PipelineID:  rev.PipelineID,
 		RevisionID:  rev.RevisionID,
@@ -363,7 +364,17 @@ func mustView(rev metadatastore.PipelineRevision) revisionView {
 			view.ExportTOML = doc.Manual.TOML
 		}
 	case pipelinecontract.ModeGraph:
-		toml, genErr := pipelinecontract.Generate(doc)
+		prepared, prepErr := a.service.PrepareGraph(ctx, doc)
+		if prepErr != nil {
+			var pipeline *pipelineservice.Error
+			if errors.As(prepErr, &pipeline) {
+				view.ExportIssue = pipeline.Message
+			} else {
+				view.ExportIssue = "The mapping could not be compiled."
+			}
+			return view
+		}
+		toml, genErr := pipelinecontract.Generate(prepared)
 		if genErr != nil {
 			view.ExportIssue = "The graph cannot be encoded without dropping configuration."
 			return view

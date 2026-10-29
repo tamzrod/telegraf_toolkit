@@ -35,6 +35,9 @@ func ExecutionPlan(doc Document) (Plan, error) {
 	if doc.Mode == ModeManual {
 		return Plan{}, contractError(CodeManualNotExecutable, "manual mode is authoritative and is not converted to a graph")
 	}
+	if doc.Graph != nil && doc.Graph.Mapping != nil {
+		return Plan{}, contractError(CodeMappingUnresolved, "The graph cites a mapping that has not been compiled. Encoding it would drop the mapping.")
+	}
 	return planGraph(doc.Graph), nil
 }
 

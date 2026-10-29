@@ -27,6 +27,9 @@ func Generate(doc Document) (string, error) {
 	if doc.Mode != ModeGraph {
 		return "", contractError(CodeManualNotExecutable, "manual TOML is stored and is not generated from the graph")
 	}
+	if doc.Graph != nil && doc.Graph.Mapping != nil {
+		return "", contractError(CodeMappingUnresolved, "The graph cites a mapping that has not been compiled. Encoding it would drop the mapping.")
+	}
 	graph := doc.Graph
 	instances, err := orderedInstances(graph)
 	if err != nil {
