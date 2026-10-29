@@ -1,0 +1,11 @@
+# P3-010-FU3 — Transaction and CWAL closure correction
+
+**HUMAN-AUTHORIZED CURRENT** on `phase-3/canonical-mapper`. This corrects the false PRE_PR_REAUDIT_READY at `5f229060`; resume FU2 then FU1 only if still needed. Do not redo passing fixes.
+
+## Required outcome
+1. **Restore transaction correctness.** Both repository `Put` methods currently treat lack of `BeginTx` on an externally owned `*sql.Tx` as fatal. Distinguish this legitimate path from a genuine `BeginTx` failure; preserve outer rollback/atomic history and never nest a transaction. Add focused tests: external `*sql.Tx` Put + rollback; injected BeginTx error propagates with no write. Inspect both canonical and mapping.
+2. **Prove safety, don't merely report PASS.** Verify approved revisions reject later edits with exact persisted content/hash/notes; ensure race tests themselves have no shared-write races. Run `cd backend && go test ./...`, `cd backend && go test -race ./...`, focused repeated tests and `make check`; document real results and UNRUN live checks. Any failure keeps task active.
+3. **Repair one authoritative CWAL state.** The branch currently has ACTIVE uppercase `workflow/active_work/README.md` and `handoff.md`, original active FU1/FU2 packets, plus contradictory lowercase `workflow/active_work/readme.md` and copy-like archive markers. Reconcile safely: preserve actual task history, eliminate misleading duplicate metadata, archive real completed packets through the canonical `archive/active-work/` path prescribed by `operation cwal.md`, and clear CURRENT in BOTH authoritative pointers only after every active task meets acceptance. Do not treat copy-only archives as closure.
+4. **Git checkpoint.** Commit and push normally on the designated attached branch; fetch and confirm exact remote SHA and file tree. Preserve prior authorized work; no force push or destructive reset.
+
+If FU3 passes, archive it and evaluate FU2/FU1 against their original criteria. If already satisfied, close them correctly in the same run; otherwise execute remaining in-scope work. Report PRE_PR_REAUDIT_READY only after all gates and consistent remote closure. On failure report TASK_BLOCKED, retaining CURRENT. No PR, main changes, historian writes or deployment.
