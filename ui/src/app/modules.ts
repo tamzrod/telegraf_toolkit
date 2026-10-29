@@ -2,9 +2,8 @@
  * Single source of truth for the application shell's primary modules.
  *
  * Navigation, routing and the Overview module list all read from this registry
- * so the shell cannot drift from what is actually reachable. Phase 1 modules are
- * shells only: every entry is either the existing scaffold or explicitly
- * "not implemented". Nothing here implies a live backend connection.
+ * so the shell cannot drift from what is actually reachable. Each status is the
+ * honest label for that page. Nothing here implies a live backend connection.
  */
 
 export type ModuleStatus = "scaffold" | "partial" | "not implemented";
@@ -43,8 +42,8 @@ export const MODULES: ModuleDefinition[] = [
     path: "/pipelines",
     label: "Pipelines",
     description:
-      "Pipeline Designer: inputs, processors and outputs with TOML preview and validation.",
-    status: "not implemented",
+      "Local Telegraf 1.40.1 pipeline graph. Canvas position is presentation only and nothing is deployed.",
+    status: "partial",
   },
   {
     id: "databases",
