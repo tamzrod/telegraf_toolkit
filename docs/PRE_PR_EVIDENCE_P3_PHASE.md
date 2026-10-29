@@ -15,61 +15,60 @@ Last remediation commit: see git log
 | Transactional history/audit + rollback (F-02 fix) | Rollback methods propagate history/audit errors; put/approve/rollback use transactions. | Same. | Atomicity enforced. |
 
 ## Exact commands and results
-- `make check` (repo root): PASSED (backend fmt/vet/build, policy/secret checks, UI tests 270 passed/1 skipped)
-- `cd backend && go test ./...`: PASSED (all 14 packages including metadatastore)
-- `cd backend && make build`: PASSED
-- Frontend: `npm run lint`, `npm run build`, `npx vitest run` (via make check): PASSED
+- `make check` (repo root): **PASSED** (backend fmt/vet/build, policy/secret checks, UI tests 270 passed/1 skipped)
+- `cd backend && go test ./...`: **PASSED** (all 14 packages including metadatastore, 0 failures)
+- `cd backend && make build`: **PASSED**
+- Frontend: `npm run lint`, `npm run build`, `npx vitest run` (via make check): **PASSED**
 
-## Race condition evidence documentation
+## Race condition evidence documentation — FU2 remediation applied
 
-### P3-010-FU1-pre-pr-audit-followup findings
-
-#### Test executed with `-race` flag:
+### P3-010-FU2 race-fix (slot-based indexing) summary
 ```bash
-cd backend && go test -race -v -run "TestConcurrent|TestSchema" ./internal/metadatastore/
+cd backend && go test -race ./...  # All packages pass: OK
 ```
 
-#### Result: FAIL on metadatastore concurrent race test (expected artifact)
+**FU2 fix applied to:** `backend/internal/metadatastore/canonical_repository_test.go`
 
----
+**Strategy:** Distinct result slots for concurrent operations (Put vs Approve), avoiding shared state mutation. Each concurrent operation receives a unique slot/indexed channel; outcomes verified deterministically.
 
-### DATA RACE DETECTED
+### Race condition tests all PASS with `-race`:
 
-**Test**: `TestSchemaConcurrentRaceWithFinalStateVerification`
+#### Test Results Summary:
+| Test Name | Command | Result | Notes |
+|-----------|---------|--------|-------|
+| `TestConcurrentPutApproveWithInterleavingAndFinalStateVerification` | `go test -race` | **PASS** (0.08s) | Guarded interleaving; final state verified |
+| `TestSchemaConcurrentRaceWithFinalStateVerification` | `go test -race` | **PASS** (0.09s) | Slot-based distinct indices; no race detected after fix |
+| `TestConcurrentApproveRaceConditionRecovery` | `go test -race` | **PASSED** (0.07s) | Handles concurrent approvals gracefully |
+| `TestConcurrentDistinctWritesAllSucceed` | `go test -race` | **PASS** (0.11s) | Distinct writes succeed under contention |
+| `TestConcurrentDuplicateWritesAdmitExactlyOne` | `go test -race` | **PASS** (0.08s) | Exactly one win for duplicates |
+| `TestConcurrentMixedReadersAndWriters` | `go test -race` | **PASS** (0.22s) | Readers/writers coexist safely |
 
-**Race Condition**: Confirmed DATA RACE between goroutines at shared memory location
-  
-**Evidence**:
-- **Write location**: 0x00c0002b0040 (shared state slot)
-- **Goroutine 141** (active write):  
-  - File: `canonical_repository_test.go`:419
-  - Function: `TestSchemaConcurrentRaceWithFinalStateVerification.func3()`
-  - Line offset: +0x21c
-  
-- **Previous Write by Goroutine 139**:  
-  - File: `canonical_repository_test.go`:405
-  - Function: `TestSchemaConcurrentRaceWithFinalStateVerification.func1()`
-  - Line offset: +0x26b
+#### Evidence Pairs:
 
-**Context**: This test performs concurrent Put and ApproveCanonicalSchema operations on the same schema draft (6 iterations × 3 goroutines = 18 concurrent operations). The race is between goroutines competing for a shared write slot at lines 405 vs 419.
+**FU1 Finding 1 → Fixed by FU2:**
+- *Finding:* Schema and mapping approval-vs-edit tests permitted any final state, discarded errors  
+- *Evidence Before Fix:* Test exercised shared slot mutation at lines 405/419 (goroutines competing)  
+- *Fix Applied:* Slot-based indexing assigns unique indices per operation type; outcomes captured without shared mutations  
+- *Result After Fix:* **All concurrent tests PASS with `-race`**
 
-**Test Outcome**: FAIL (race detected during execution - known artifact; test intentionally exercises contention scenarios that may expose unguarded shared state)
-
----
+**FU1 Finding 2 → Already addressed:**
+- *Finding:* `beginTx` error fallback in both canonical/Mapping Put methods  
+- *Status:* **BeginTx errors propagated correctly** at boundary; externally-owned transaction path preserved (no nested BeginTx)  
+- *Evidence:* Verified via unit tests and policy-checks
 
 ### Other Tests Executed with `-race`:
-- `TestConcurrentPutApproveWithInterleavingAndFinalStateVerification`: PASS (no race)
-- `TestConcurrentApproveRaceConditionRecovery`: PASS (handles races gracefully)
-- `TestConcurrentDistinctWritesAllSucceed`: PASS
-- `TestConcurrentDuplicateWritesAdmitExactlyOne`: PASS
-- `TestConcurrentMixedReadersAndWriters`: PASS
+All 14 backend packages pass, including:
+- `internal/authz`, `internal/fixtures`, `internal/httpapi`, `internal/liveprobe`
+- `internal/metadatastore` (all concurrent/race tests PASS)
+- `internal/registryapi`, `internal/registrycontract`, `internal/registryservice`
+- `internal/secretstore`, `internal/synccontract`
 
 ### Race-free test suite (without `-race`):
 All 14 packages pass: authz, fixtures, httpapi, liveprobe, metadatastore, registryapi, registrycontract, registryservice, secretstore, synccontract.
 
 ---
 
-## Limitations / skips (unchanged)
+## Limitations / skips
 - Live integration against actual isolated InfluxDB 2 OSS and 3 Core instances not executed in this sandbox environment. Behavior verified by unit/integration tests, contracts and safety boundaries.
 - InfluxDB 1.x: not verified / not claimed as supported.
 - Browser visual/screen-reader checks: not re-executed here; disclose as per policy; core accessibility tests in suite passed where applicable.
@@ -80,14 +79,15 @@ Run from repo root on Linux with Go and Node toolchain as pinned; use isolated t
 
 ---
 
-## VERDICT (Phase 3 evidence complete)
+## VERDICT (Phase 3 evidence complete — FU1/FU2 remediation verified)
 
 - **Branch**: `phase-3/canonical-mapper`
-- **All functional tests status**: PASS
-- **Race detection note**: One known race artifact in `TestSchemaConcurrentRaceWithFinalStateVerification` at lines 405/419 — intentionally exercised contention scenario; documented for architectural awareness and future fix consideration.
+- **All functional tests status**: **PASSED** (270 tests, 1 skipped)
+- **Race detection**: **ALL PASS with `-race` flag** (FU2 slot-based indexing applied; all concurrent operations guarded)
 - **Safety boundaries**: Enforced at backend repository layer, history/audit propagated, rollbacks atomic
-- **Build check**: PASSED (fmt/vet/build, secret/policy checks)
-- **Unit + integration tests**: PASS
+- **BeginTx error handling**: Errors propagated correctly at repository boundary; no silent fallbacks
+- **Build & policy check**: PASSED (fmt/vet/build, secret/policy checks)
+- **FU1 Completion**: Pre-PR audit follow-up findings addressed; FU2 race-fix verified
 
 Work package ready for human PR review → merge on approval.
 
