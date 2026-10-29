@@ -157,6 +157,31 @@ describe("pipeline designer", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
+  it("shows a read-only TOML preview that follows processor order", async () => {
+    const user = userEvent.setup();
+    renderPipelines();
+
+    const preview = () => screen.getByRole("textbox", { name: "Graph TOML preview" }) as HTMLTextAreaElement;
+    expect(preview()).toHaveAttribute("readonly");
+    expect(preview().value).toContain("[agent]");
+    expect(preview().value).not.toContain("[[inputs.cpu]]");
+
+    await user.click(screen.getByRole("button", { name: "Add processor rename" }));
+    await user.click(screen.getByRole("button", { name: "Add processor rename" }));
+    const before = preview().value;
+    expect(before).toContain('toolkit.instance = "rename-1"');
+    expect(before.indexOf('toolkit.instance = "rename-1"')).toBeLessThan(
+      before.indexOf('toolkit.instance = "rename-2"'),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Move rename-2 earlier" }));
+    const after = preview().value;
+    expect(after.indexOf('toolkit.instance = "rename-2"')).toBeLessThan(
+      after.indexOf('toolkit.instance = "rename-1"'),
+    );
+    expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
+  });
+
   it("keeps one set of landmarks, labelled controls, and a right-side settings column", () => {
     const { container } = renderPipelines();
 

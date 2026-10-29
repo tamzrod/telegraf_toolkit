@@ -31,6 +31,7 @@ import {
   type PipelineDraft,
   type RenameRule,
 } from "./pipelineDraft";
+import { graphPreview } from "./pipelineToml";
 
 type FlowNodeData = { label: string };
 
@@ -144,13 +145,14 @@ export function PipelinesPage() {
   };
 
   const selectedIssues = issues(draft).filter((issue) => issue.instanceId === selectedId);
+  const preview = graphPreview(draft);
 
   return (
     <section aria-labelledby="pipelines-heading">
       <PageHeader
         id="pipelines-heading"
         title="Pipelines"
-        scope="Local Telegraf 1.40.1 graph. Canvas position is presentation only. Nothing is deployed."
+        scope="Local Telegraf 1.40.1 graph. Canvas position is presentation only. The TOML preview is read-only. Nothing is deployed."
         status="partial"
       />
       <p role="status" className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
@@ -293,6 +295,30 @@ export function PipelinesPage() {
             />
             Skip processors after aggregators
           </label>
+
+          <h2 className="mt-4 text-lg font-medium">TOML preview</h2>
+          <p className="mt-1 text-sm text-gray-700">
+            Read-only graph preview for Telegraf {draft.telegrafVersion}. Manual TOML is a
+            separate mode and is not produced from this canvas. Secret values are not
+            included. Nothing is deployed.
+          </p>
+          {"toml" in preview ? (
+            <textarea
+              aria-label="Graph TOML preview"
+              readOnly
+              rows={16}
+              className="mt-2 w-full rounded border border-gray-300 px-2 py-1 font-mono text-xs"
+              value={preview.toml}
+            />
+          ) : (
+            <ul className="mt-2 list-disc pl-5 text-sm text-red-800" aria-label="TOML preview issues">
+              {preview.issues.map((issue) => (
+                <li key={`${issue.class}:${issue.message}`}>
+                  {issue.class}: {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <aside className="w-full shrink-0 border border-gray-200 p-3 lg:sticky lg:top-0 lg:w-80">

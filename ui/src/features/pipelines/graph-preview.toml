@@ -1,0 +1,28 @@
+# telegraf-toolkit graph preview
+# schema_version = 1
+# telegraf_version = "1.40.1"
+# layout coordinates are omitted
+# secret values are omitted; credential options are secret-store references
+# this preview is not deployed
+
+[agent]
+  skip_processors_before_aggregators = false
+  skip_processors_after_aggregators = false
+
+# toolkit.instance = "cpu-1"
+[[inputs.cpu]]
+  alias = "edge-host"
+
+# toolkit.instance = "rename-2"
+[[processors.rename]]
+
+# toolkit.instance = "rename-1"
+[[processors.rename]]
+  [[processors.rename.replace]]
+    tag = "hostname"
+    dest = "host"
+
+# toolkit.instance = "file-1"
+[[outputs.file]]
+  files = ["stdout"]
+  data_format = "influx"

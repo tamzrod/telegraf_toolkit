@@ -3,8 +3,9 @@
 // A document is either graph-authoritative or manual-TOML-authoritative.
 // Plugin instances, processor order, filters and aggregator settings are
 // separate from canvas coordinates. The package validates that model against
-// a plugin catalog read from official Telegraf 1.40.1. It does not generate
-// TOML, deploy Telegraf, resolve a secret, or contact a database.
+// a plugin catalog read from official Telegraf 1.40.1 and can render a
+// graph document as read-only Telegraf TOML. It does not deploy Telegraf,
+// resolve a secret, or contact a database.
 package pipelinecontract
 
 import (
@@ -29,7 +30,18 @@ const (
 	CatalogInspectedOn = "2026-10-29"
 )
 
-// Error codes returned by Parse, Validate and ExecutionPlan.
+// Check classes distinguish why a document was refused.
+const (
+	// CheckParse means the bytes are not a document or preview this package can read.
+	CheckParse = "parse"
+	// CheckConfig means the document shape is readable and breaks a pipeline rule.
+	CheckConfig = "config"
+	// CheckSupport means the document asks for a plugin, option, version, or
+	// pattern outside the verified Telegraf 1.40.1 subset.
+	CheckSupport = "support"
+)
+
+// Error codes returned by Parse, Validate, Generate and ExecutionPlan.
 const (
 	CodeInvalidDocument     = "invalid-document"
 	CodeUnsupportedVersion  = "unsupported-version"
@@ -48,6 +60,7 @@ const (
 // Error is a secret-free contract failure.
 type Error struct {
 	Code    string
+	Class   string
 	Message string
 }
 
@@ -56,7 +69,26 @@ func (e *Error) Error() string {
 }
 
 func contractError(code, message string) *Error {
-	return &Error{Code: code, Message: message}
+	return &Error{Code: code, Class: defaultCheckClass(code), Message: message}
+}
+
+func defaultCheckClass(code string) string {
+	switch code {
+	case CodeUnsupportedVersion, CodeUnsupportedPlugin, CodeUnsupportedOption, CodeUnsupportedPattern:
+		return CheckSupport
+	default:
+		return CheckConfig
+	}
+}
+
+// CheckClassOf reports parse, config, or support for a contract error.
+// An error from outside this package is treated as a parse failure.
+func CheckClassOf(err error) string {
+	var contract *Error
+	if errors.As(err, &contract) && contract.Class != "" {
+		return contract.Class
+	}
+	return CheckParse
 }
 
 // Mode is the single authoritative representation of a pipeline revision.
@@ -242,17 +274,21 @@ func Parse(data []byte) (Document, error) {
 		return Document{}, jsonContractError(err)
 	}
 	if dec.More() {
-		return Document{}, contractError(CodeInvalidDocument, "document JSON has trailing values")
+		return Document{}, parseError("document JSON has trailing values")
 	}
 	return doc, nil
+}
+
+func parseError(message string) *Error {
+	return &Error{Code: CodeInvalidDocument, Class: CheckParse, Message: message}
 }
 
 func jsonContractError(err error) error {
 	message := err.Error()
 	if field, ok := unknownField(message); ok {
-		return contractError(CodeInvalidDocument, fmt.Sprintf("unsupported field %q", field))
+		return parseError(fmt.Sprintf("unsupported field %q", field))
 	}
-	return contractError(CodeInvalidDocument, "document JSON is not a pipeline contract")
+	return parseError("document JSON is not a pipeline contract")
 }
 
 func unknownField(message string) (string, bool) {

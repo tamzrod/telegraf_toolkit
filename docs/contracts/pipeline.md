@@ -1,12 +1,13 @@
 # Pipeline configuration contract
 
 Status: **Implemented** for the focused Phase 4 domain model in
-`backend/internal/pipelinecontract`.
-Task: P4-002.
+`backend/internal/pipelinecontract`, including a read-only graph TOML preview.
+Task: P4-002 and P4-004.
 Scope: versioned graph and manual pipeline documents, a verified Telegraf
-1.40.1 plugin subset, validation, filter evaluation and an execution plan.
-This contract does not generate TOML, open an HTTP route, deploy Telegraf,
-restart a runtime, write a historian, or resolve a secret value.
+1.40.1 plugin subset, validation, filter evaluation, an execution plan, and
+deterministic graph-mode TOML. This contract does not open an HTTP route,
+deploy Telegraf, restart a runtime, write a historian, or resolve a secret
+value.
 
 ## Authority
 
@@ -135,6 +136,43 @@ Patterns accept literals, `*`, and `?`. Patterns containing `{`, `}`, `[`,
 `]`, `!`, or `\` are rejected. Telegraf compiles the wider gobwas/glob set;
 this contract refuses the extra forms instead of evaluating them differently.
 
+## TOML preview
+
+`Generate` writes Telegraf 1.40.1 TOML for a graph document that already
+passes `Validate`. `ParsePreview` reads that preview back. The pair is a
+roundtrip for graph fields. It is not an importer for arbitrary Telegraf
+configuration, and it does not convert manual mode.
+
+Checks are classified:
+
+| Class | What it means |
+| --- | --- |
+| parse | The JSON or preview TOML cannot be read as a document this package accepts. |
+| config | The document is readable and breaks a pipeline rule, including mode, order, filters, required values, and secret handling. |
+| support | The request is outside the verified 1.40.1 subset: version, plugin, option, or glob form. |
+
+Ordering is stable. Inputs, aggregators, and outputs stay in declaration
+order. Processors follow `processor_order`. Option keys follow catalog order.
+Map keys are sorted. A second `Generate` of the same document returns the same
+bytes. Layout coordinates are not written.
+
+A secret option is written only as `@{toolkit:<reference>}` where the
+reference matches Telegraf 1.40.1's secret-store name alphabet: letters,
+digits, and underscores. The package does not configure a secret store and
+does not substitute a value. A reference that uses any other character stays
+in the graph document and is refused at generation, without the reference
+being copied into the error.
+
+Representative previews from `Generate` were loaded with the official
+Telegraf 1.40.1 linux/amd64 binary (`Telegraf 1.40.1 (git: HEAD@26b8f447)`).
+The release tarball SHA256 is
+`3a6cfa0ab1b08a31687d80b3813304706280dba789348b5dad539bdbe0a72d52`.
+`telegraf --config <preview> --test --quiet` exited 0 for the golden
+secret-free fixture and for a preview that sets `basicstats` `period`,
+`delay`, `grace`, `drop_original`, and `stats` `mean` and `s2`. `--test`
+collects one local input sample. It does not install a service, restart a
+collector, or write a historian. Stdout from that sample is not retained.
+
 ## Secrets
 
 `influxdb_v2.token` accepts only `secret_ref`, a credential reference ID.
@@ -161,6 +199,12 @@ Manual mode does not turn those literals into references.
 - Rename rules are validated and are not applied to metrics.
 - Aggregation time windows are recorded and are not simulated.
 - Manual TOML is stored and is not parsed into instances, processor order, or
-  layout. `ExecutionPlan` refuses that conversion.
+  layout. `Generate` and `ExecutionPlan` both refuse that conversion.
+- Secret-store references in generated TOML use the `toolkit` store id and the
+  underscore alphabet above. Hyphenated reference IDs remain valid in the
+  graph document and are not emitted.
+- `ParsePreview` accepts only the preview dialect. It does not load a general
+  Telegraf file, and a literal credential assignment is rejected without being
+  echoed.
 - Phase 4 authors configuration artifacts only. Nothing in this package
   deploys a collector or writes a database.
