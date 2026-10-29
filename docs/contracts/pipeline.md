@@ -224,6 +224,57 @@ pin and whose cited canonical schema revision is approved.
 Export and mode transition compile that copy only. They do not deploy a
 collector or write a historian.
 
+## P4-007 integrated verification (2026-10-29)
+
+Verified on `phase-4/pipeline-designer` with local Go 1.26.8, Node v24.16.0 and
+npm 11.13.0. CI pins Go 1.27.3. No live container, deployment, Telegraf
+restart, historian write or secret value was involved.
+
+| Check | Actual result |
+| --- | --- |
+| `make check` | exit 0: backend gofmt/vet/build/tests; UI lint/build; Vitest **28 files passed / 1 skipped**, **298 tests passed / 1 skipped**; `policy-check: PASS` |
+| `cd backend && go test -race -count=1 ./...` | exit 0 on two consecutive runs; every listed package `ok`, no data races |
+| `TestIntegratedAcceptanceHTTPLifecycle` | pass; design → validate → preview → save → reload → manual → approve → rollback draft → export, plus RBAC, stale generation/digest, unsupported mapping, credential rejection and mapping immutability |
+| `PipelinesPage.test.tsx` | 12/12 pass, including the save → approve flow and absence of a deploy control |
+| Headless Chrome layout capture | 1440×900: aside right of the canvas (aside left 1081, canvas right 1065, aside width 320), navigation menu hidden; 390×844: stacked full-width panels (both 24–366), menu visible; no horizontal overflow, one `h1` |
+
+The cross-layer test uses the same HTTP surface, service and
+`mappingcompile` wiring as `cmd/api` over a temporary SQLite store. It asserts
+that an unsupported mapping returns a diagnostic without quoting the mapping
+content, that the approved mapping revision is not mutated, that a viewer cannot
+save, that a configurator cannot approve, and that the success audit actions are
+recorded. Nothing is deployed.
+
+### Pre-existing race-suite flake and test-only repair
+
+`go test -race ./...` intermittently failed
+`TestConcurrentReplacementsHaveOneWinner` in
+`backend/internal/registryapi/credential_lifecycle_test.go` with
+`racing replacements = 2 wins / 0 conflicts, want 1/1`. The failure reproduced
+on untouched `origin/main` and is unrelated to Phase 4 behavior. Root cause:
+the test did not synchronize the two HTTP replacements, so they sometimes ran
+sequentially; the second attempt then observed the first attempt's committed
+envelope and both replacements legitimately succeeded, exercising no conflict.
+
+P4-007 repaired only the test setup: the fake InfluxDB listing server now holds
+each candidate validation until both candidates have arrived, so both
+observations precede either compare-and-swap. The assertions are unchanged and
+no production code was touched. Evidence: 6/10 failures before the repair,
+50/50 targeted `-race` passes after it, and two consecutive full
+`go test -race -count=1 ./...` passes. CI should still confirm the repaired test
+on the pinned Go version.
+
+### Limitations
+
+- No live InfluxDB container or schema-discovery smoke was run for P4-007; the
+  acceptance test uses approved mapping rows in a temporary store.
+- The pipeline page does not edit a mapping pin and does not display the
+  server-compiled export. Unit scaling and tag filters remain unsupported.
+- InfluxDB 1.x remains unverified.
+- The real-browser check measured layout and control presence, not
+  screen-reader behavior or visual styling.
+- The local Go toolchain differs from the CI-pinned version.
+
 ## Limitations
 
 - The catalog is a subset of Telegraf 1.40.1. Plugins such as `net`, `kafka`,

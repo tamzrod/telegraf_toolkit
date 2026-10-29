@@ -287,6 +287,44 @@ describe("pipeline designer", () => {
     expect(await screen.findByText("Draft revision 1 saved. Nothing was deployed.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
   });
+
+  it("approves a saved draft and reports that nothing was deployed", async () => {
+    const user = userEvent.setup();
+    setSessionToken("session-token");
+    const saved = revisionPayload({ generation: 2 });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/health")) {
+        return healthResponse();
+      }
+      if (url.endsWith("/api/v1/pipelines") && init?.method === "POST") {
+        return jsonResponse(revisionPayload());
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1") && init?.method === "PUT") {
+        return jsonResponse(saved);
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1/approve") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        expect(body).toEqual({ expected_generation: 2 });
+        return jsonResponse(revisionPayload({ state: "approved", generation: 3 }));
+      }
+      throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/pipelines"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByText("Draft revision 1 saved. Nothing was deployed.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve revision" }));
+    expect(await screen.findByText("Revision 1 approved. Nothing was deployed.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
+  });
 });
 
 function jsonResponse(body: unknown): Response {

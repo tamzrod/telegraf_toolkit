@@ -1,11 +1,10 @@
-# Active Work — Phase 4
+# Active Work
 
-**STATE:** AUTHORIZED — EXECUTE AUTONOMOUSLY
+**STATE:** AWAITING HUMAN REVIEW (WORK_PACKAGE_READY)
 **BRANCH:** `phase-4/pipeline-designer`
-**CURRENT:** `P4-007-integrated-acceptance.md`
-**NEXT:** none (final authorized task)
+**CURRENT:** none
+**NEXT:** none
 
-**AUTHORIZED QUEUE (strict order):**
-1. `P4-007-integrated-acceptance.md`
-
-P4-001 through P4-006 are archived. P4-007 is the remaining promoted task on this branch. Read only CURRENT task body. On verified checkpoint archive the task, clear CURRENT/NEXT and the remaining queue in both pointers, run package-level verification, push and report `WORK_PACKAGE_READY`. Follow `operation cwal.md` and `docs/PHASE_4_PLAN.md`. No PR or merge authority.
+P4-001 through P4-007 are archived under `archive/active-work/`. No authorized
+task remains. `operation cwal.md` governs. The Phase 4 package is checkpointed on
+the work branch and is not merged; human controls any pull request.

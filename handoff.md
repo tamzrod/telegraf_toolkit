@@ -1,11 +1,12 @@
 # HANDOFF — Operation CWAL
 
-**STATE:** AUTHORIZED — EXECUTE AUTONOMOUSLY
+**STATE:** AWAITING HUMAN REVIEW (WORK_PACKAGE_READY)
 **BRANCH:** `phase-4/pipeline-designer`
-**CURRENT:** `P4-007-integrated-acceptance.md`
-**NEXT:** none (final authorized task)
+**CURRENT:** none
+**NEXT:** none
 
-**AUTHORIZED QUEUE (in order):**
-1. `P4-007-integrated-acceptance.md`
-
-Phase 4 is explicitly authorized on this branch via `docs/PHASE_4_PLAN.md` and promoted executable microtasks. P4-006 is verified and archived. Complete, verify, archive, commit and push P4-007; when the queue is exhausted, run package-level verification and report `WORK_PACKAGE_READY`, then stop. PR creation/review/merge remain human-only. No force push, main modification, runtime deployment, historian writes or scope expansion.
+P4-001 through P4-007 are archived under `archive/active-work/`. No authorized
+task remains. The Phase 4 work package is verified and checkpointed on the work
+branch, not merged: see `archive/active-work/P4-007-integrated-acceptance.md`.
+Human PR review and merge remain required. No force push, `main` modification,
+runtime deployment, historian write or scope expansion occurred.

@@ -504,6 +504,36 @@ func TestConcurrentReplacementsHaveOneWinner(t *testing.T) {
 	// listing, so both racing attempts pass validation and only the swap can
 	// decide: this is the racing-swaps scenario the CAS must survive.
 	validTokens := map[string]bool{"old-secret": true, "candidate-one": true, "candidate-two": true}
+	// Both candidate attempts must finish validation before either reaches the
+	// compare-and-swap. Without this gate the goroutines can serialize: the
+	// second attempt then observes the first attempt's already-swapped
+	// envelope, so both replacements legitimately succeed one after the other
+	// and the test no longer exercises the conflict it asserts. The gate opens
+	// once both candidate credentials have been validated, then stays open.
+	var candidateValidation struct {
+		sync.Mutex
+		seen map[string]bool
+		open chan struct{}
+	}
+	candidateValidation.seen = map[string]bool{}
+	candidateValidation.open = make(chan struct{})
+	waitForBothCandidates := func(candidate string) {
+		candidateValidation.Lock()
+		if candidateValidation.open == nil {
+			candidateValidation.Unlock()
+			return
+		}
+		candidateValidation.seen[candidate] = true
+		if candidateValidation.seen["candidate-one"] && candidateValidation.seen["candidate-two"] {
+			close(candidateValidation.open)
+			candidateValidation.open = nil
+		}
+		open := candidateValidation.open
+		candidateValidation.Unlock()
+		if open != nil {
+			<-open
+		}
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health":
@@ -514,6 +544,9 @@ func TestConcurrentReplacementsHaveOneWinner(t *testing.T) {
 			if !validTokens[auth] {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
+			}
+			if auth == "candidate-one" || auth == "candidate-two" {
+				waitForBothCandidates(auth)
 			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"buckets":[]}`))

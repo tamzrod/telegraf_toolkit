@@ -1,8 +1,8 @@
 # Domain and API Contract Inventory
 
-Status: **Contract inventory proposal — the Registry slice is now implemented; the remaining domains are still planned.**
+Status: **Contract inventory proposal — the Registry, canonical mapping and pipeline domains are implemented; the runtime revision, sync job/block and host-agent domains remain planned.**
 Task: P0-001 (Domain/API contract inventory).
-Scope: planning/contract catalog. This document does **not** itself define final wire formats, Go types, REST routes, database schemas or authentication mechanisms. The Database Registry slice has since been implemented and merged (see [Phase 2 refinement](#phase-2-refinement)); the canonical schema, mapping profile, runtime revision and sync job/block domains remain planned.
+Scope: planning/contract catalog. This document does **not** itself define final wire formats, Go types, REST routes, database schemas or authentication mechanisms. The Database Registry slice has since been implemented and merged (see [Phase 2 refinement](#phase-2-refinement)); the canonical schema and mapping profile domains were implemented by Phase 3 and merged via PR #8; the Phase 4 pipeline contract is implemented on `phase-4/pipeline-designer` (not merged). Runtime revision and sync job/block domains remain planned.
 
 ## Purpose and authority
 
@@ -24,7 +24,7 @@ Each contract below is classified so planned, decided and implemented behavior s
 | **Planned** | The concept is required by a cited design document, but its concrete shape is not yet accepted. |
 | **Unresolved** | A dependent choice is explicitly open and blocks finalizing the contract. |
 
-No contract here was **Implemented** by this task. This catalog created no executable adapter, service, REST route or database schema. The **Database Registry slice** (connection profile, logical scope, credential reference, probed capabilities, audit event) has since been implemented and merged — see [Phase 2 refinement](#phase-2-refinement). The canonical schema, mapping profile, runtime revision and sync job/block domains remain **Planned**.
+No contract here was **Implemented** by this task. This catalog created no executable adapter, service, REST route or database schema. The **Database Registry slice** (connection profile, logical scope, credential reference, probed capabilities, audit event) has since been implemented and merged — see [Phase 2 refinement](#phase-2-refinement). The canonical schema and mapping profile domains were implemented by P3-004–P3-005 and merged via PR #8; the pipeline document domain was implemented by P4-002–P4-006 on `phase-4/pipeline-designer`. The per-domain contract documents govern current status; the **Planned** labels below are the Phase 0 snapshot. Runtime revision, sync job/block and host-agent domains remain planned.
 
 ## Contract inventory (versioned)
 
