@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -190,6 +191,69 @@ func TestSaveRaceKeepsOneGeneration(t *testing.T) {
 	}
 	if saves != 1 {
 		t.Fatalf("save audits = %d", saves)
+	}
+}
+
+func TestMalformedManualTOMLIsRejectedAtSaveAndApprove(t *testing.T) {
+	svc, store := openService(t)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, "config-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformed := pipelinecontract.Document{
+		SchemaVersion:   pipelinecontract.SchemaVersion,
+		TelegrafVersion: pipelinecontract.SupportedTelegrafVersion,
+		Mode:            pipelinecontract.ModeManual,
+		Manual:          &pipelinecontract.Manual{TOML: "[[outputs.file]\n  path = \"/tmp/a\"\n"},
+	}
+	raw, err := json.Marshal(malformed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.Save(ctx, "config-1", created.RevisionID, created.Generation, raw)
+	var pipeline *Error
+	if !errors.As(err, &pipeline) || pipeline.Code != CodeInvalid {
+		t.Fatalf("save error = %v", err)
+	}
+	if !strings.Contains(pipeline.Message, "syntactically valid") {
+		t.Fatalf("save diagnostic = %q", pipeline.Message)
+	}
+	unchanged, err := svc.Get(ctx, created.PipelineID, 1)
+	if err != nil || unchanged.Generation != created.Generation || unchanged.DocumentJSON != created.DocumentJSON {
+		t.Fatal("malformed manual save changed the draft")
+	}
+
+	// A legacy or damaged draft can bypass Save. Approval must still refuse it
+	// rather than freezing malformed TOML as an approved revision.
+	pipelineID, err := metadatastore.NewPipelineID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionID, err := metadatastore.NewRevisionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := store.Pipelines().InsertDraft(ctx, metadatastore.PipelineRevision{
+		RevisionID:   revisionID,
+		PipelineID:   pipelineID,
+		Number:       1,
+		Mode:         string(pipelinecontract.ModeManual),
+		DocumentJSON: string(raw),
+		CreatedBy:    "legacy",
+		Generation:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Approve(ctx, "admin-1", legacy.RevisionID, legacy.Generation)
+	if !errors.As(err, &pipeline) || pipeline.Code != CodeInvalid {
+		t.Fatalf("approve error = %v", err)
+	}
+	stillDraft, err := svc.Get(ctx, legacy.PipelineID, 1)
+	if err != nil || stillDraft.State != "draft" {
+		t.Fatalf("malformed manual draft was approved: %+v %v", stillDraft, err)
 	}
 }
 

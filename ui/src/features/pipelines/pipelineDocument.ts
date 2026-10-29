@@ -37,6 +37,32 @@ export function toManualDocument(draft: PipelineDraft, toml: string): Record<str
   };
 }
 
+/**
+ * Returns a stable comparison key for the authoritative part of a document.
+ * Canvas layout is presentation and is excluded, so moving a node does not
+ * count as an unsaved configuration change. Object key order is normalized.
+ */
+export function documentEquivalenceKey(document: Record<string, unknown>): string {
+  const authoritative = { ...document };
+  delete authoritative.layout;
+  return stableStringify(authoritative);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return `{${entries
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+    .join(",")}}`;
+}
+
 function toContractInstance(instance: Instance): Record<string, unknown> {
   const options = toContractOptions(instance.options);
   const encoded: Record<string, unknown> = {

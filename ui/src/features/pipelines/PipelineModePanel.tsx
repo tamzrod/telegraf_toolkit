@@ -7,6 +7,7 @@ type PipelineModePanelProps = {
   serverNote: string;
   saveDisabled: boolean;
   approveDisabled: boolean;
+  unsavedChanges: boolean;
   onReviewManual: () => void;
   onReviewGraph: () => void;
   onReviewRestore: () => void;
@@ -26,6 +27,7 @@ export function PipelineModePanel({
   serverNote,
   saveDisabled,
   approveDisabled,
+  unsavedChanges,
   onReviewManual,
   onReviewGraph,
   onReviewRestore,
@@ -44,6 +46,11 @@ export function PipelineModePanel({
         They do not deploy a runtime.
       </p>
       <p className="mt-2 text-sm">{serverNote}</p>
+      {unsavedChanges ? (
+        <p role="status" className="mt-2 text-sm text-amber-800">
+          Unsaved changes. Save the current {mode} document before approving.
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         {mode === "graph" ? (
           <button type="button" className="rounded border border-gray-300 px-2 py-1 text-sm" onClick={onReviewManual}>

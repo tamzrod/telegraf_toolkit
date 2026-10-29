@@ -76,6 +76,45 @@ func TestAuthorizationAndApproveDoesNotDeploy(t *testing.T) {
 	}
 }
 
+func TestViewRefusesMalformedLegacyManualExport(t *testing.T) {
+	store, err := metadatastore.Open(context.Background(), metadatastore.Options{
+		Path: filepath.Join(t.TempDir(), "meta.db"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	api := New(pipelineservice.New(store.Pipelines()), authz.NewAuthenticator())
+
+	pipelineID, err := metadatastore.NewPipelineID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionID, err := metadatastore.NewRevisionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, err := store.Pipelines().InsertDraft(context.Background(), metadatastore.PipelineRevision{
+		RevisionID:   revisionID,
+		PipelineID:   pipelineID,
+		Number:       1,
+		Mode:         "manual",
+		DocumentJSON: `{"schema_version":1,"telegraf_version":"1.40.1","mode":"manual","manual":{"toml":"[[outputs.file]\n  path = \"/tmp/a\"\n"}}`,
+		CreatedBy:    "legacy",
+		Generation:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := api.view(context.Background(), rev)
+	if view.ExportTOML != "" {
+		t.Fatalf("malformed manual TOML was exported: %q", view.ExportTOML)
+	}
+	if view.ExportIssue == "" {
+		t.Fatal("malformed manual export did not report an issue")
+	}
+}
+
 func call(t *testing.T, server *httptest.Server, method, path, token string, body any) *http.Response {
 	t.Helper()
 	var reader *bytes.Reader

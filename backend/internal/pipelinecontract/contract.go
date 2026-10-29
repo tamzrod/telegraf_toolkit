@@ -47,6 +47,7 @@ const (
 	CodeUnsupportedVersion  = "unsupported-version"
 	CodeUnsupportedPlugin   = "unsupported-plugin"
 	CodeUnsupportedOption   = "unsupported-option"
+	CodeInvalidTOML         = "invalid-toml"
 	CodeInvalidOption       = "invalid-option"
 	CodeInvalidOrder        = "invalid-order"
 	CodeInvalidFilter       = "invalid-filter"
@@ -75,6 +76,8 @@ func contractError(code, message string) *Error {
 
 func defaultCheckClass(code string) string {
 	switch code {
+	case CodeInvalidTOML:
+		return CheckParse
 	case CodeUnsupportedVersion, CodeUnsupportedPlugin, CodeUnsupportedOption, CodeUnsupportedPattern:
 		return CheckSupport
 	default:

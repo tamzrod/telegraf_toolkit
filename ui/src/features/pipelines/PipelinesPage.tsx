@@ -41,7 +41,7 @@ import {
   type PipelineDraft,
   type RenameRule,
 } from "./pipelineDraft";
-import { toContractDocument, toManualDocument } from "./pipelineDocument";
+import { toContractDocument, toManualDocument, documentEquivalenceKey } from "./pipelineDocument";
 import { reviewGraph, reviewManual, reviewRestore, type ModeReview, type Snapshot } from "./pipelineMode";
 import { PipelineModePanel } from "./PipelineModePanel";
 import { graphPreview } from "./pipelineToml";
@@ -66,6 +66,7 @@ export function PipelinesPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [review, setReview] = useState<ModeReview | null>(null);
   const [serverRev, setServerRev] = useState<PipelineRevisionPayload | null>(null);
+  const [savedDocumentKey, setSavedDocumentKey] = useState<string | null>(null);
   const [serverNote, setServerNote] = useState(
     "A session is required to save a draft. Nothing is deployed.",
   );
@@ -97,6 +98,15 @@ export function PipelinesPage() {
       })),
     [edges],
   );
+  const currentDocumentKey = useMemo(
+    () =>
+      documentEquivalenceKey(
+        mode === "graph" ? toContractDocument(draft) : toManualDocument(draft, manualToml),
+      ),
+    [mode, draft, manualToml],
+  );
+  const unsavedChanges =
+    serverRev !== null && serverRev.state === "draft" && savedDocumentKey !== currentDocumentKey;
 
   function commit(next: PipelineDraft) {
     past.current = [...past.current, draft].slice(-50);
@@ -170,6 +180,9 @@ export function PipelinesPage() {
       setServerNote("The graph has validation issues. Nothing was saved or deployed.");
       return;
     }
+    const documentToSave =
+      mode === "graph" ? toContractDocument(draft) : toManualDocument(draft, manualToml);
+    const savedKey = documentEquivalenceKey(documentToSave);
     try {
       let current = serverRev ?? (await createPipelineRevision());
       if (mode === "graph") {
@@ -177,7 +190,7 @@ export function PipelinesPage() {
           current.pipeline_id,
           current.revision,
           current.generation,
-          toContractDocument(draft),
+          documentToSave,
         );
       } else if (snapshot) {
         if (current.mode !== "manual") {
@@ -205,11 +218,12 @@ export function PipelinesPage() {
             current.pipeline_id,
             current.revision,
             current.generation,
-            toManualDocument(draft, manualToml),
+            documentToSave,
           );
         }
       }
       setServerRev(current);
+      setSavedDocumentKey(savedKey);
       setServerNote(`Draft revision ${current.revision} saved. Nothing was deployed.`);
     } catch (error) {
       const status = error instanceof ApiError ? error.status : 0;
@@ -219,6 +233,10 @@ export function PipelinesPage() {
 
   async function approveDraft() {
     if (!serverRev || serverRev.state !== "draft") {
+      return;
+    }
+    if (savedDocumentKey !== currentDocumentKey) {
+      setServerNote("Save the current changes before approving. Nothing was deployed.");
       return;
     }
     try {
@@ -283,7 +301,10 @@ export function PipelinesPage() {
         review={review}
         serverNote={serverNote}
         saveDisabled={!hasSessionToken() || (mode === "graph" && issues(draft).length > 0)}
-        approveDisabled={!hasSessionToken() || !serverRev || serverRev.state !== "draft"}
+        approveDisabled={
+          !hasSessionToken() || !serverRev || serverRev.state !== "draft" || unsavedChanges
+        }
+        unsavedChanges={unsavedChanges}
         canRestore={snapshot !== null && mode === "manual"}
         onReviewManual={() => setReview(reviewManual(draft))}
         onReviewGraph={() => setReview(reviewGraph(manualToml, snapshot))}

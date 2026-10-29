@@ -361,6 +361,10 @@ func (a *API) view(ctx context.Context, rev metadatastore.PipelineRevision) revi
 	switch doc.Mode {
 	case pipelinecontract.ModeManual:
 		if doc.Manual != nil {
+			if err := pipelinecontract.Validate(doc); err != nil {
+				view.ExportIssue = "The stored manual TOML is not valid."
+				return view
+			}
 			view.ExportTOML = doc.Manual.TOML
 		}
 	case pipelinecontract.ModeGraph:

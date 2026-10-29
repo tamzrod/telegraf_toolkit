@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -324,6 +324,130 @@ describe("pipeline designer", () => {
     await user.click(screen.getByRole("button", { name: "Approve revision" }));
     expect(await screen.findByText("Revision 1 approved. Nothing was deployed.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
+  });
+
+  it("blocks graph approval after an unsaved edit and allows it after saving again", async () => {
+    const user = userEvent.setup();
+    setSessionToken("session-token");
+    let saves = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/health")) {
+        return healthResponse();
+      }
+      if (url.endsWith("/api/v1/pipelines") && init?.method === "POST") {
+        return jsonResponse(revisionPayload());
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1") && init?.method === "PUT") {
+        saves += 1;
+        const body = JSON.parse(String(init.body));
+        expect(body.document.mode).toBe("graph");
+        return jsonResponse(revisionPayload({ generation: saves + 1 }));
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1/approve") && init?.method === "POST") {
+        return jsonResponse(revisionPayload({ state: "approved", generation: 99 }));
+      }
+      throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/pipelines"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add input cpu" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByText("Draft revision 1 saved. Nothing was deployed.")).toBeInTheDocument();
+    const approve = screen.getByRole("button", { name: "Approve revision" });
+    expect(approve).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Add input mem" }));
+    expect(approve).toBeDisabled();
+    expect(
+      screen.getByText("Unsaved changes. Save the current graph document before approving."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(saves).toBe(2));
+    await waitFor(() => expect(approve).toBeEnabled());
+    expect(screen.queryByText(/Unsaved changes/)).not.toBeInTheDocument();
+    await user.click(approve);
+    expect(await screen.findByText("Revision 1 approved. Nothing was deployed.")).toBeInTheDocument();
+  });
+
+  it("blocks manual approval after an unsaved edit and allows it after saving again", async () => {
+    const user = userEvent.setup();
+    setSessionToken("session-token");
+    let manualSaves = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/health")) {
+        return healthResponse();
+      }
+      if (url.endsWith("/api/v1/pipelines") && init?.method === "POST") {
+        return jsonResponse(revisionPayload());
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1/transition-preview") && init?.method === "POST") {
+        return jsonResponse({
+          from_mode: "graph",
+          to_mode: "manual",
+          current_text: "[agent]\n",
+          proposed_text: "[agent]\n",
+          digest: "transition-digest",
+          deployed: false,
+        });
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1/transition") && init?.method === "POST") {
+        return jsonResponse(revisionPayload({ mode: "manual", generation: 3 }));
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        if (body.document.mode === "graph") {
+          return jsonResponse(revisionPayload({ generation: 2 }));
+        }
+        expect(body.document.mode).toBe("manual");
+        manualSaves += 1;
+        return jsonResponse(
+          revisionPayload({ mode: "manual", generation: 3 + manualSaves, state: "draft" }),
+        );
+      }
+      if (url.endsWith("/api/v1/pipelines/p1/revisions/1/approve") && init?.method === "POST") {
+        return jsonResponse(revisionPayload({ mode: "manual", state: "approved", generation: 99 }));
+      }
+      throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/pipelines"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Review switch to manual" }));
+    await user.click(screen.getByRole("button", { name: "Confirm mode switch" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByText("Draft revision 1 saved. Nothing was deployed.")).toBeInTheDocument();
+    const approve = screen.getByRole("button", { name: "Approve revision" });
+    expect(approve).toBeEnabled();
+
+    const manual = screen.getByRole("textbox", { name: "Manual TOML" }) as HTMLTextAreaElement;
+    await user.type(manual, "# unsaved edit");
+    expect(approve).toBeDisabled();
+    expect(
+      screen.getByText("Unsaved changes. Save the current manual document before approving."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(manualSaves).toBe(2));
+    await waitFor(() => expect(approve).toBeEnabled());
+    expect(screen.queryByText(/Unsaved changes/)).not.toBeInTheDocument();
+    await user.click(approve);
+    expect(await screen.findByText("Revision 1 approved. Nothing was deployed.")).toBeInTheDocument();
   });
 });
 

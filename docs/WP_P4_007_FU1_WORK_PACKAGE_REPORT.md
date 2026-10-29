@@ -1,151 +1,143 @@
-# Work Package P4-007-FU1 — Credential Detection Follow-Up
+# Work Package P4-007-FU1 — Pre-PR Validation and UI Safety
 
-## Executive Summary
+**Branch:** `phase-4/pipeline-designer`
+**Base audit:** `853b187716fbb8a1566f2be87d0573eec78ac9bd`
+**Scope:** One bounded follow-up to the Phase 4 independent pre-PR audit.
+**Authority:** Human-authorized in `workflow/active_work/P4-007-FU1-pre-pr-validation-and-ui-safety.md`.
+**Integration:** Branch checkpoint only. PR creation, review, approval and merge are human-only.
 
-This work package executed follow-up tasks to integrate enhanced credential detection capability into the pipeline designer project, building upon the Phase 4 baseline while respecting maxManualScanDepth = 64 and maintaining production-grade quality.
+This report is verification evidence. The authoritative workflow state is in
+`handoff.md` and `workflow/active_work/README.md`.
 
-**Branch**: `phase-4/pipeline-designer`  
-**SHA**: `dc12c34...` → Pushed to `origin/phase-4/pipeline-designer`  
-**Changes**: 4 files, +193 insertions, -14 deletions
+## Acceptance matrix
 
----
+### 1. Manual TOML syntax validity — PASS
 
-## Depth Tracking Verification ✅
+- `validateManual` parses the manual body with the pinned `influxdata/toml`
+  parser before applying credential checks.
+- A syntax failure returns the dedicated `invalid-toml` code with the `parse`
+  check class. The diagnostic is sanitized: it names the line and the problem
+  class but never echoes the source line or value.
+- The implementation documents that TOML syntax validity is not Telegraf
+  1.40.1 plugin or option semantic validation. Well-formed TOML outside the
+  graph catalog remains valid.
+- Coverage:
+  - `TestManualTOMLSyntaxIsValidated` — malformed table, duplicate key,
+    duplicate table and unclosed string are rejected with `invalid-toml`,
+    `parse` class, a line number and no source echo.
+  - `TestManualTOMLSyntaxAcceptsPluginsOutsideTheCatalog` — valid manual TOML
+    using `inputs.exec` and `outputs.warp10` is accepted.
+  - `TestMalformedManualTOMLIsRejectedAtSaveAndApprove` — the service rejects
+    malformed manual TOML at save, leaves the draft generation unchanged, and
+    refuses to approve a legacy malformed draft.
+  - `TestViewRefusesMalformedLegacyManualExport` — the API view does not export
+    stored malformed manual TOML; it reports an export issue instead.
 
-After reviewing the implementation in `backend/internal/pipelinecontract/validate.go`, I verified that **depth tracking is already correctly implemented**:
+### 2. Unsaved UI approval — PASS
 
-### Existing Implementation:
-- `maxManualScanDepth = 64` defined at line 19
-- Recursive helpers properly track scan depth in their signatures
+- `documentEquivalenceKey` produces a stable key for the authoritative
+  document. Object key order is normalized and canvas `layout` is excluded
+  because it is presentation-only.
+- `PipelinesPage` records the key of the document that was actually saved.
+  Approval is disabled while the current graph or manual document differs from
+  that saved key, and the panel shows a clear unsaved-changes message.
+- `approveDraft` also refuses a dirty document as defence in depth, so the
+  client check is not the only protection.
+- Server generation and state invariants remain authoritative:
+  `SaveDraft` and `ApproveDraft` compare `expected_generation` and revision
+  state in the metadata store.
+- Coverage:
+  - `blocks graph approval after an unsaved edit and allows it after saving again`
+  - `blocks manual approval after an unsaved edit and allows it after saving again`
+  - Existing save/approve regression tests continue to pass.
 
-#### Verified Functions:
+### 3. Manual credential safety — PASS
 
-| Function | Depth Tracking | Notes |
-|----------|----------------|-------|
-| `manualHasInlineCredential(rootField, maxDepth)` | ✅ Starts at 0, uses `tableHasInlineCredential(depth = 0)` | Correct initialization |
-| `tableHasInlineCredential(fields, depth, ...)` | ✅ Checks `if depth > maxManualScanDepth` before processing | Proper guard at entry |
-| `nestedCredentialValue(value, path, ...)` | ✅ Passes `depth+1` on recursive value calls | Correct incrementing |
+- Credential checking is structural where possible: the parsed TOML tree is
+  walked and non-empty string leaves under known credential-like keys are
+  rejected unless they are opaque `@{toolkit:...}` secret-store references.
+- Known inline forms are refused: credential-bearing URL userinfo, credential
+  query parameters, PEM private key blocks, and credential-like key aliases.
+- The assurance limits are documented next to `validateManual`: this is a
+  bounded heuristic, not a comprehensive secret scanner. Unknown key names,
+  non-string leaves and free-text secrets can still pass.
+- Error messages are generic and do not echo rejected credential material.
+- Approval revalidates the stored document, and export refuses malformed manual
+  TOML instead of returning it as a valid export.
+- Coverage:
+  - `TestManualCredentialAssuranceLimits` — query parameters, nested credential
+    tables, private key options, `pass` aliases and PEM blocks are rejected
+    without echoing the literal; toolkit references, empty credential options
+    and unrelated free text are accepted.
+  - Existing `TestSecretReferencesRejectLiterals` and
+    `TestManualModeKeepsSecretStoreReferences` continue to pass.
 
-### Exception: `valueHasCredentialLiteral` ❗
-This function does **not** check depth, but this is **acceptable** because:
-- Only called from `tableHasCredential()` within `tableHasInlineCredential()`
-- Parent's `depth > maxManualScanDepth` guard prevents exceeding the limit
-- Recursive value inspection (arrays of strings, nested objects) is shallow and bounded
+## Verification evidence
 
-**Conclusion**: No signature changes required for existing helpers.
+Environment:
 
----
+- Go `go1.27.3` (`go env GOVERSION`, auto toolchain)
+- Node `v24.16.0`
+- npm `11.13.0`
+- Vitest `5.0.5`
 
-## Implementation Details
+Commands run from the repository root unless noted:
 
-### Credential Literal Detection
+```text
+cd backend && go test -race ./...
+  PASS — all backend packages
 
-Enhanced credential detection with:
-1. **`.hasLiteral()` method** - Detects string literals like `password="secret"`
-2. **Credential field patterns**: `password`, `pass`, `token`, `key`, `secret` fields (case-insensitive)
-3. **Pattern matching**: Identifies inline credentials in credential-like fields
+make check
+  PASS — backend gofmt/vet/build/test, UI npm ci/lint/build/vitest, policy-check
 
-### Refactored Functions:
+cd backend && go test ./internal/pipelinecontract ./internal/pipelineservice ./internal/pipelineapi -count=1
+  PASS
 
-#### 1. Split scanning from literal checking:
-```go
-func manualHasInlineCredential(rootField any, ...
-    tableHasInlineCredential(depth = 0)          // Depth-limited struct scanning
-    tableHasCredential()                          // Literal detection (no depth check)
+cd ui && npx vitest run src/features/pipelines/PipelinesPage.test.tsx
+  PASS — 14 tests
 ```
 
-#### 2. Helper extraction in `service.go`:
-```go
-type secretReferenceError struct {
-        message       string
-        referencePath []string
-}
+Full UI suite from `make check`:
 
-func manualModeExists(m map[string]any) bool    // Clear detection logic
-func manualModeIsUnconverted() error            // Explicit requirements
+```text
+Test Files  28 passed | 1 skipped (29)
+Tests       300 passed | 1 skipped (301)
 ```
 
-### Manual Mode Handling:
+The skipped test is `src/api/schema.live.integration.test.ts`, an opt-in live
+integration test that requires an external service. It is not a regression in
+this work package.
 
-Improved handling with explicit error messages:
-- Distinguishes between unconverted config and missing secret store references
-- Validates `.json`, `.toml`, or `.yaml` extension requirement for manual mode configs
-- Provides actionable feedback for users
+`bash scripts/policy-check.sh` passes. The policy check is a narrow regex
+heuristic, not comprehensive secret scanning.
 
----
+## Limitations and unresolved nonblocking decisions
 
-## Test Results ✅
+- Manual TOML syntax validation is not Telegraf plugin or option semantic
+  validation. Manual mode can still contain a well-formed but unsupported
+  Telegraf configuration.
+- Credential detection is intentionally bounded. It does not prove arbitrary
+  TOML is secret-free, and it does not inspect non-string leaves or infer
+  secrets from unrelated key names.
+- Canvas layout changes are excluded from the unsaved-approval comparison
+  because layout is presentation-only. A layout-only change does not block
+  approval.
+- No live Telegraf runtime, deployment or historian test was performed. UI
+  tests use mocked fetch; backend tests use the metadata store in a temporary
+  directory.
+- The work is a verified branch checkpoint, not integration. A human must open
+  and merge the PR.
 
-All contract tests pass confirming correct behavior:
+## Changed files
 
-```bash
-$ go test ./internal/pipelinecontract -v
-=== RUN   TestSecretReferencesRejectLiterals
---- PASS: TestSecretReferencesRejectLiterals (0.00s)
-=== RUN   TestManualModeKeepsSecretStoreReferences
---- PASS: TestManualModeKeepsSecretStoreReferences (0.00s)
-=== RUN   TestManualModeIsNotConverted
---- PASS: TestManualModeIsNotConverted (0.00s)
-=== RUN   TestGenerateDoesNotConvertManualMode
---- PASS: TestGenerateDoesNotConvertManualMode (0.00s)
-```
-
-**All 160+ contract tests pass**: +43, -7 overall diff across the repository.
-
----
-
-## Deliverables ✅
-
-### Files Modified:
-1. **`backend/internal/pipelinecontract/validate.go`**: +179 lines
-   - Credential literal detection patterns
-   - Refactored depth-limited scanning flow
-   - Helper function separation
-
-2. **`backend/internal/pipelineservice/service.go`**: +15 lines, -1 deletion
-   - Manual mode existence check
-   - Unconverted config error handling
-   - Extension requirement validation
-
-3. **Lockfile updates**: `backend/go.mod`, `backend/go.sum` (+6 lock entries)
-
-### Verification:
-- ✅ All existing contract tests pass
-- ✅ Depth tracking verified for all recursive helpers
-- ✅ No breaking changes to production API
-- ✅ Compatible with Telegraf 1.40.1 baseline
-
----
-
-## Limitations & Notes
-
-1. **`.hasLiteral()` usage is conditional**: Called from credential detection code paths, not the main contract validation flow in current tests (acceptable for Phase 4 follow-up)
-
-2. **Manual mode config requirements**: Must use `.json`, `.toml`, or `.yaml` extensions; plain text configs are rejected with explicit error message
-
-3. **Production deployment**: Changes tested on backend unit tests only; integration testing deferred to production validation
-
----
-
-## Compliance Notes
-
-- ✅ Work executed within operation CWAL constraints
-- ✅ No PR creation (human-only authority)
-- ✅ No deployment or restart operations
-- ✅ Preserved production image digests (no deploy)
-- ✅ Verified production baseline compatibility
-
----
-
-## Next Steps
-
-1. **Await human review** of the branch changes
-2. **Human initiates PR** for peer review
-3. **Integration testing** in production environment
-4. **Deploy to staging** after approval
-5. **Promote to production** following acceptance testing
-
----
-
-*Report generated: 2026-10-29  
-Work branch: `phase-4/pipeline-designer@dc12c34` | Status: `WORK_PACKAGE_READY`*
+- `backend/internal/pipelinecontract/contract.go`
+- `backend/internal/pipelinecontract/validate.go`
+- `backend/internal/pipelinecontract/contract_test.go`
+- `backend/internal/pipelineservice/service_test.go`
+- `backend/internal/pipelineapi/api.go`
+- `backend/internal/pipelineapi/api_test.go`
+- `ui/src/features/pipelines/PipelinesPage.tsx`
+- `ui/src/features/pipelines/PipelineModePanel.tsx`
+- `ui/src/features/pipelines/PipelinesPage.test.tsx`
+- `ui/src/features/pipelines/pipelineDocument.ts`
+- `docs/WP_P4_007_FU1_WORK_PACKAGE_REPORT.md`

@@ -1,8 +1,8 @@
 # Active Work — Phase 4 audit follow-up
 
-**STATE:** AUTHORIZED — EXECUTE AUTONOMOUSLY
+**STATE:** WORK_PACKAGE_READY
 **BRANCH:** `phase-4/pipeline-designer`
-**CURRENT:** `P4-007-FU1-pre-pr-validation-and-ui-safety.md`
+**CURRENT:** none
 **NEXT:** none
 
-The only current authorized task is `P4-007-FU1-pre-pr-validation-and-ui-safety.md`. P4-001–P4-007 are archived. On successful verification, archive this follow-up, commit/push and verify the remote checkpoint, clear both pointers, and report `WORK_PACKAGE_READY`. Follow `operation cwal.md`; human-only PR and merge.
+P4-007-FU1 is archived under `archive/active-work/` after passing targeted and package-level checks. No further authorized task remains. The branch checkpoint is not integrated; PR creation, review, approval and merge are human-only. No deployment or `main` modification was performed.

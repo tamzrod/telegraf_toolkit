@@ -192,6 +192,102 @@ func TestManualModeKeepsSecretStoreReferences(t *testing.T) {
 	}
 }
 
+func TestManualTOMLSyntaxIsValidated(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+	}{
+		{"malformed table", "[[outputs.file]\n  path = \"/tmp/a\"\n"},
+		{"duplicate key", "[outputs.file]\n  path = \"/tmp/a\"\n  path = \"/tmp/b\"\n"},
+		{"duplicate table", "[agent]\n  interval = \"10s\"\n[agent]\n  round_interval = true\n"},
+		{"unclosed string", "[agent]\n  interval = \"10s\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(manualDocument(tc.toml))
+			if codeOf(err) != CodeInvalidTOML {
+				t.Fatalf("code = %q, err = %v", codeOf(err), err)
+			}
+			if CheckClassOf(err) != CheckParse {
+				t.Fatalf("class = %q", CheckClassOf(err))
+			}
+			if !strings.Contains(err.Error(), "line") {
+				t.Fatalf("diagnostic is not actionable: %v", err)
+			}
+			if strings.Contains(err.Error(), "/tmp/a") || strings.Contains(err.Error(), "10s") {
+				t.Fatalf("diagnostic echoed source material: %v", err)
+			}
+		})
+	}
+}
+
+func TestManualTOMLSyntaxAcceptsPluginsOutsideTheCatalog(t *testing.T) {
+	// TOML syntax validity is deliberately separate from Telegraf plugin and
+	// option semantics, so a plugin outside the graph catalog stays valid.
+	toml := `[[inputs.exec]]
+  commands = ["/usr/local/bin/collect"]
+  timeout = "5s"
+  data_format = "influx"
+
+[[outputs.warp10]]
+  prefix = "telegraf"
+`
+	if err := Validate(manualDocument(toml)); err != nil {
+		t.Fatalf("valid manual TOML outside the catalog: %v", err)
+	}
+}
+
+func TestManualCredentialAssuranceLimits(t *testing.T) {
+	const literal = "placeholder-literal"
+	pemBlock := "-----BEGIN EC " + "PRIVATE KEY-----\n" + literal + "\n-----END EC " + "PRIVATE KEY-----"
+	rejected := []struct {
+		name string
+		toml string
+	}{
+		{"credential query parameter", "[[outputs.influxdb_v2]]\n  urls = [\"http://127.0.0.1:8086?token=" + literal + "\"]\n"},
+		{"nested credential table", "[outputs.http.headers]\n  Authorization = \"Bearer " + literal + "\"\n"},
+		{"private key option", "[[outputs.file]]\n  private_key = \"" + literal + "\"\n"},
+		{"pass alias", "[[outputs.file]]\n  pass = \"" + literal + "\"\n"},
+		{"pem private key block", "[[outputs.file]]\n  key = \"\"\"" + pemBlock + "\"\"\"\n"},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(manualDocument(tc.toml))
+			if codeOf(err) != CodeSecretMaterial {
+				t.Fatalf("code = %q, err = %v", codeOf(err), err)
+			}
+			if strings.Contains(err.Error(), literal) {
+				t.Fatalf("error echoed credential material: %v", err)
+			}
+		})
+	}
+
+	accepted := []struct {
+		name string
+		toml string
+	}{
+		{"opaque toolkit reference", "[[outputs.file]]\n  token = \"@{toolkit:cred_writer}\"\n"},
+		{"empty credential option", "[[outputs.file]]\n  token = \"\"\n"},
+		{"unrelated free text", "[[inputs.exec]]\n  command = \"" + literal + "\"\n"},
+	}
+	for _, tc := range accepted {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := Validate(manualDocument(tc.toml)); err != nil {
+				t.Fatalf("accepted manual TOML was rejected: %v", err)
+			}
+		})
+	}
+}
+
+func manualDocument(toml string) Document {
+	return Document{
+		SchemaVersion:   SchemaVersion,
+		TelegrafVersion: SupportedTelegrafVersion,
+		Mode:            ModeManual,
+		Manual:          &Manual{TOML: toml},
+	}
+}
+
 func TestOmittedOptionsStayOmitted(t *testing.T) {
 	doc := validGraph()
 	disk := Instance{ID: "disk-plain", Kind: KindInput, Plugin: "disk"}

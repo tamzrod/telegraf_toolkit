@@ -21,3 +21,21 @@ Relevant pipeline contract/service/API and pipeline UI files, focused tests, and
 - If a substantive architectural decision is needed or a check fails without safe within-scope repair, preserve evidence and report `TASK_BLOCKED`. Never falsely claim readiness.
 
 **CWAL authority:** This follow-up is explicitly human-authorized on the named branch. Execute it autonomously, without intermediate human permission. PR creation, approval and merge remain human-only; do not force-push or modify `main`.
+
+---
+
+## Verification and checkpoint
+
+**Outcome:** PASS for all three findings. See `docs/WP_P4_007_FU1_WORK_PACKAGE_REPORT.md`
+for the acceptance matrix, exact commands, environment and limitations.
+
+- Go `go1.27.3`; `cd backend && go test -race ./...` — PASS.
+- `make check` — PASS (backend gofmt/vet/build/test, UI lint/build/test, policy-check).
+- UI suite: 28 files passed, 1 skipped; 300 tests passed, 1 skipped.
+  The skip is the opt-in `src/api/schema.live.integration.test.ts`.
+- Targeted pipeline tests and UI tests pass.
+- No live Telegraf runtime, deployment or historian test was performed.
+- Manual credential checking remains a bounded heuristic; manual TOML syntax
+  validity is not Telegraf plugin/option semantic validation.
+- This is a branch checkpoint. PR creation, review, approval and merge remain
+  human-only; `main` was not modified.
