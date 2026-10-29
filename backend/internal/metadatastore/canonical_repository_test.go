@@ -402,21 +402,21 @@ func TestSchemaConcurrentRaceWithFinalStateVerification(t *testing.T) {
 			defer wg.Done()
 			schema := baseSchema
 			putErr := repo.Put(schema)
-			results[idx*2] = opResult{name: fmt.Sprintf("schema-put-%d", idx), putErr: putErr}
+			results[idx*3] = opResult{name: fmt.Sprintf("schema-put-%d", idx), putErr: putErr}
 		}(i)
 
 		go func(idx int) {
 			defer wg.Done()
 			schema := baseSchema
 			putErr := repo.Put(schema)
-			results[idx*2+1] = opResult{name: fmt.Sprintf("schema-put-%d", idx), putErr: putErr}
+			results[idx*3+1] = opResult{name: fmt.Sprintf("schema-put-%d", idx), putErr: putErr}
 		}(i)
 
 		go func(idx int) {
 			defer wg.Done()
 			schema := baseSchema
 			err := repo.ApproveCanonicalSchema(context.Background(), schema.SchemaID, "approver", now)
-			results[idx*2] = opResult{name: fmt.Sprintf("schema-approve-%d", idx), putErr: err}
+			results[idx*3+2] = opResult{name: fmt.Sprintf("schema-approve-%d", idx), putErr: err}
 		}(i)
 	}
 
