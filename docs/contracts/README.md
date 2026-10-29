@@ -199,6 +199,14 @@ typed groups and honest states, and never falls back to mock data. It is not a
 mapping draft and creates no canonical schema or mapping profile; those remain
 planned (rows 5 and 6 below) and InfluxDB 1.x remains unverified.
 
+## Phase 4 pipeline configuration
+
+The typed pipeline document, the verified Telegraf 1.40.1 plugin subset, and
+the execution rules are recorded in [`docs/contracts/pipeline.md`](pipeline.md)
+and implemented in `backend/internal/pipelinecontract`. The package validates
+graph and manual configuration artifacts. It does not deploy Telegraf, expose
+a runtime endpoint, or resolve secret values.
+
 ## Cross-cutting contract rules
 
 - **Planned vs decided separation.** Sections marked **Decided** carry invariants that must not be contradicted; **Planned**/**Unresolved** items must not be frozen into wire formats, Go types, REST routes, database schemas or auth mechanisms by this task.
